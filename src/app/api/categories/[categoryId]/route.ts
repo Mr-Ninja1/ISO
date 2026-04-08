@@ -10,7 +10,7 @@ function getBearerToken(req: Request) {
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ categoryId: string }> }
+  { params }: { params: { categoryId: string } }
 ) {
   try {
     const token = getBearerToken(request);
@@ -32,7 +32,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { categoryId } = await params;
+    const { categoryId } = params;
 
     const category = await prisma.category.findUnique({
       where: { id: categoryId },

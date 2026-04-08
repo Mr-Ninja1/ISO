@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LayoutDashboard, Loader2, MoreVertical, Plus, Settings } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 
@@ -85,6 +86,8 @@ export default function WorkspacePage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
+  const [addFormOpen, setAddFormOpen] = useState(false);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
 
@@ -95,6 +98,24 @@ export default function WorkspacePage() {
     } finally {
       router.push("/login");
     }
+  }
+
+  function handleAddFromTemplates(selectedCategoryId: string | null) {
+    if (!workspace) return;
+    setAddFormOpen(false);
+    const qs = new URLSearchParams();
+    if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
+    const suffix = qs.toString();
+    router.push(`/${workspace.tenant.slug}/templates/library${suffix ? `?${suffix}` : ""}`);
+  }
+
+  function handleCreateCustomForm(selectedCategoryId: string | null) {
+    if (!workspace) return;
+    setAddFormOpen(false);
+    const qs = new URLSearchParams();
+    if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
+    const suffix = qs.toString();
+    router.push(`/${workspace.tenant.slug}/templates/new${suffix ? `?${suffix}` : ""}`);
   }
 
   const showTenantPicker = useMemo(
@@ -518,13 +539,14 @@ export default function WorkspacePage() {
             <p className="mt-1 text-sm text-foreground/70">
               Add a form from the library to get started.
             </p>
-            <Link
-              href={`/${tenant.slug}/templates`}
+            <button
+              type="button"
+              onClick={() => setAddFormOpen(true)}
               className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-background"
             >
               <Plus className="h-4 w-4" />
-              Add Form from Library
-            </Link>
+              Add a form
+            </button>
           </div>
         ) : (
           <div className="grid gap-3">
@@ -555,6 +577,17 @@ export default function WorkspacePage() {
         suggestions={suggestions}
         loadingSuggestions={suggestionsLoading}
       />
+
+      {workspace ? (
+        <AddFormOptionsModal
+          open={addFormOpen}
+          onClose={() => setAddFormOpen(false)}
+          categories={workspace.categories}
+          defaultCategoryId={workspace.selectedCategoryId}
+          onAddFromTemplates={handleAddFromTemplates}
+          onCreateCustom={handleCreateCustomForm}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 
@@ -10,10 +10,10 @@ function getBearerToken(req: Request) {
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ tenantId: string }> }
+  { params }: { params: { tenantId: string } }
 ) {
   try {
-    const { tenantId } = await params;
+    const { tenantId } = params;
 
     const token = getBearerToken(req);
     if (!token) {

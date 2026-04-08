@@ -34,6 +34,8 @@ export default async function NewAuditPage({
 
       <FormRenderer
         tenantSlug={tenantSlug}
+        tenantName={tenant.name}
+        tenantLogoUrl={tenant.logoUrl}
         templateId={template.id}
         schema={schema}
       />

@@ -13,18 +13,27 @@ import {
   useForm,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { FormSchemaV1, FieldDef, TempField, DynamicTableField } from "@/types/forms";
+import type {
+  FormSchemaV1,
+  FieldDef,
+  TempField,
+  DynamicTableField,
+  FormSection,
+} from "@/types/forms";
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
+import { GridField } from "@/components/forms/GridField";
 
 type Props = {
   tenantSlug: string;
+  tenantName?: string;
+  tenantLogoUrl?: string | null;
   templateId: string;
   schema: FormSchemaV1;
 };
 
 type FormValues = Record<string, unknown>;
 
-export function FormRenderer({ tenantSlug, templateId, schema }: Props) {
+export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, schema }: Props) {
   const router = useRouter();
   const { session } = useAuth();
 
@@ -36,6 +45,10 @@ export function FormRenderer({ tenantSlug, templateId, schema }: Props) {
     defaultValues,
     mode: "onBlur",
   });
+
+  const sections: FormSection[] = Array.isArray(schema.sections) && schema.sections.length
+    ? schema.sections
+    : [{ type: "fields", fields: schema.fields ?? [] }];
 
   async function onSubmit(values: FormValues) {
     const accessToken = session?.access_token;
@@ -66,15 +79,65 @@ export function FormRenderer({ tenantSlug, templateId, schema }: Props) {
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-      {schema.fields.map((field) => (
-        <Field
-          key={field.id}
-          field={field}
-          control={form.control}
-          register={form.register}
-          errors={form.formState.errors}
-        />
-      ))}
+      {tenantName ? (
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
+            {tenantLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={tenantLogoUrl}
+                alt={`${tenantName} logo`}
+                className="h-8 w-8 object-contain"
+              />
+            ) : (
+              <span className="text-sm font-semibold">{tenantName[0] ?? ""}</span>
+            )}
+          </div>
+          <div className="flex flex-col leading-tight">
+            <div className="text-sm font-semibold">{tenantName}</div>
+            <div className="text-xs text-foreground/60">{schema.title}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {sections.map((section, idx) => {
+        if (section.type === "fields") {
+          return (
+            <div key={`fields-${idx}`} className="flex flex-col gap-6">
+              {section.title ? (
+                <div className="text-sm font-semibold text-foreground/80">{section.title}</div>
+              ) : null}
+              {section.fields.map((field) => (
+                <Field
+                  key={field.id}
+                  field={field}
+                  control={form.control}
+                  register={form.register}
+                  errors={form.formState.errors}
+                />
+              ))}
+            </div>
+          );
+        }
+
+        if (section.type === "grid") {
+          const key = section.id || "form_data";
+          return (
+            <GridField
+              key={`grid-${key}-${idx}`}
+              grid={section}
+              name={key}
+              control={form.control}
+              register={form.register}
+              errors={form.formState.errors}
+              setValue={form.setValue}
+              watch={form.watch}
+            />
+          );
+        }
+
+        return null;
+      })}
 
       <button
         type="submit"
@@ -110,12 +173,14 @@ function Field({
           <textarea
             id={field.id}
             className="min-h-24 rounded-md border border-foreground/20 bg-background p-3"
+            placeholder={(field as any).placeholder || undefined}
             {...register(field.id)}
           />
         ) : (
           <input
             id={field.id}
             className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+            placeholder={(field as any).placeholder || undefined}
             {...register(field.id)}
           />
         )}
@@ -129,12 +194,88 @@ function Field({
     );
   }
 
+  if (field.type === "date") {
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-medium" htmlFor={field.id}>
+          {field.label}
+          {field.required ? <span className="ml-1">*</span> : null}
+        </label>
+        <input
+          id={field.id}
+          type="date"
+          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          placeholder={(field as any).placeholder || undefined}
+          {...register(field.id)}
+        />
+        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  if (field.type === "number") {
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-medium" htmlFor={field.id}>
+          {field.label}
+          {field.required ? <span className="ml-1">*</span> : null}
+        </label>
+        <input
+          id={field.id}
+          type="number"
+          inputMode="decimal"
+          step={typeof (field as any).step === "number" ? String((field as any).step) : "any"}
+          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          placeholder={(field as any).placeholder || undefined}
+          {...register(field.id)}
+        />
+        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
   if (field.type === "temp") {
     return <TempFieldInput field={field} control={control} errors={errors} />;
   }
 
   if (field.type === "signature") {
     return <SignatureFieldInput field={field} control={control} errors={errors} />;
+  }
+
+  if (field.type === "checkbox") {
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-medium" htmlFor={field.id}>
+          {field.label}
+          {field.required ? <span className="ml-1">*</span> : null}
+        </label>
+        <input
+          id={field.id}
+          type="checkbox"
+          className="h-6 w-6 accent-foreground"
+          {...register(field.id)}
+        />
+        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  if (field.type === "time") {
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-medium" htmlFor={field.id}>
+          {field.label}
+          {field.required ? <span className="ml-1">*</span> : null}
+        </label>
+        <input
+          id={field.id}
+          type="time"
+          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          {...register(field.id)}
+        />
+        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      </div>
+    );
   }
 
   if (field.type === "dynamic-table") {
