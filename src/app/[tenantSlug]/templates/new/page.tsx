@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Eye, EyeOff, Loader2 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -128,6 +128,7 @@ export default function NewTemplatePage() {
 
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importingPhoto, setImportingPhoto] = useState(false);
   const [loadingEditInfo, setLoadingEditInfo] = useState(false);
   const [error, setError] = useState<string>("");
 
@@ -137,6 +138,7 @@ export default function NewTemplatePage() {
   const [title, setTitle] = useState("Custom Form");
   const [sections, setSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showPhotoImportGuide, setShowPhotoImportGuide] = useState(false);
   const [headerActionsMount, setHeaderActionsMount] = useState<HTMLElement | null>(null);
 
   const [baseSections, setBaseSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
@@ -145,6 +147,7 @@ export default function NewTemplatePage() {
   const [auditCount, setAuditCount] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const categoryOptions = useMemo(
     () => categories.map((c) => ({ value: c.id, label: c.name })),
@@ -293,6 +296,43 @@ export default function NewTemplatePage() {
     }
   }
 
+  async function importFromPhoto(file: File) {
+    if (!accessToken || !tenantSlug) return;
+
+    setImportingPhoto(true);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.set("tenantSlug", tenantSlug);
+      formData.set("file", file);
+
+      const res = await fetch("/api/templates/ocr-import", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `OCR import failed (${res.status})`);
+
+      const importedSections: FormSection[] = Array.isArray(data?.sections)
+        ? (data.sections as FormSection[])
+        : [{ type: "fields", title: "Fields", fields: [] }];
+
+      setTitle((data?.title as string) || "Imported Form");
+      setSections(importedSections);
+      setBaseSections(importedSections);
+      setBuilderResetKey(`ocr-import-${Date.now()}`);
+      setPreviewOpen(false);
+    } catch (err: any) {
+      setError(err?.message || "Failed to import from photo");
+    } finally {
+      setImportingPhoto(false);
+    }
+  }
+
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim();
 
   return (
@@ -300,6 +340,32 @@ export default function NewTemplatePage() {
       {headerActionsMount
         ? createPortal(
             <div className="mr-1 flex flex-wrap items-center justify-end gap-1 sm:gap-1.5">
+              {!isEditMode ? (
+                <>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.currentTarget.value = "";
+                      if (!file) return;
+                      await importFromPhoto(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
+                    onClick={() => setShowPhotoImportGuide(true)}
+                    disabled={importingPhoto || saving || workspaceLoading}
+                  >
+                    {importingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {importingPhoto ? "Importing..." : "Create from photo"}
+                  </button>
+                </>
+              ) : null}
+
               <button
                 type="button"
                 className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
@@ -493,6 +559,45 @@ export default function NewTemplatePage() {
                 ) : (
                   "Confirm & save"
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showPhotoImportGuide ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-foreground/20 bg-background p-4 shadow-xl">
+            <div className="text-sm font-semibold">Create a form from photo</div>
+            <div className="mt-2 text-sm text-foreground/80">
+              You can generate a form by uploading a clear photo (or PDF) of your physical form.
+            </div>
+
+            <div className="mt-3 rounded-md border border-foreground/20 bg-foreground/[0.03] p-3 text-xs text-foreground/80">
+              Best results:
+              <br />- Capture the full page edge-to-edge in good lighting.
+              <br />- Keep text, labels, table headers, and signature lines fully visible.
+              <br />- Avoid shadows, blur, skewed angles, and folded paper.
+              <br />- Use a blank printed form only. Handwritten marks can reduce OCR accuracy.
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+                onClick={() => setShowPhotoImportGuide(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 text-sm font-medium text-background"
+                onClick={() => {
+                  setShowPhotoImportGuide(false);
+                  photoInputRef.current?.click();
+                }}
+              >
+                Choose photo
               </button>
             </div>
           </div>

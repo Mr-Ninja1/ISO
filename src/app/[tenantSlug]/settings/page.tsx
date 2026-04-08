@@ -73,14 +73,14 @@ export default async function TenantSettingsPage({
         </Link>
       </div>
 
-      <details open className="rounded-md border border-foreground/20 bg-background p-3">
+      <details className="rounded-md border border-foreground/20 bg-background p-3">
         <summary className="cursor-pointer select-none text-sm font-semibold">Brand profile</summary>
         <div className="mt-4">
           <TenantSettingsForm tenant={tenant} />
         </div>
       </details>
 
-      <details open className="rounded-md border border-foreground/20 bg-background p-3">
+      <details className="rounded-md border border-foreground/20 bg-background p-3">
         <summary className="cursor-pointer select-none text-sm font-semibold">Form management</summary>
         <div className="mt-4">
           <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
