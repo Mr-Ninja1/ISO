@@ -7,6 +7,7 @@ import { Clock3, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings,
 import { useAuth } from "@/components/AuthProvider";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
+import { NotificationModal } from "@/components/NotificationModal";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 import {
   readAuditTemplateCache,
@@ -136,6 +137,7 @@ export default function WorkspacePage() {
 
   const tenantSlug = searchParams.get("tenantSlug") || "";
   const categoryId = searchParams.get("categoryId");
+  const forceRefresh = searchParams.get("refresh") === "1";
 
   const accessToken = session?.access_token || "";
 
@@ -164,7 +166,9 @@ export default function WorkspacePage() {
   const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
+  const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
 
   function rememberRecentTemplate(templateId: string) {
     if (!tenantSlug) return;
@@ -196,7 +200,11 @@ export default function WorkspacePage() {
 
     setRecentTemplateIds([]);
     setMenuOpen(false);
-    alert("Local cache cleared for this workspace.");
+    setNotification({
+      title: "Cache cleared",
+      message: "Local workspace and form caches were removed for this brand.",
+      tone: "success",
+    });
   }
 
   async function prefetchTemplateSchema(templateId: string) {
@@ -269,7 +277,11 @@ export default function WorkspacePage() {
       localStorage.setItem("offlineModeEnabled", "1");
       localStorage.setItem("offlinePreparedAt", now);
       setOfflinePreparedAt(now);
-      alert("Offline mode prepared. Forms should now open much faster.");
+      setNotification({
+        title: "Offline mode prepared",
+        message: "Forms and workspace data are cached for faster loading and offline use.",
+        tone: "success",
+      });
     } catch (err: any) {
       setError(err?.message || "Offline preparation failed");
     } finally {
@@ -402,7 +414,7 @@ export default function WorkspacePage() {
       setSwitchingCategory(false);
       setError("");
       localStorage.setItem("lastTenantSlug", cached.tenant.slug);
-      return;
+      if (!forceRefresh) return;
     }
 
     if (workspace) {
@@ -438,6 +450,11 @@ export default function WorkspacePage() {
           const next = new URLSearchParams(searchParams.toString());
           next.set("tenantSlug", data.tenant.slug);
           next.set("categoryId", data.selectedCategoryId);
+          next.delete("refresh");
+          router.replace(`/workspace?${next.toString()}`);
+        } else if (forceRefresh) {
+          const next = new URLSearchParams(searchParams.toString());
+          next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         }
       })
@@ -451,7 +468,7 @@ export default function WorkspacePage() {
         setSwitchingCategory(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user, accessToken, tenantSlug, categoryId]);
+  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey]);
 
   async function handleSeed(names: string[]) {
     if (!accessToken || !tenantSlug) return;
@@ -711,6 +728,16 @@ export default function WorkspacePage() {
                       </button>
                     ) : null}
 
+                    <Link
+                      role="menuitem"
+                      href={`/${tenant.slug}/templates/new${workspace.selectedCategoryId ? `?categoryId=${encodeURIComponent(workspace.selectedCategoryId)}` : ""}`}
+                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create custom form
+                    </Link>
+
                     <button
                       type="button"
                       role="menuitem"
@@ -943,9 +970,10 @@ export default function WorkspacePage() {
               </div>
             ) : (
               filteredTemplates.map((t) => (
-                <button
+                <div
                   key={t.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     setOpeningTemplateId(t.id);
                     rememberRecentTemplate(t.id);
@@ -954,8 +982,18 @@ export default function WorkspacePage() {
                     });
                     router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    setOpeningTemplateId(t.id);
+                    rememberRecentTemplate(t.id);
+                    prefetchTemplateSchema(t.id).catch(() => {
+                      // keep navigation moving even if prefetch fails
+                    });
+                    router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                  }}
                   className={
-                    "w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 " +
+                    "w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
                     (openingTemplateId === t.id ? "opacity-80" : "")
                   }
                 >
@@ -979,7 +1017,7 @@ export default function WorkspacePage() {
                       <span className="text-sm text-foreground/60">→</span>
                     )}
                   </div>
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -1005,6 +1043,14 @@ export default function WorkspacePage() {
           onCreateCustom={handleCreateCustomForm}
         />
       ) : null}
+
+      <NotificationModal
+        open={Boolean(notification)}
+        title={notification?.title || ""}
+        message={notification?.message || ""}
+        tone={notification?.tone || "default"}
+        onClose={() => setNotification(null)}
+      />
     </div>
   );
 }

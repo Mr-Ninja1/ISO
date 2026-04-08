@@ -306,7 +306,11 @@ export function GridField({
               {grid.columns.map((col) => (
                 <th
                   key={col.id}
-                  className="sticky top-0 z-10 border-b border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70"
+                  className={
+                    "sticky top-0 z-10 border-b border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    (col.type === "checkbox" ? "w-16 text-center" : "")
+                  }
+                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
                 >
                   {col.label}
                 </th>
@@ -325,7 +329,11 @@ export function GridField({
                 {grid.columns.map((col) => (
                   <td
                     key={col.id}
-                    className="border-b border-foreground/10 bg-background px-2 py-2 align-top"
+                    className={
+                      "border-b border-foreground/10 bg-background px-2 py-2 align-top " +
+                      (col.type === "checkbox" ? "w-16" : "")
+                    }
+                    style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
                   >
                     {renderCell(col, rowIndex)}
                   </td>

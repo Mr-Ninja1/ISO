@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -54,7 +55,7 @@ export async function GET(req: Request) {
   });
   if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const templates = await prisma.formTemplate.findMany({
+  const allTemplates = await prisma.formTemplate.findMany({
     where: {
       tenantId: tenant.id,
       ...(categoryId ? { categoryId } : {}),
@@ -67,6 +68,8 @@ export async function GET(req: Request) {
       updatedAt: true,
     },
   });
+
+  const templates = allTemplates.filter((t) => isLiveTemplateSchema(t.schema));
 
   return NextResponse.json({
     tenant: {

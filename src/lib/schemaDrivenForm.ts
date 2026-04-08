@@ -96,6 +96,10 @@ function getSections(schema: FormSchemaV1): FormSection[] {
   return [{ type: "fields", fields: schema.fields ?? [] }];
 }
 
+function isActiveField(field: { isActive?: boolean }) {
+  return field.isActive !== false;
+}
+
 function gridRowDefaults(grid: GridSection, rowIndex: number) {
   const row: Record<string, unknown> = {};
   for (const col of grid.columns) {
@@ -136,14 +140,14 @@ export function buildZodSchema(schema: FormSchemaV1) {
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
-      for (const field of section.fields) {
+      for (const field of section.fields.filter(isActiveField)) {
         shape[field.id] = fieldToZod(field);
       }
     }
 
     if (section.type === "grid") {
       const key = section.id || "form_data";
-      shape[key] = gridToZod(section);
+      shape[key] = gridToZod({ ...section, columns: section.columns.filter(isActiveField) });
     }
   }
 
@@ -155,7 +159,7 @@ export function buildDefaultValues(schema: FormSchemaV1) {
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
-      for (const field of section.fields) {
+      for (const field of section.fields.filter(isActiveField)) {
         if (field.type === "dynamic-table") defaults[field.id] = [];
         else if (field.type === "checkbox") defaults[field.id] = false;
         else defaults[field.id] = "";
@@ -164,9 +168,10 @@ export function buildDefaultValues(schema: FormSchemaV1) {
 
     if (section.type === "grid") {
       const key = section.id || "form_data";
+      const activeColumns = section.columns.filter(isActiveField);
       const count = section.rows === "dynamic" ? 1 : Math.max(0, section.rows);
       defaults[key] = Array.from({ length: count }, (_, rowIndex) =>
-        gridRowDefaults(section, rowIndex)
+        gridRowDefaults({ ...section, columns: activeColumns }, rowIndex)
       );
     }
   }

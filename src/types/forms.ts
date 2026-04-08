@@ -21,6 +21,7 @@ export type BaseField = {
   id: string;
   type: FieldType;
   label: string;
+  isActive?: boolean;
   required?: boolean;
   helpText?: string;
   readOnly?: boolean;
@@ -72,6 +73,7 @@ export type DynamicTableField = BaseField & {
     id: string;
     label: string;
     type: "text" | "temp";
+    isActive?: boolean;
     required?: boolean;
   }>;
 };

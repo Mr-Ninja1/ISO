@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   type Control,
@@ -22,6 +23,7 @@ import type {
   FormSection,
 } from "@/types/forms";
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
+import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
 import { enqueueAuditSync, flushAuditSyncQueue } from "@/lib/client/auditSyncQueue";
 
@@ -79,6 +81,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
 
   const zodSchema = useMemo(() => buildZodSchema(schema), [schema]);
   const defaultValues = useMemo(() => buildDefaultValues(schema), [schema]);
@@ -92,6 +95,25 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const sections: FormSection[] = Array.isArray(schema.sections) && schema.sections.length
     ? schema.sections
     : [{ type: "fields", fields: schema.fields ?? [] }];
+
+  const visibleSections: FormSection[] = useMemo(
+    () =>
+      sections
+        .map((section) => {
+          if (section.type === "fields") {
+            return {
+              ...section,
+              fields: section.fields.filter((f) => f.isActive !== false),
+            };
+          }
+          return {
+            ...section,
+            columns: section.columns.filter((c) => c.isActive !== false),
+          };
+        })
+        .filter((section) => (section.type === "fields" ? section.fields.length > 0 : section.columns.length > 0)),
+    [sections]
+  );
 
   useEffect(() => {
     const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
@@ -154,7 +176,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   async function persistAudit(values: FormValues, mode: "submit" | "draft") {
     const accessToken = session?.access_token;
     if (!accessToken) {
-      alert("Please sign in again.");
+      setNotification({
+        title: "Sign in required",
+        message: "Your session is missing or expired. Please sign in again to continue.",
+        tone: "warning",
+      });
       router.push("/login");
       return false;
     }
@@ -188,7 +214,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
       if (mode === "draft") {
         writeLocalDraft(user?.id || null, tenantSlug, templateId, values, json.auditId);
-        alert("Draft saved");
+        setNotification({
+          title: "Draft saved",
+          message: "Your draft was saved successfully.",
+          tone: "success",
+        });
         return true;
       }
 
@@ -202,7 +232,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         mode,
         auditId: draftAuditId ?? undefined,
       });
-      alert(mode === "draft" ? "Draft queued and will sync when online" : "Submit queued and will sync when online");
+      setNotification({
+        title: mode === "draft" ? "Draft queued" : "Submission queued",
+        message:
+          mode === "draft"
+            ? "Your draft will sync automatically when the connection returns."
+            : "Your submission will sync automatically when the connection returns.",
+        tone: "warning",
+      });
       return true;
     }
   }
@@ -226,6 +263,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       onSubmit={form.handleSubmit(onSubmit)}
       className="flex flex-col gap-6 rounded-xl border border-foreground/20 bg-background p-4 shadow-sm sm:p-6"
     >
+      {isLoadingDraft ? (
+        <div className="flex items-center gap-2 rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 py-2 text-sm text-foreground/70">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading saved draft...
+        </div>
+      ) : null}
+
       {tenantName ? (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
@@ -252,7 +296,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         </div>
       ) : null}
 
-      {sections.map((section, idx) => {
+      {visibleSections.map((section, idx) => {
         if (section.type === "fields") {
           return (
             <div key={`fields-${idx}`} className="flex flex-col gap-4 rounded-lg border border-foreground/15 bg-background p-4 sm:p-5">
@@ -318,6 +362,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           {form.formState.isSubmitting ? "Submitting..." : "Submit"}
         </button>
       </div>
+
+      <NotificationModal
+        open={Boolean(notification)}
+        title={notification?.title || ""}
+        message={notification?.message || ""}
+        tone={notification?.tone || "default"}
+        onClose={() => setNotification(null)}
+      />
     </form>
   );
 }

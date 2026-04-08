@@ -85,7 +85,7 @@ export function AuditRunClient({
         <div className="rounded-lg border border-foreground/20 bg-background p-6">
           <div className="flex items-center gap-2 text-sm text-foreground/70">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading form...
+            Loading saved form and draft...
           </div>
         </div>
       );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeTemplateSchema, withTemplateSchemaMeta } from "@/lib/templateVersioning";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -15,20 +16,6 @@ const bodySchema = z.object({
   categoryId: z.string().uuid().nullable().optional(),
   schema: z.any(),
 });
-
-function normalizeSchema(raw: unknown, title: string) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Schema must be a JSON object");
-  }
-
-  const obj = raw as Record<string, any>;
-
-  const next: Record<string, any> = { ...obj };
-  if (typeof next.version !== "number") next.version = 1;
-  next.title = title;
-
-  return next;
-}
 
 export async function POST(req: Request) {
   try {
@@ -81,20 +68,35 @@ export async function POST(req: Request) {
 
     let normalized;
     try {
-      normalized = normalizeSchema(schema, title);
+      normalized = normalizeTemplateSchema(schema, title);
     } catch (e: any) {
       return NextResponse.json({ error: e?.message || "Invalid schema" }, { status: 400 });
     }
 
-    const created = await prisma.formTemplate.create({
-      data: {
-        tenantId: tenant.id,
-        categoryId: categoryId ?? null,
-        title,
-        isStandard: false,
-        schema: normalized,
-      },
-      select: { id: true },
+    const created = await prisma.$transaction(async (tx) => {
+      const first = await tx.formTemplate.create({
+        data: {
+          tenantId: tenant.id,
+          categoryId: categoryId ?? null,
+          title,
+          isStandard: false,
+          schema: normalized,
+        },
+        select: { id: true, schema: true },
+      });
+
+      const schemaWithMeta = withTemplateSchemaMeta(first.schema, {
+        lineageId: first.id,
+        templateVersion: 1,
+        isLive: true,
+      }, title);
+
+      await tx.formTemplate.update({
+        where: { id: first.id },
+        data: { schema: schemaWithMeta },
+      });
+
+      return { id: first.id };
     });
 
     return NextResponse.json({ templateId: created.id });

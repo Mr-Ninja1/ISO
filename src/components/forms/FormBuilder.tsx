@@ -130,21 +130,36 @@ function FieldCard({
   field,
   onChange,
   onRemove,
+  onToggleActive,
+  canDelete = true,
 }: {
   field: FieldDef;
   onChange: (next: FieldDef) => void;
   onRemove?: () => void;
+  onToggleActive?: () => void;
+  canDelete?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const supportsPlaceholder = field.type === "text" || field.type === "date" || field.type === "number";
+  const isActive = field.isActive !== false;
 
   if (isExpanded) {
     return (
-      <div className="rounded-md border border-foreground/20 bg-background p-3">
+      <div className={"rounded-md border border-foreground/20 bg-background p-3 " + (isActive ? "" : "opacity-70")}>
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="text-xs font-semibold opacity-70">{field.type}</div>
           <div className="flex items-center gap-1">
-            {onRemove ? (
+            {onToggleActive ? (
+              <button
+                type="button"
+                onClick={onToggleActive}
+                className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                title={isActive ? "Hide field" : "Show field"}
+              >
+                {isActive ? "Hide" : "Show"}
+              </button>
+            ) : null}
+            {onRemove && canDelete ? (
               <button
                 type="button"
                 onClick={onRemove}
@@ -193,7 +208,7 @@ function FieldCard({
   }
 
   return (
-    <div className="rounded-md border border-foreground/20 bg-background px-3 py-2 flex items-center justify-between gap-2 text-xs hover:bg-foreground/5 transition-colors">
+    <div className={"rounded-md border border-foreground/20 bg-background px-3 py-2 flex items-center justify-between gap-2 text-xs hover:bg-foreground/5 transition-colors " + (isActive ? "" : "opacity-70")}>
       <button
         type="button"
         onClick={() => setIsExpanded(true)}
@@ -202,9 +217,20 @@ function FieldCard({
       >
         <span className="font-semibold">{field.label}</span>
         <span className="opacity-50 ml-2">({field.type})</span>
+        {!isActive ? <span className="ml-2 rounded border border-foreground/20 px-1.5 py-0.5 text-[10px]">Hidden</span> : null}
       </button>
       <div className="flex items-center gap-1">
-        {onRemove ? (
+        {onToggleActive ? (
+          <button
+            type="button"
+            onClick={onToggleActive}
+            className="px-2 py-1 rounded-md border border-foreground/20 hover:bg-foreground/10 whitespace-nowrap text-xs"
+            title={isActive ? "Hide field" : "Show field"}
+          >
+            {isActive ? "Hide" : "Show"}
+          </button>
+        ) : null}
+        {onRemove && canDelete ? (
           <button
             type="button"
             onClick={onRemove}
@@ -261,9 +287,13 @@ function ColumnTypeSelect({
 function GridBuilder({
   grid,
   onChange,
+  lockExistingDeletes,
+  lockedColumnIds,
 }: {
   grid: GridSection;
   onChange: (next: GridSection) => void;
+  lockExistingDeletes?: boolean;
+  lockedColumnIds?: Set<string>;
 }) {
   const [activeColId, setActiveColId] = useState<string | null>(null);
   const [colEditor, setColEditor] = useState<{ colId: string; top: number; left: number } | null>(null);
@@ -318,6 +348,7 @@ function GridBuilder({
   }
 
   const previewRows = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
+  const activeColumns = grid.columns.filter((c) => c.isActive !== false);
 
   return (
     <div className="rounded-lg border border-foreground/20 bg-background p-4 flex flex-col h-full">
@@ -358,23 +389,31 @@ function GridBuilder({
         <table className="w-full min-w-max border-collapse text-xs border border-foreground/20">
           <thead>
             <tr>
-              {grid.columns.map((col) => (
+              {activeColumns.map((col) => (
                 <th
                   key={col.id}
-                  className="border border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70"
+                  className={
+                    "border border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    (col.type === "checkbox" ? "w-16" : "")
+                  }
+                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
                 >
                   <button
                     type="button"
                     className={
-                      "w-full rounded-md px-2 py-1 text-left hover:bg-foreground/5 " +
+                      "w-full rounded-md px-2 py-1 hover:bg-foreground/5 " +
+                      (col.type === "checkbox" ? "text-center" : "text-left ") +
                       (activeColId === col.id ? "bg-foreground/5" : "")
                     }
                     onClick={(e) => {
                       setActiveColId(col.id);
                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      const estimatedPopoverHeight = 260;
+                      const desiredTop = rect.top - estimatedPopoverHeight - 8;
+                      const top = desiredTop >= 12 ? desiredTop : rect.bottom + 8;
                       const desiredLeft = rect.left;
                       const maxLeft = Math.max(12, window.innerWidth - 340);
-                      setColEditor({ colId: col.id, top: rect.bottom + 8, left: Math.min(desiredLeft, maxLeft) });
+                      setColEditor({ colId: col.id, top, left: Math.min(desiredLeft, maxLeft) });
                     }}
                     title="Edit column"
                   >
@@ -387,8 +426,15 @@ function GridBuilder({
           <tbody>
             {Array.from({ length: previewRows }).map((_, rowIndex) => (
               <tr key={`preview-row-${rowIndex}`}>
-                {grid.columns.map((col) => (
-                  <td key={`${col.id}-${rowIndex}`} className="h-9 border border-foreground/20 bg-background px-3 py-2 text-xs text-foreground/45">
+                {activeColumns.map((col) => (
+                  <td
+                    key={`${col.id}-${rowIndex}`}
+                    className={
+                      "h-9 border border-foreground/20 bg-background px-3 py-2 text-xs text-foreground/45 " +
+                      (col.type === "checkbox" ? "w-16 text-center" : "")
+                    }
+                    style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                  >
                     {rowIndex === 0 ? col.type : ""}
                   </td>
                 ))}
@@ -442,6 +488,31 @@ function GridBuilder({
                 }}
               />
             </div>
+            <label className="inline-flex items-center gap-2 text-xs text-foreground/80">
+              <input
+                type="checkbox"
+                checked={activeCol.isActive !== false}
+                onChange={(e) => updateColumn(activeCol.id, { isActive: e.target.checked } as any)}
+              />
+              Column active
+            </label>
+            {!lockExistingDeletes || !lockedColumnIds?.has(activeCol.id) ? (
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  onChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
+                  setColEditor(null);
+                  setActiveColId(null);
+                }}
+              >
+                Delete column
+              </button>
+            ) : (
+              <div className="text-xs text-foreground/60">
+                Existing columns are locked because this template has submissions.
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -454,13 +525,21 @@ export function FormBuilder({
   onChangeSections,
   title,
   onTitleChange,
+  lockExistingDeletes = false,
+  lockedFieldIds = [],
+  lockedGridColumnIds = [],
+  resetKey,
 }: {
   initialSections?: FormSection[];
   onChangeSections: (sections: FormSection[]) => void;
   title?: string;
   onTitleChange?: (next: string) => void;
+  lockExistingDeletes?: boolean;
+  lockedFieldIds?: string[];
+  lockedGridColumnIds?: string[];
+  resetKey?: string;
 }) {
-  const [state, setState] = useState<BuilderState>(() => {
+  const initialState = useMemo<BuilderState>(() => {
     const topFields: FieldDef[] = [];
     const bottomFields: FieldDef[] = [];
     let grid: GridSection | null = null;
@@ -480,9 +559,21 @@ export function FormBuilder({
     }
 
     return { topFields, bottomFields, grid };
-  });
+  }, [initialSections]);
+
+  const [state, setState] = useState<BuilderState>(initialState);
+
+  useEffect(() => {
+    if (typeof resetKey === "string") {
+      setState(initialState);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
 
   const [activeDrag, setActiveDrag] = useState<PaletteItem | null>(null);
+  const [insertTarget, setInsertTarget] = useState<"top" | "bottom">("top");
+  const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
+  const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -552,30 +643,54 @@ export function FormBuilder({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex h-full flex-col">
+      <div className="flex flex-col">
         {/* Ribbon */}
         <div className="border-b border-foreground/20 bg-background px-3 py-3 sm:px-6">
           <div className="flex flex-col gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Insert</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Insert</div>
+              <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
+                <button
+                  type="button"
+                  className={
+                    "rounded px-2 py-1 " +
+                    (insertTarget === "top" ? "bg-foreground text-background" : "hover:bg-foreground/5")
+                  }
+                  onClick={() => setInsertTarget("top")}
+                >
+                  Add to top
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "rounded px-2 py-1 " +
+                    (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
+                  }
+                  onClick={() => setInsertTarget("bottom")}
+                >
+                  Add to footer
+                </button>
+              </div>
+            </div>
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
               {palette().map((item) => (
                 <DraggablePaletteItem
                   key={item.id}
                   item={item}
-                  onClick={() => addItem(item.fieldType)}
+                  onClick={() => addItem(item.fieldType, insertTarget)}
                 />
               ))}
             </div>
             <div className="rounded-md border border-foreground/15 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/70">
-              <span className="font-semibold">How to build your form:</span> Tap a field button to add it automatically, or drag a field into the top or footer area.
+              <span className="font-semibold">How to build your form:</span> Tap a field button to add it to the selected target (top/footer), or drag a field into either drop area.
             </div>
           </div>
         </div>
 
         {/* Page Canvas */}
-        <main className="flex-1 overflow-hidden">
+        <main className="overflow-visible">
           <CanvasDropSurface>
-            <div data-formbuilder-scroll="true" className="h-full overflow-auto p-3 pb-28 sm:p-6">
+            <div data-formbuilder-scroll="true" className="p-3 pb-44 sm:p-6 sm:pb-52">
               <div className="w-full">
                 <div className="rounded-lg border border-foreground/20 bg-background p-6">
                   <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Page</div>
@@ -607,6 +722,19 @@ export function FormBuilder({
                           <FieldCard
                             key={f.id}
                             field={f}
+                            canDelete={!(lockExistingDeletes && lockedFieldIdSet.has(f.id))}
+                            onToggleActive={
+                              lockExistingDeletes && lockedFieldIdSet.has(f.id)
+                                ? () => {
+                                    sync({
+                                      ...state,
+                                      topFields: state.topFields.map((x) =>
+                                        x.id === f.id ? ({ ...x, isActive: x.isActive === false ? true : false } as FieldDef) : x
+                                      ),
+                                    });
+                                  }
+                                : undefined
+                            }
                             onChange={(next) => {
                               sync({ ...state, topFields: state.topFields.map((x) => (x.id === f.id ? next : x)) });
                             }}
@@ -624,7 +752,12 @@ export function FormBuilder({
                   <div className="mt-6">
                     {state.grid ? (
                       <div className="min-h-[420px]">
-                        <GridBuilder grid={state.grid} onChange={(next) => sync({ ...state, grid: next })} />
+                        <GridBuilder
+                          grid={state.grid}
+                          onChange={(next) => sync({ ...state, grid: next })}
+                          lockExistingDeletes={lockExistingDeletes}
+                          lockedColumnIds={lockedGridColumnIdSet}
+                        />
                       </div>
                     ) : (
                       <div className="rounded-lg border border-dashed border-foreground/20 bg-background/50 p-10 text-center">
@@ -635,12 +768,56 @@ export function FormBuilder({
 
                   <div className="mt-6">
                     <FieldDropArea id="drop_bottom_fields" label="Footer fields">
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => addItem("text", "bottom")}
+                        >
+                          + Text
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => addItem("date", "bottom")}
+                        >
+                          + Date
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => addItem("number", "bottom")}
+                        >
+                          + Number
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => addItem("signature", "bottom")}
+                        >
+                          + Signature
+                        </button>
+                      </div>
+
                       {state.bottomFields.length ? (
                         <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                           {state.bottomFields.map((f) => (
                             <FieldCard
                               key={f.id}
                               field={f}
+                              canDelete={!(lockExistingDeletes && lockedFieldIdSet.has(f.id))}
+                              onToggleActive={
+                                lockExistingDeletes && lockedFieldIdSet.has(f.id)
+                                  ? () => {
+                                      sync({
+                                        ...state,
+                                        bottomFields: state.bottomFields.map((x) =>
+                                          x.id === f.id ? ({ ...x, isActive: x.isActive === false ? true : false } as FieldDef) : x
+                                        ),
+                                      });
+                                    }
+                                  : undefined
+                              }
                               onChange={(next) => {
                                 sync({ ...state, bottomFields: state.bottomFields.map((x) => (x.id === f.id ? next : x)) });
                               }}
@@ -685,7 +862,7 @@ function CanvasDropSurface({ children }: { children: React.ReactNode }) {
     <div
       ref={setNodeRef}
       className={
-        "h-full w-full bg-background/50 transition-colors " +
+        "w-full bg-background/50 transition-colors " +
         (isOver ? "bg-foreground/5 outline outline-2 outline-foreground/30" : "")
       }
     >

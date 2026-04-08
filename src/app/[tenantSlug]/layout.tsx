@@ -49,8 +49,8 @@ export default async function TenantLayout({
 
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.04)_0%,rgba(23,23,23,0.02)_40%,rgba(23,23,23,0.05)_100%)]">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-foreground/15 bg-background/95 p-4 shadow-sm backdrop-blur sm:items-center sm:gap-4">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6">
+      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-foreground/15 bg-background/95 p-4 shadow-sm backdrop-blur sm:items-center sm:gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20">
             {tenant.logoUrl ? (

@@ -3,6 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { TenantSettingsForm } from "@/components/TenantSettingsForm";
 import { TenantCategoriesSeedSection } from "@/components/TenantCategoriesSeedSection";
+import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
+import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 export default async function TenantSettingsPage({
   params,
@@ -15,6 +17,30 @@ export default async function TenantSettingsPage({
   });
 
   if (!tenant) notFound();
+
+  const [categories, templatesRaw] = await Promise.all([
+    prisma.category.findMany({
+      where: { tenantId: tenant.id },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
+    }),
+    prisma.formTemplate.findMany({
+      where: { tenantId: tenant.id },
+      orderBy: [{ updatedAt: "desc" }],
+      select: { id: true, title: true, categoryId: true, updatedAt: true, schema: true },
+    }),
+  ]);
+
+  const categoryById = new Map(categories.map((c) => [c.id, c.name]));
+  const templates = templatesRaw
+    .filter((t) => isLiveTemplateSchema(t.schema))
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      categoryId: t.categoryId,
+      categoryName: t.categoryId ? (categoryById.get(t.categoryId) || "Uncategorized") : "Uncategorized",
+      updatedAt: t.updatedAt.toISOString(),
+    }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -32,9 +58,41 @@ export default async function TenantSettingsPage({
         </Link>
       </div>
 
-      <TenantSettingsForm tenant={tenant} />
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-foreground/20 bg-background p-3">
+        <Link
+          href={`/${tenant.slug}/templates/new`}
+          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+        >
+          Create custom form
+        </Link>
+        <Link
+          href={`/${tenant.slug}/templates/library`}
+          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+        >
+          Import from library
+        </Link>
+      </div>
 
-      <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
+      <details open className="rounded-md border border-foreground/20 bg-background p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold">Brand profile</summary>
+        <div className="mt-4">
+          <TenantSettingsForm tenant={tenant} />
+        </div>
+      </details>
+
+      <details open className="rounded-md border border-foreground/20 bg-background p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold">Form management</summary>
+        <div className="mt-4">
+          <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
+        </div>
+      </details>
+
+      <details className="rounded-md border border-foreground/20 bg-background p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold">Category tools</summary>
+        <div className="mt-4">
+          <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
+        </div>
+      </details>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -75,11 +76,22 @@ export async function GET(req: Request) {
     }
 
     const templates = selectedCategoryId
-      ? await prisma.formTemplate.findMany({
-          where: { tenantId: tenant.id, categoryId: selectedCategoryId },
-          orderBy: [{ updatedAt: "desc" }],
-          select: { id: true, title: true, updatedAt: true, categoryId: true },
-        })
+      ? await prisma.formTemplate
+          .findMany({
+            where: { tenantId: tenant.id, categoryId: selectedCategoryId },
+            orderBy: [{ updatedAt: "desc" }],
+            select: { id: true, title: true, updatedAt: true, categoryId: true, schema: true },
+          })
+          .then((rows) =>
+            rows
+              .filter((t) => isLiveTemplateSchema(t.schema))
+              .map((t) => ({
+                id: t.id,
+                title: t.title,
+                updatedAt: t.updatedAt,
+                categoryId: t.categoryId,
+              }))
+          )
       : [];
 
     return NextResponse.json({

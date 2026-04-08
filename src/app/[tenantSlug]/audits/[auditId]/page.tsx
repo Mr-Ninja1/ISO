@@ -21,8 +21,19 @@ function splitSections(schema: FormSchemaV1): FormSection[] {
   return [{ type: "fields", title: "Fields", fields: schema.fields ?? [] }];
 }
 
+function visibleSections(schema: FormSchemaV1): FormSection[] {
+  return splitSections(schema)
+    .map((section) => {
+      if (section.type === "fields") {
+        return { ...section, fields: section.fields.filter((f) => f.isActive !== false) };
+      }
+      return { ...section, columns: section.columns.filter((c) => c.isActive !== false) };
+    })
+    .filter((section) => (section.type === "fields" ? section.fields.length > 0 : section.columns.length > 0));
+}
+
 function shouldUseLandscape(schema: FormSchemaV1) {
-  const sections = splitSections(schema);
+  const sections = visibleSections(schema);
   const biggestGrid = sections
     .filter((s): s is Extract<FormSection, { type: "grid" }> => s.type === "grid")
     .map((g) => g.columns.length)
@@ -172,7 +183,14 @@ export default async function AuditReportPage({
                     <thead>
                       <tr>
                         {section.columns.map((col) => (
-                          <th key={col.id} className="border border-foreground/30 px-2 py-2 text-left font-semibold uppercase tracking-wide">
+                          <th
+                            key={col.id}
+                            className={
+                              "border border-foreground/30 px-2 py-2 text-left font-semibold uppercase tracking-wide " +
+                              (col.type === "checkbox" ? "w-16 text-center" : "")
+                            }
+                            style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                          >
                             {col.label || "Column"}
                           </th>
                         ))}
@@ -186,7 +204,14 @@ export default async function AuditReportPage({
                             {section.columns.map((col) => {
                               const cell = row[col.id];
                               return (
-                                <td key={`${rowIndex}-${col.id}`} className="h-8 border border-foreground/20 px-2 py-1 align-top">
+                                <td
+                                  key={`${rowIndex}-${col.id}`}
+                                  className={
+                                    "h-8 border border-foreground/20 px-2 py-1 align-top " +
+                                    (col.type === "checkbox" ? "w-16 text-center" : "")
+                                  }
+                                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                                >
                                   {isDataUrl(cell) ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img src={cell as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />

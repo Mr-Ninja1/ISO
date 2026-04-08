@@ -1,6 +1,7 @@
 ﻿import Link from "next/link";
 import type { Category } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 export default async function TemplatesPage({
   params,
@@ -18,10 +19,10 @@ export default async function TemplatesPage({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
 
-  const templates = await prisma.formTemplate.findMany({
+  const templates = (await prisma.formTemplate.findMany({
     where: { tenantId: tenant.id },
     orderBy: [{ updatedAt: "desc" }],
-  });
+  })).filter((t) => isLiveTemplateSchema(t.schema));
 
   const templatesByCategoryId = new Map<string, typeof templates>();
   for (const template of templates) {
