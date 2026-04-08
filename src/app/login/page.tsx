@@ -20,8 +20,8 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      // Redirect to dashboard after login
-      router.push("/dashboard");
+      // Redirect to workspace after login
+      router.push("/workspace");
     } catch (err: any) {
       setError(err.message || "Sign in failed");
     } finally {

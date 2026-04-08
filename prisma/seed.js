@@ -3,6 +3,17 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 async function main() {
+  const suggestedCategories = ["Kitchen", "FOH", "Bakery", "Storage", "BOH"];
+
+  for (let i = 0; i < suggestedCategories.length; i++) {
+    const name = suggestedCategories[i];
+    await prisma.categorySuggestion.upsert({
+      where: { name },
+      update: { sortOrder: i },
+      create: { name, sortOrder: i },
+    });
+  }
+
   const tenant = await prisma.tenant.upsert({
     where: { slug: "acme" },
     update: { name: "Acme Foods" },

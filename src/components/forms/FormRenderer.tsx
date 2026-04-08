@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
+import { useAuth } from "@/components/AuthProvider";
 import {
   type Control,
   Controller,
@@ -25,6 +26,7 @@ type FormValues = Record<string, unknown>;
 
 export function FormRenderer({ tenantSlug, templateId, schema }: Props) {
   const router = useRouter();
+  const { session } = useAuth();
 
   const zodSchema = useMemo(() => buildZodSchema(schema), [schema]);
   const defaultValues = useMemo(() => buildDefaultValues(schema), [schema]);
@@ -36,9 +38,19 @@ export function FormRenderer({ tenantSlug, templateId, schema }: Props) {
   });
 
   async function onSubmit(values: FormValues) {
+    const accessToken = session?.access_token;
+    if (!accessToken) {
+      alert("Please sign in again.");
+      router.push("/login");
+      return;
+    }
+
     const res = await fetch("/api/audit/submit", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
       body: JSON.stringify({ tenantSlug, templateId, payload: values }),
     });
 

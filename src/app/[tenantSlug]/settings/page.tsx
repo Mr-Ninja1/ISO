@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { TenantSettingsForm } from "@/components/TenantSettingsForm";
+import { TenantCategoriesSeedSection } from "@/components/TenantCategoriesSeedSection";
 
 export default async function TenantSettingsPage({
   params,
@@ -25,13 +26,15 @@ export default async function TenantSettingsPage({
 
         <Link
           className="text-sm underline"
-          href={`/${tenant.slug}/templates`}
+          href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
         >
-          Back to templates
+          Back to workspace
         </Link>
       </div>
 
       <TenantSettingsForm tenant={tenant} />
+
+      <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
     </div>
   );
 }

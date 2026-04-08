@@ -115,7 +115,7 @@ export default function DashboardPage() {
             {tenants.map((tenant) => (
               <Link
                 key={tenant.id}
-                href={`/${tenant.slug}/templates`}
+                href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
                 className="rounded-md border border-foreground/20 p-4 hover:bg-foreground/5"
               >
                 <div className="flex items-start justify-between gap-4">

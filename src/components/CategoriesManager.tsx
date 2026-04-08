@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Tenant, Category } from "@prisma/client";
+import { useAuth } from "@/components/AuthProvider";
 
 type TenantWithCategories = Tenant & { categories: Category[] };
 
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export function CategoriesManager({ tenant }: Props) {
+  const { session } = useAuth();
   const [categories, setCategories] = useState(tenant.categories);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,9 +25,15 @@ export function CategoriesManager({ tenant }: Props) {
     setMessage("");
 
     try {
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error("Not authenticated");
+
       const response = await fetch(`/api/categories`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
         body: JSON.stringify({
           tenantId: tenant.id,
           name: newCategoryName,
@@ -53,11 +61,20 @@ export function CategoriesManager({ tenant }: Props) {
     if (!confirm("Delete this category?")) return;
 
     try {
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error("Not authenticated");
+
       const response = await fetch(`/api/categories/${categoryId}`, {
         method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       });
 
-      if (!response.ok) throw new Error("Failed to delete");
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to delete");
+      }
 
       setCategories(categories.filter((c) => c.id !== categoryId));
     } catch (error: any) {

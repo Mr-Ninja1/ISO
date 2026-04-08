@@ -74,7 +74,12 @@ export default function OnboardingPage() {
       }
 
       const { slug } = await response.json();
-      router.push(`/${slug}/templates`);
+      try {
+        localStorage.setItem("lastTenantSlug", slug);
+      } catch {
+        // ignore
+      }
+      router.push(`/workspace?tenantSlug=${encodeURIComponent(slug)}`);
     } catch (err: any) {
       setError(err.message || "Failed to create tenant");
     } finally {

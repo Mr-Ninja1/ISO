@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
@@ -7,9 +7,9 @@ export default async function TenantLayout({
   params,
 }: {
   children: React.ReactNode;
-  params: Promise<{ tenantSlug: string }>;
+  params: Promise<any>;
 }) {
-  const { tenantSlug } = await params;
+  const { tenantSlug } = (await params) as { tenantSlug: string };
   const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
   if (!tenant) notFound();
 
@@ -61,3 +61,4 @@ export default async function TenantLayout({
     </div>
   );
 }
+

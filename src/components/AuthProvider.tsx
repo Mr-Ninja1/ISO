@@ -45,6 +45,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser({ id: session.user.id, email: session.user.email || "" });
       } else {
         setUser(null);
+        try {
+          localStorage.removeItem("lastTenantSlug");
+        } catch {
+          // ignore
+        }
       }
       setLoading(false);
     });
@@ -69,6 +74,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+
+    try {
+      localStorage.removeItem("lastTenantSlug");
+    } catch {
+      // ignore
+    }
   };
 
   return (
