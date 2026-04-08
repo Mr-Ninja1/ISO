@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SignatureCanvas from "react-signature-canvas";
 import { useAuth } from "@/components/AuthProvider";
@@ -11,6 +11,7 @@ import {
   type UseFormRegister,
   useFieldArray,
   useForm,
+  useWatch,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type {
@@ -22,6 +23,7 @@ import type {
 } from "@/types/forms";
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
 import { GridField } from "@/components/forms/GridField";
+import { enqueueAuditSync, flushAuditSyncQueue } from "@/lib/client/auditSyncQueue";
 
 type Props = {
   tenantSlug: string;
@@ -33,9 +35,50 @@ type Props = {
 
 type FormValues = Record<string, unknown>;
 
+function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string) {
+  return `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
+}
+
+function writeLocalDraft(
+  userId: string | null,
+  tenantSlug: string,
+  templateId: string,
+  values: FormValues,
+  auditId?: string | null
+) {
+  try {
+    localStorage.setItem(
+      draftCacheKey(userId, tenantSlug, templateId),
+      JSON.stringify({ ts: Date.now(), values, auditId: auditId || null })
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function readLocalDraft(
+  userId: string | null,
+  tenantSlug: string,
+  templateId: string
+): { values: FormValues; auditId: string | null } | null {
+  try {
+    const raw = localStorage.getItem(draftCacheKey(userId, tenantSlug, templateId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { values?: FormValues; auditId?: string | null };
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.values || typeof parsed.values !== "object") return null;
+    return { values: parsed.values, auditId: parsed.auditId || null };
+  } catch {
+    return null;
+  }
+}
+
 export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, schema }: Props) {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(false);
+  const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
 
   const zodSchema = useMemo(() => buildZodSchema(schema), [schema]);
   const defaultValues = useMemo(() => buildDefaultValues(schema), [schema]);
@@ -50,52 +93,161 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     ? schema.sections
     : [{ type: "fields", fields: schema.fields ?? [] }];
 
-  async function onSubmit(values: FormValues) {
+  useEffect(() => {
+    const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
+    if (!local) return;
+    setDraftAuditId(local.auditId || null);
+    form.reset({ ...defaultValues, ...local.values });
+  }, [defaultValues, form, templateId, tenantSlug, user?.id]);
+
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) return;
+
+    const flush = () => {
+      flushAuditSyncQueue(token).catch(() => {
+        // ignore background sync failures
+      });
+    };
+
+    flush();
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    const accessToken = session?.access_token;
+    if (!accessToken || !tenantSlug || !templateId) return;
+
+    const url = new URL("/api/audit/draft", window.location.origin);
+    url.searchParams.set("tenantSlug", tenantSlug);
+    url.searchParams.set("templateId", templateId);
+
+    setIsLoadingDraft(true);
+    fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Failed to load draft");
+        return data as {
+          draft: null | {
+            id: string;
+            payload: Record<string, unknown>;
+          };
+        };
+      })
+      .then((data) => {
+        if (!data.draft) return;
+        setDraftAuditId(data.draft.id);
+        form.reset({ ...defaultValues, ...data.draft.payload });
+        writeLocalDraft(user?.id || null, tenantSlug, templateId, data.draft.payload, data.draft.id);
+      })
+      .catch(() => {
+        // Silent fallback: form starts from defaults when no draft is available.
+      })
+      .finally(() => setIsLoadingDraft(false));
+  }, [defaultValues, form, session?.access_token, templateId, tenantSlug]);
+
+  async function persistAudit(values: FormValues, mode: "submit" | "draft") {
     const accessToken = session?.access_token;
     if (!accessToken) {
       alert("Please sign in again.");
       router.push("/login");
-      return;
+      return false;
     }
 
-    const res = await fetch("/api/audit/submit", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ tenantSlug, templateId, payload: values }),
-    });
-
-    if (!res.ok) {
-      // Keep it simple for now; we can add a toast system later.
-      alert("Submit failed");
-      return;
+    if (mode === "draft") {
+      writeLocalDraft(user?.id || null, tenantSlug, templateId, values, draftAuditId);
     }
 
-    const json = (await res.json()) as { auditId: string };
-    router.push(`/${tenantSlug}/audits/${json.auditId}`);
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 8000);
+
+      const res = await fetch("/api/audit/submit", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ tenantSlug, templateId, payload: values, mode, auditId: draftAuditId ?? undefined }),
+        signal: controller.signal,
+      });
+
+      window.clearTimeout(timeout);
+
+      if (!res.ok) {
+        throw new Error(mode === "draft" ? "Saving draft failed" : "Submit failed");
+      }
+
+      const json = (await res.json()) as { auditId: string };
+      setDraftAuditId(json.auditId);
+
+      if (mode === "draft") {
+        writeLocalDraft(user?.id || null, tenantSlug, templateId, values, json.auditId);
+        alert("Draft saved");
+        return true;
+      }
+
+      router.push(`/${tenantSlug}/audits/${json.auditId}`);
+      return true;
+    } catch {
+      enqueueAuditSync({
+        tenantSlug,
+        templateId,
+        payload: values,
+        mode,
+        auditId: draftAuditId ?? undefined,
+      });
+      alert(mode === "draft" ? "Draft queued and will sync when online" : "Submit queued and will sync when online");
+      return true;
+    }
+  }
+
+  async function onSubmit(values: FormValues) {
+    await persistAudit(values, "submit");
+  }
+
+  async function onSaveDraft() {
+    setIsSavingDraft(true);
+    try {
+      const values = form.getValues();
+      await persistAudit(values, "draft");
+    } finally {
+      setIsSavingDraft(false);
+    }
   }
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
+    <form
+      onSubmit={form.handleSubmit(onSubmit)}
+      className="flex flex-col gap-6 rounded-xl border border-foreground/20 bg-background p-4 shadow-sm sm:p-6"
+    >
       {tenantName ? (
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
-            {tenantLogoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={tenantLogoUrl}
-                alt={`${tenantName} logo`}
-                className="h-8 w-8 object-contain"
-              />
-            ) : (
-              <span className="text-sm font-semibold">{tenantName[0] ?? ""}</span>
-            )}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
+              {tenantLogoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={tenantLogoUrl}
+                  alt={`${tenantName} logo`}
+                  className="h-8 w-8 object-contain"
+                />
+              ) : (
+                <span className="text-sm font-semibold">{tenantName[0] ?? ""}</span>
+              )}
+            </div>
+            <div className="flex flex-col leading-tight">
+              <div className="text-sm font-semibold">{tenantName}</div>
+            </div>
           </div>
-          <div className="flex flex-col leading-tight">
-            <div className="text-sm font-semibold">{tenantName}</div>
-            <div className="text-xs text-foreground/60">{schema.title}</div>
+
+          <div className="text-center">
+            <div className="text-xl font-semibold tracking-tight">{schema.title}</div>
           </div>
         </div>
       ) : null}
@@ -103,19 +255,29 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       {sections.map((section, idx) => {
         if (section.type === "fields") {
           return (
-            <div key={`fields-${idx}`} className="flex flex-col gap-6">
+            <div key={`fields-${idx}`} className="flex flex-col gap-4 rounded-lg border border-foreground/15 bg-background p-4 sm:p-5">
               {section.title ? (
                 <div className="text-sm font-semibold text-foreground/80">{section.title}</div>
               ) : null}
-              {section.fields.map((field) => (
-                <Field
-                  key={field.id}
-                  field={field}
-                  control={form.control}
-                  register={form.register}
-                  errors={form.formState.errors}
-                />
-              ))}
+              <div className="grid grid-cols-1 gap-4 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+                {section.fields.map((field) => (
+                  <div
+                    key={field.id}
+                    className={
+                      field.type === "dynamic-table"
+                        ? "md:[grid-column:1/-1]"
+                        : ""
+                    }
+                  >
+                    <Field
+                      field={field}
+                      control={form.control}
+                      register={form.register}
+                      errors={form.formState.errors}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           );
         }
@@ -139,12 +301,23 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return null;
       })}
 
-      <button
-        type="submit"
-        className="h-12 rounded-md bg-foreground px-4 text-background"
-      >
-        Submit
-      </button>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className="h-12 rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50"
+          onClick={onSaveDraft}
+          disabled={isSavingDraft || form.formState.isSubmitting}
+        >
+          {isSavingDraft ? "Saving draft..." : "Save draft"}
+        </button>
+        <button
+          type="submit"
+          className="h-12 rounded-md bg-foreground px-4 text-background disabled:opacity-50"
+          disabled={isSavingDraft || form.formState.isSubmitting}
+        >
+          {form.formState.isSubmitting ? "Submitting..." : "Submit"}
+        </button>
+      </div>
     </form>
   );
 }
@@ -349,6 +522,24 @@ function SignatureFieldInput({
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
   const sigRef = useRef<SignatureCanvas | null>(null);
+  const currentValue = useWatch({ control, name: field.id as never }) as unknown;
+
+  useEffect(() => {
+    const canvas = sigRef.current;
+    if (!canvas) return;
+    if (typeof currentValue !== "string" || !currentValue.startsWith("data:image")) return;
+
+    // Rehydrate saved draft signature into the canvas when reopening the form.
+    const id = window.requestAnimationFrame(() => {
+      try {
+        canvas.fromDataURL(currentValue);
+      } catch {
+        // Ignore malformed data URLs and keep canvas editable.
+      }
+    });
+
+    return () => window.cancelAnimationFrame(id);
+  }, [currentValue]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -363,16 +554,16 @@ function SignatureFieldInput({
                 sigRef.current = ref;
               }}
               penColor="black"
-              canvasProps={{ className: "h-32 w-full" }}
+              canvasProps={{ className: "h-20 w-full" }}
               onEnd={() => {
                 const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";
                 rhfField.onChange(dataUrl);
               }}
             />
-            <div className="mt-2 flex gap-2">
+            <div className="mt-1 flex gap-2">
               <button
                 type="button"
-                className="h-10 rounded-md border border-foreground/20 px-3"
+                className="h-8 rounded-md border border-foreground/20 px-2.5 text-xs"
                 onClick={() => {
                   sigRef.current?.clear();
                   rhfField.onChange("");

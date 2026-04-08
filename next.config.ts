@@ -8,9 +8,6 @@ const withPWA = nextPWA({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  experimental: {
-    turbo: false,
-  },
 };
 
 export default withPWA(nextConfig);

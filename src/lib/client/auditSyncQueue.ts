@@ -1,0 +1,84 @@
+"use client";
+
+type QueueMode = "draft" | "submit";
+
+export type AuditSyncItem = {
+  id: string;
+  tenantSlug: string;
+  templateId: string;
+  payload: Record<string, unknown>;
+  mode: QueueMode;
+  auditId?: string;
+  queuedAt: number;
+};
+
+const KEY = "audit-sync-queue:v1";
+
+function readQueue(): AuditSyncItem[] {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as AuditSyncItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeQueue(items: AuditSyncItem[]) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(items));
+  } catch {
+    // ignore
+  }
+}
+
+export function enqueueAuditSync(item: Omit<AuditSyncItem, "id" | "queuedAt">) {
+  const id = `q_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+  const next: AuditSyncItem = { ...item, id, queuedAt: Date.now() };
+  const q = readQueue();
+  q.push(next);
+  writeQueue(q);
+  return next;
+}
+
+export async function flushAuditSyncQueue(accessToken: string) {
+  if (!accessToken) return { processed: 0, remaining: 0 };
+
+  const queue = readQueue();
+  if (queue.length === 0) return { processed: 0, remaining: 0 };
+
+  const remaining: AuditSyncItem[] = [];
+  let processed = 0;
+
+  for (const item of queue) {
+    try {
+      const res = await fetch("/api/audit/submit", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tenantSlug: item.tenantSlug,
+          templateId: item.templateId,
+          payload: item.payload,
+          mode: item.mode,
+          auditId: item.auditId,
+        }),
+      });
+
+      if (!res.ok) {
+        remaining.push(item);
+        continue;
+      }
+
+      processed += 1;
+    } catch {
+      remaining.push(item);
+    }
+  }
+
+  writeQueue(remaining);
+  return { processed, remaining: remaining.length };
+}

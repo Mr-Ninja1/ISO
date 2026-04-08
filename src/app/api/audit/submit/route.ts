@@ -13,7 +13,17 @@ const bodySchema = z.object({
   tenantSlug: z.string().min(1),
   templateId: z.string().uuid(),
   payload: z.record(z.string(), z.any()),
+  mode: z.enum(["submit", "draft"]).optional(),
+  auditId: z.string().uuid().optional(),
 });
+
+function draftUserIdFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const meta = (payload as Record<string, any>).__draftMeta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const userId = (meta as Record<string, any>).userId;
+  return typeof userId === "string" && userId ? userId : null;
+}
 
 export async function POST(req: Request) {
   const token = getBearerToken(req);
@@ -41,7 +51,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const { tenantSlug, templateId, payload } = parsed.data;
+  const { tenantSlug, templateId, payload, mode, auditId } = parsed.data;
+  const isDraft = mode === "draft";
 
   const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
   if (!tenant) {
@@ -65,6 +76,94 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Template not found" }, { status: 404 });
   }
 
+  if (isDraft) {
+    const draftPayload = {
+      ...payload,
+      __draftMeta: {
+        userId: user.id,
+      },
+    };
+
+    let targetDraftId: string | null = null;
+
+    if (auditId) {
+      const existing = await prisma.auditLog.findFirst({
+        where: {
+          id: auditId,
+          tenantId: tenant.id,
+          templateId: template.id,
+          status: "DRAFT",
+        },
+        select: { id: true },
+      });
+      if (existing) targetDraftId = existing.id;
+    }
+
+    if (!targetDraftId) {
+      const candidates = await prisma.auditLog.findMany({
+        where: {
+          tenantId: tenant.id,
+          templateId: template.id,
+          status: "DRAFT",
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 50,
+        select: { id: true, payload: true },
+      });
+
+      const mine = candidates.find((d) => draftUserIdFromPayload(d.payload) === user.id);
+      if (mine) targetDraftId = mine.id;
+    }
+
+    const audit = targetDraftId
+      ? await prisma.auditLog.update({
+          where: { id: targetDraftId },
+          data: {
+            payload: draftPayload,
+            status: "DRAFT",
+            submittedAt: null,
+          },
+          select: { id: true },
+        })
+      : await prisma.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            templateId: template.id,
+            status: "DRAFT",
+            payload: draftPayload,
+            submittedAt: null,
+          },
+          select: { id: true },
+        });
+
+    return NextResponse.json({ auditId: audit.id, status: "DRAFT" });
+  }
+
+  if (auditId) {
+    const existing = await prisma.auditLog.findFirst({
+      where: {
+        id: auditId,
+        tenantId: tenant.id,
+        templateId: template.id,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      const audit = await prisma.auditLog.update({
+        where: { id: existing.id },
+        data: {
+          payload,
+          status: "SUBMITTED",
+          submittedAt: new Date(),
+        },
+        select: { id: true },
+      });
+
+      return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
+    }
+  }
+
   const audit = await prisma.auditLog.create({
     data: {
       tenantId: tenant.id,
@@ -76,5 +175,5 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  return NextResponse.json({ auditId: audit.id });
+  return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
 }
