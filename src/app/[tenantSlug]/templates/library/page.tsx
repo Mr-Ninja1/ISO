@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Loader2, Plus } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 
 type CategorySummary = {
   id: string;
@@ -23,6 +24,60 @@ type WorkspaceData = {
   categories: CategorySummary[];
   selectedCategoryId: string | null;
 };
+
+type WorkspaceCacheEnvelope = {
+  ts: number;
+  data: WorkspaceData;
+};
+
+type LibraryCacheEnvelope = {
+  ts: number;
+  data: LibraryTemplateSummary[];
+};
+
+function workspaceCacheKey(tenantSlug: string, categoryId: string | null) {
+  return `workspace-cache:v1:${tenantSlug}:${categoryId || "all"}`;
+}
+
+function readWorkspaceCache(tenantSlug: string, categoryId: string | null): WorkspaceData | null {
+  if (!tenantSlug) return null;
+  try {
+    const raw = localStorage.getItem(workspaceCacheKey(tenantSlug, categoryId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
+    if (!parsed?.data || typeof parsed.ts !== "number") return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function libraryCacheKey(tenantSlug: string) {
+  return `template-library-cache:v1:${tenantSlug}`;
+}
+
+function readLibraryCache(tenantSlug: string): LibraryTemplateSummary[] {
+  if (!tenantSlug) return [];
+  try {
+    const raw = localStorage.getItem(libraryCacheKey(tenantSlug));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LibraryCacheEnvelope;
+    if (!parsed?.data || typeof parsed.ts !== "number" || !Array.isArray(parsed.data)) return [];
+    return parsed.data;
+  } catch {
+    return [];
+  }
+}
+
+function writeLibraryCache(tenantSlug: string, data: LibraryTemplateSummary[]) {
+  if (!tenantSlug) return;
+  try {
+    const payload: LibraryCacheEnvelope = { ts: Date.now(), data };
+    localStorage.setItem(libraryCacheKey(tenantSlug), JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
 
 export default function TemplatesLibraryPage() {
   const router = useRouter();
@@ -44,6 +99,7 @@ export default function TemplatesLibraryPage() {
 
   const [templates, setTemplates] = useState<LibraryTemplateSummary[]>([]);
   const [importingId, setImportingId] = useState<string>("");
+  const [online, setOnline] = useState(true);
 
   const categoryOptions = useMemo(
     () => categories.map((c) => ({ value: c.id, label: c.name })),
@@ -51,13 +107,44 @@ export default function TemplatesLibraryPage() {
   );
 
   useEffect(() => {
+    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    updateOnline();
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!authLoading && !user) router.push("/login");
   }, [authLoading, user, router]);
 
   useEffect(() => {
     if (authLoading || !user) return;
-    if (!accessToken) return;
     if (!tenantSlug) return;
+
+    const cached = readWorkspaceCache(tenantSlug, requestedCategoryId);
+    if (cached) {
+      setCategories(cached.categories || []);
+      setSelectedCategoryId(cached.selectedCategoryId);
+      setWorkspaceLoading(false);
+      setError("");
+      if (!online) return;
+    }
+
+    if (!online) {
+      if (!cached) {
+        setCategories([]);
+        setSelectedCategoryId(null);
+        setWorkspaceLoading(false);
+        setError("Offline mode: categories are unavailable until this brand is opened once online.");
+      }
+      return;
+    }
+
+    if (!accessToken) return;
 
     setWorkspaceLoading(true);
     setError("");
@@ -77,15 +164,35 @@ export default function TemplatesLibraryPage() {
         setSelectedCategoryId(data.selectedCategoryId);
       })
       .catch((err) => {
-        setError(err?.message || "Failed to load categories");
-        setCategories([]);
-        setSelectedCategoryId(null);
+        if (!cached) {
+          setError(err?.message || "Failed to load categories");
+          setCategories([]);
+          setSelectedCategoryId(null);
+        }
       })
       .finally(() => setWorkspaceLoading(false));
-  }, [authLoading, user, accessToken, tenantSlug, requestedCategoryId]);
+  }, [authLoading, user, accessToken, tenantSlug, requestedCategoryId, online]);
 
   useEffect(() => {
     if (authLoading || !user) return;
+
+    const cachedTemplates = readLibraryCache(tenantSlug);
+    if (cachedTemplates.length) {
+      setTemplates(cachedTemplates);
+      setLibraryLoading(false);
+      setError("");
+      if (!online) return;
+    }
+
+    if (!online) {
+      if (!cachedTemplates.length) {
+        setTemplates([]);
+        setLibraryLoading(false);
+        setError("Offline mode: template library is unavailable until loaded once online.");
+      }
+      return;
+    }
+
     if (!accessToken) return;
 
     setLibraryLoading(true);
@@ -97,13 +204,19 @@ export default function TemplatesLibraryPage() {
         if (!res.ok) throw new Error(data?.error || `Failed to load template library (${res.status})`);
         return data as { templates: LibraryTemplateSummary[] };
       })
-      .then((data) => setTemplates(data.templates || []))
+      .then((data) => {
+        const next = data.templates || [];
+        setTemplates(next);
+        writeLibraryCache(tenantSlug, next);
+      })
       .catch((err) => {
-        setTemplates([]);
-        setError(err?.message || "Failed to load template library");
+        if (!cachedTemplates.length) {
+          setTemplates([]);
+          setError(err?.message || "Failed to load template library");
+        }
       })
       .finally(() => setLibraryLoading(false));
-  }, [authLoading, user, accessToken]);
+  }, [authLoading, user, accessToken, online, tenantSlug]);
 
   async function importTemplate(libraryTemplateId: string) {
     if (!accessToken || !tenantSlug) return;
@@ -111,6 +224,20 @@ export default function TemplatesLibraryPage() {
     setImportingId(libraryTemplateId);
     setError("");
     try {
+      if (!navigator.onLine) {
+        enqueueBackgroundMutation({
+          url: "/api/templates/import",
+          method: "POST",
+          body: {
+            tenantSlug,
+            libraryTemplateId,
+            categoryId: selectedCategoryId,
+          },
+        });
+        setError("Offline: template import queued and will sync automatically.");
+        return;
+      }
+
       const res = await fetch("/api/templates/import", {
         method: "POST",
         headers: {
@@ -137,7 +264,22 @@ export default function TemplatesLibraryPage() {
       if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
       router.push(`/workspace?${next.toString()}`);
     } catch (err: any) {
-      setError(err?.message || "Import failed");
+      const msg = String(err?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        enqueueBackgroundMutation({
+          url: "/api/templates/import",
+          method: "POST",
+          body: {
+            tenantSlug,
+            libraryTemplateId,
+            categoryId: selectedCategoryId,
+          },
+        });
+        setError("Offline: template import queued and will sync automatically.");
+      } else {
+        setError(err?.message || "Import failed");
+      }
     } finally {
       setImportingId("");
     }

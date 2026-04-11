@@ -199,6 +199,24 @@ export function GridField({
       );
     }
 
+    if (col.type === "yesno") {
+      return (
+        <div>
+          <select
+            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            {...register(cellName as any)}
+          >
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+          {errorMessage ? (
+            <div className="mt-1 text-xs text-red-700">{errorMessage}</div>
+          ) : null}
+        </div>
+      );
+    }
+
     if (col.type === "time") {
       return (
         <div>

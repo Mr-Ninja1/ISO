@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { TenantSettingsForm } from "@/components/TenantSettingsForm";
 import { TenantCategoriesSeedSection } from "@/components/TenantCategoriesSeedSection";
 import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
+import { StaffManagementPanel } from "@/components/StaffManagementPanel";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 export default async function TenantSettingsPage({
@@ -91,6 +92,13 @@ export default async function TenantSettingsPage({
         <summary className="cursor-pointer select-none text-sm font-semibold">Category tools</summary>
         <div className="mt-4">
           <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
+        </div>
+      </details>
+
+      <details className="rounded-md border border-foreground/20 bg-background p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold">Brand staff management</summary>
+        <div className="mt-4">
+          <StaffManagementPanel tenantSlug={tenant.slug} />
         </div>
       </details>
     </div>

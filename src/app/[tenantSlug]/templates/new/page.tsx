@@ -8,6 +8,12 @@ import { createPortal } from "react-dom";
 import { useAuth } from "@/components/AuthProvider";
 import { FormBuilder } from "@/components/forms/FormBuilder";
 import type { FormSection } from "@/types/forms";
+import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
+import {
+  enqueueTemplateSync,
+  flushTemplateSyncQueue,
+  getPendingTemplateSyncCount,
+} from "@/lib/client/templateSyncQueue";
 
 type CategorySummary = {
   id: string;
@@ -18,6 +24,22 @@ type CategorySummary = {
 type WorkspaceData = {
   categories: CategorySummary[];
   selectedCategoryId: string | null;
+  templates?: Array<{
+    id: string;
+    title: string;
+    updatedAt: string;
+    categoryId: string | null;
+  }>;
+  tenant?: {
+    slug: string;
+    name?: string;
+    logoUrl?: string | null;
+  };
+};
+
+type WorkspaceCacheEnvelope = {
+  ts: number;
+  data: WorkspaceData;
 };
 
 type EditInfoResponse = {
@@ -113,6 +135,114 @@ function buildChangeLog(oldSections: FormSection[], nextSections: FormSection[])
   return changes;
 }
 
+function workspaceCacheKey(tenantSlug: string, categoryId: string | null) {
+  return `workspace-cache:v1:${tenantSlug}:${categoryId || "all"}`;
+}
+
+function readWorkspaceCache(tenantSlug: string, categoryId: string | null): WorkspaceData | null {
+  if (!tenantSlug) return null;
+  try {
+    const raw = localStorage.getItem(workspaceCacheKey(tenantSlug, categoryId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
+    if (!parsed?.data || typeof parsed.ts !== "number") return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeWorkspaceCache(tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
+  if (!tenantSlug) return;
+  try {
+    const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
+    localStorage.setItem(workspaceCacheKey(tenantSlug, categoryId), JSON.stringify(payload));
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function patchWorkspaceTemplateCaches(
+  tenantSlug: string,
+  nextTemplate: { id: string; title: string; categoryId: string | null; updatedAt: string }
+) {
+  if (!tenantSlug) return;
+
+  const prefix = `workspace-cache:v1:${tenantSlug}:`;
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (key.startsWith(prefix)) keys.push(key);
+  }
+
+  for (const key of keys) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const envelope = JSON.parse(raw) as WorkspaceCacheEnvelope;
+      if (!envelope?.data) continue;
+
+      const currentTemplates = Array.isArray(envelope.data.templates)
+        ? envelope.data.templates
+        : [];
+
+      const withoutOld = currentTemplates.filter((t) => t.id !== nextTemplate.id);
+
+      const selected = envelope.data.selectedCategoryId;
+      const shouldInclude = selected ? selected === nextTemplate.categoryId : true;
+      const nextTemplates = shouldInclude
+        ? [nextTemplate, ...withoutOld].sort(
+            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+          )
+        : withoutOld;
+
+      writeWorkspaceCache(tenantSlug, selected, {
+        ...envelope.data,
+        templates: nextTemplates,
+      });
+    } catch {
+      // ignore malformed cache items
+    }
+  }
+}
+
+function buildLocalTemplateId() {
+  return `local_tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+}
+
+function cacheTemplateSchemaForOffline(
+  tenantSlug: string,
+  templateId: string,
+  title: string,
+  sections: FormSection[],
+  categoryId: string | null,
+  fallbackTenantName: string
+) {
+  const selectedCache = readWorkspaceCache(tenantSlug, categoryId);
+  const allCache = readWorkspaceCache(tenantSlug, null);
+  const tenant = selectedCache?.tenant || allCache?.tenant || { slug: tenantSlug, name: fallbackTenantName, logoUrl: null };
+
+  writeAuditTemplateCache(tenantSlug, templateId, {
+    tenant: {
+      slug: tenant.slug,
+      name: tenant.name || fallbackTenantName,
+      logoUrl: tenant.logoUrl ?? null,
+    },
+    template: {
+      id: templateId,
+      title,
+      schema: {
+        version: 1,
+        title,
+        sections,
+      },
+      updatedAt: new Date().toISOString(),
+    },
+  });
+}
+
 export default function NewTemplatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -140,6 +270,7 @@ export default function NewTemplatePage() {
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showPhotoImportGuide, setShowPhotoImportGuide] = useState(false);
   const [headerActionsMount, setHeaderActionsMount] = useState<HTMLElement | null>(null);
+  const [online, setOnline] = useState(true);
 
   const [baseSections, setBaseSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
   const [baseVersion, setBaseVersion] = useState(1);
@@ -147,6 +278,7 @@ export default function NewTemplatePage() {
   const [auditCount, setAuditCount] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
+  const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const categoryOptions = useMemo(
@@ -181,7 +313,32 @@ export default function NewTemplatePage() {
 
   useEffect(() => {
     setHeaderActionsMount(document.getElementById("tenant-header-actions"));
+    setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    setQueuedTemplateSaves(getPendingTemplateSyncCount());
   }, []);
+
+  useEffect(() => {
+    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const flush = async () => {
+      const result = await flushTemplateSyncQueue(accessToken).catch(() => ({ processed: 0, remaining: getPendingTemplateSyncCount() }));
+      setQueuedTemplateSaves(result.remaining);
+    };
+
+    flush();
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!authLoading && !user) router.push("/login");
@@ -189,7 +346,28 @@ export default function NewTemplatePage() {
 
   useEffect(() => {
     if (authLoading || !user) return;
-    if (!accessToken || !tenantSlug) return;
+    if (!tenantSlug) return;
+
+    const cached = readWorkspaceCache(tenantSlug, requestedCategoryId);
+    if (cached) {
+      setCategories(cached.categories || []);
+      setSelectedCategoryId(cached.selectedCategoryId);
+      setWorkspaceLoading(false);
+      setError("");
+      if (!online) return;
+    }
+
+    if (!online) {
+      if (!cached) {
+        setCategories([]);
+        setSelectedCategoryId(null);
+        setWorkspaceLoading(false);
+        setError("Offline mode: categories are unavailable until this brand is opened once online.");
+      }
+      return;
+    }
+
+    if (!accessToken) return;
 
     setWorkspaceLoading(true);
     setError("");
@@ -209,17 +387,27 @@ export default function NewTemplatePage() {
         setSelectedCategoryId(data.selectedCategoryId);
       })
       .catch((err) => {
-        setError(err?.message || "Failed to load categories");
-        setCategories([]);
-        setSelectedCategoryId(null);
+        if (!cached) {
+          setError(err?.message || "Failed to load categories");
+          setCategories([]);
+          setSelectedCategoryId(null);
+        }
       })
       .finally(() => setWorkspaceLoading(false));
-  }, [authLoading, user, accessToken, tenantSlug, requestedCategoryId]);
+  }, [authLoading, user, accessToken, tenantSlug, requestedCategoryId, online]);
 
   useEffect(() => {
     if (!isEditMode) return;
     if (authLoading || !user) return;
-    if (!accessToken || !tenantSlug || !editTemplateId) return;
+    if (!tenantSlug || !editTemplateId) return;
+
+    if (!online) {
+      setLoadingEditInfo(false);
+      setError("Offline mode: opening existing form versions for editing requires a prior online load.");
+      return;
+    }
+
+    if (!accessToken) return;
 
     setLoadingEditInfo(true);
     setError("");
@@ -247,10 +435,10 @@ export default function NewTemplatePage() {
       })
       .catch((err) => setError(err?.message || "Failed to load template"))
       .finally(() => setLoadingEditInfo(false));
-  }, [isEditMode, authLoading, user, accessToken, tenantSlug, editTemplateId]);
+  }, [isEditMode, authLoading, user, accessToken, tenantSlug, editTemplateId, online]);
 
   async function handleSave(): Promise<boolean> {
-    if (!accessToken || !tenantSlug) return false;
+    if (!tenantSlug) return false;
 
     setSaving(true);
     setError("");
@@ -264,23 +452,69 @@ export default function NewTemplatePage() {
 
       const endpoint = isEditMode ? "/api/templates/save-changes" : "/api/templates/create";
 
+      const payload = {
+        tenantSlug,
+        templateId: editTemplateId,
+        title,
+        categoryId: selectedCategoryId,
+        schema,
+      };
+
+      if (!accessToken || !navigator.onLine) {
+        const localTemplateId = isEditMode ? editTemplateId || "" : buildLocalTemplateId();
+        enqueueTemplateSync({
+          mode: isEditMode ? "save-changes" : "create",
+          payload: {
+            ...payload,
+            templateId: localTemplateId || payload.templateId,
+          },
+        });
+        setQueuedTemplateSaves(getPendingTemplateSyncCount());
+        if (localTemplateId) {
+          patchWorkspaceTemplateCaches(tenantSlug, {
+            id: localTemplateId,
+            title,
+            categoryId: selectedCategoryId ?? null,
+            updatedAt: new Date().toISOString(),
+          });
+          cacheTemplateSchemaForOffline(
+            tenantSlug,
+            localTemplateId,
+            title,
+            sections,
+            selectedCategoryId ?? null,
+            "Workspace"
+          );
+        }
+        setError("Saved offline. Your form changes are queued and will sync automatically when online.");
+        const next = new URLSearchParams();
+        next.set("tenantSlug", tenantSlug);
+        if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
+        router.push(`/workspace?${next.toString()}`);
+        return true;
+      }
+
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          tenantSlug,
-          templateId: editTemplateId,
-          title,
-          categoryId: selectedCategoryId,
-          schema,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Save failed (${res.status})`);
+
+      const savedTemplateId = (data?.templateId as string | undefined) || editTemplateId || "";
+      if (savedTemplateId) {
+        patchWorkspaceTemplateCaches(tenantSlug, {
+          id: savedTemplateId,
+          title,
+          categoryId: selectedCategoryId ?? null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
 
       const next = new URLSearchParams();
       next.set("tenantSlug", tenantSlug);
@@ -289,6 +523,49 @@ export default function NewTemplatePage() {
       router.push(`/workspace?${next.toString()}`);
       return true;
     } catch (err: any) {
+      const msg = String(err?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        const localTemplateId = isEditMode ? editTemplateId || "" : buildLocalTemplateId();
+        const schema = {
+          version: 1 as const,
+          title,
+          sections,
+        };
+        enqueueTemplateSync({
+          mode: isEditMode ? "save-changes" : "create",
+          payload: {
+            tenantSlug,
+            templateId: localTemplateId || editTemplateId,
+            title,
+            categoryId: selectedCategoryId,
+            schema,
+          },
+        });
+        setQueuedTemplateSaves(getPendingTemplateSyncCount());
+        if (localTemplateId) {
+          patchWorkspaceTemplateCaches(tenantSlug, {
+            id: localTemplateId,
+            title,
+            categoryId: selectedCategoryId ?? null,
+            updatedAt: new Date().toISOString(),
+          });
+          cacheTemplateSchemaForOffline(
+            tenantSlug,
+            localTemplateId,
+            title,
+            sections,
+            selectedCategoryId ?? null,
+            "Workspace"
+          );
+        }
+        setError("Offline detected. Your form changes were queued and will sync automatically.");
+        const next = new URLSearchParams();
+        next.set("tenantSlug", tenantSlug);
+        if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
+        router.push(`/workspace?${next.toString()}`);
+        return true;
+      }
       setError(err?.message || "Failed to save template");
       return false;
     } finally {
@@ -405,6 +682,12 @@ export default function NewTemplatePage() {
       {error ? (
         <div className="fixed right-6 top-20 z-40 max-w-[calc(100vw-2rem)] rounded-md border border-foreground/20 bg-background/95 px-2 py-1 text-xs shadow-sm">
           {error}
+        </div>
+      ) : null}
+
+      {queuedTemplateSaves > 0 ? (
+        <div className="fixed left-6 right-6 top-20 z-20 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 shadow-sm">
+          {queuedTemplateSaves} form change{queuedTemplateSaves === 1 ? "" : "s"} queued for sync. They will upload automatically when connection returns.
         </div>
       ) : null}
 

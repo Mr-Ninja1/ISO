@@ -42,6 +42,10 @@ export function enqueueAuditSync(item: Omit<AuditSyncItem, "id" | "queuedAt">) {
   return next;
 }
 
+export function getPendingAuditSyncCount() {
+  return readQueue().length;
+}
+
 export async function flushAuditSyncQueue(accessToken: string) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 

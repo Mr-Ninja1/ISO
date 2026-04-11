@@ -61,11 +61,15 @@ export async function POST(req: Request) {
 
   const membership = await prisma.tenantMember.findFirst({
     where: { tenantId: tenant.id, userId: user.id },
-    select: { id: true },
+    select: { id: true, role: true },
   });
 
   if (!membership) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (String(membership.role) === "VIEWER") {
+    return NextResponse.json({ error: "Viewer role cannot create drafts or submit audits" }, { status: 403 });
   }
 
   const template = await prisma.formTemplate.findFirst({
@@ -76,11 +80,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Template not found" }, { status: 404 });
   }
 
+  const staffRows = (await prisma.$queryRawUnsafe(
+    `SELECT full_name, email FROM tenant_staff_pin WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
+    tenant.id,
+    user.id
+  )) as Array<{ full_name: string; email: string }>;
+  const staffProfile = staffRows[0] || null;
+
+  const actorName = staffProfile?.full_name || (user.user_metadata as any)?.full_name || user.email || "Staff";
+  const actorEmail = staffProfile?.email || user.email || "";
+
   if (isDraft) {
     const draftPayload = {
       ...payload,
       __draftMeta: {
         userId: user.id,
+        userName: actorName,
+        userEmail: actorEmail,
+      },
+      __auditMeta: {
+        submittedByUserId: user.id,
+        submittedByName: actorName,
+        submittedByEmail: actorEmail,
       },
     };
 
@@ -153,7 +174,14 @@ export async function POST(req: Request) {
       const audit = await prisma.auditLog.update({
         where: { id: existing.id },
         data: {
-          payload,
+          payload: {
+            ...payload,
+            __auditMeta: {
+              submittedByUserId: user.id,
+              submittedByName: actorName,
+              submittedByEmail: actorEmail,
+            },
+          },
           status: "SUBMITTED",
           submittedAt: new Date(),
         },
@@ -169,7 +197,14 @@ export async function POST(req: Request) {
       tenantId: tenant.id,
       templateId: template.id,
       status: "SUBMITTED",
-      payload,
+      payload: {
+        ...payload,
+        __auditMeta: {
+          submittedByUserId: user.id,
+          submittedByName: actorName,
+          submittedByEmail: actorEmail,
+        },
+      },
       submittedAt: new Date(),
     },
     select: { id: true },

@@ -55,6 +55,8 @@ function defaultField(fieldType: FieldType): FieldDef {
       return { id, type: "temp", label: "Temperature", required: false, unit: "C" };
     case "checkbox":
       return { id, type: "checkbox", label: "Checkbox", required: false };
+    case "yesno":
+      return { id, type: "yesno", label: "Yes / No", required: false };
     case "time":
       return { id, type: "time", label: "Time", required: false };
     case "dynamic-table":
@@ -266,6 +268,7 @@ function ColumnTypeSelect({
     { value: "temp", label: "Temp" },
     { value: "time", label: "Time" },
     { value: "checkbox", label: "Checkbox" },
+    { value: "yesno", label: "Yes / No" },
     { value: "signature", label: "Signature" },
   ];
 
@@ -435,7 +438,7 @@ function GridBuilder({
                     }
                     style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
                   >
-                    {rowIndex === 0 ? col.type : ""}
+                    {rowIndex === 0 ? (col.type === "yesno" ? "yes/no" : col.type) : ""}
                   </td>
                 ))}
               </tr>

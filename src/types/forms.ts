@@ -5,6 +5,7 @@ export type FieldType =
   | "temp"
   | "signature"
   | "checkbox"
+  | "yesno"
   | "time"
   | "dynamic-table";
 
@@ -63,6 +64,10 @@ export type CheckboxField = BaseField & {
   type: "checkbox";
 };
 
+export type YesNoField = BaseField & {
+  type: "yesno";
+};
+
 export type TimeField = BaseField & {
   type: "time";
 };
@@ -72,7 +77,7 @@ export type DynamicTableField = BaseField & {
   columns: Array<{
     id: string;
     label: string;
-    type: "text" | "temp";
+    type: "text" | "temp" | "yesno";
     isActive?: boolean;
     required?: boolean;
   }>;
@@ -85,6 +90,7 @@ export type FieldDef =
   | TempField
   | SignatureField
   | CheckboxField
+  | YesNoField
   | TimeField
   | DynamicTableField;
 

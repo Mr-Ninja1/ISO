@@ -25,7 +25,7 @@ import type {
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
-import { enqueueAuditSync, flushAuditSyncQueue } from "@/lib/client/auditSyncQueue";
+import { enqueueAuditSync } from "@/lib/client/auditSyncQueue";
 
 type Props = {
   tenantSlug: string;
@@ -39,6 +39,48 @@ type FormValues = Record<string, unknown>;
 
 function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string) {
   return `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
+}
+
+function draftFetchCooldownKey(userId: string | null, tenantSlug: string, templateId: string) {
+  return `audit-draft-fetch-cooldown:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
+}
+
+function shouldSkipDraftFetch(userId: string | null, tenantSlug: string, templateId: string, ttlMs: number) {
+  try {
+    const raw = localStorage.getItem(draftFetchCooldownKey(userId, tenantSlug, templateId));
+    if (!raw) return false;
+    const ts = Number(raw);
+    if (!Number.isFinite(ts)) return false;
+    return Date.now() - ts < ttlMs;
+  } catch {
+    return false;
+  }
+}
+
+function markDraftFetch(userId: string | null, tenantSlug: string, templateId: string) {
+  try {
+    localStorage.setItem(draftFetchCooldownKey(userId, tenantSlug, templateId), String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
+function scheduleBackgroundTask(task: () => void, delayMs: number) {
+  let idleId: number | null = null;
+  const timeoutId = window.setTimeout(() => {
+    if ("requestIdleCallback" in window) {
+      idleId = (window as any).requestIdleCallback(task, { timeout: 1200 });
+      return;
+    }
+    task();
+  }, delayMs);
+
+  return () => {
+    window.clearTimeout(timeoutId);
+    if (idleId !== null && "cancelIdleCallback" in window) {
+      (window as any).cancelIdleCallback(idleId);
+    }
+  };
 }
 
 function writeLocalDraft(
@@ -81,6 +123,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
+  const [activeStaffName, setActiveStaffName] = useState<string>("");
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
 
   const zodSchema = useMemo(() => buildZodSchema(schema), [schema]);
@@ -116,6 +159,20 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   );
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem("active-staff-profile:v1");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { tenantSlug?: string | null; name?: string | null };
+      if (parsed?.tenantSlug && parsed.tenantSlug !== tenantSlug) return;
+      if (typeof parsed?.name === "string" && parsed.name.trim()) {
+        setActiveStaffName(parsed.name.trim());
+      }
+    } catch {
+      // ignore
+    }
+  }, [tenantSlug]);
+
+  useEffect(() => {
     const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
     if (!local) return;
     setDraftAuditId(local.auditId || null);
@@ -123,55 +180,73 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }, [defaultValues, form, templateId, tenantSlug, user?.id]);
 
   useEffect(() => {
-    const token = session?.access_token;
-    if (!token) return;
-
-    const flush = () => {
-      flushAuditSyncQueue(token).catch(() => {
-        // ignore background sync failures
-      });
-    };
-
-    flush();
-    window.addEventListener("online", flush);
-    return () => window.removeEventListener("online", flush);
-  }, [session?.access_token]);
-
-  useEffect(() => {
     const accessToken = session?.access_token;
     if (!accessToken || !tenantSlug || !templateId) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
-    const url = new URL("/api/audit/draft", window.location.origin);
-    url.searchParams.set("tenantSlug", tenantSlug);
-    url.searchParams.set("templateId", templateId);
+    const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
+    if (local && shouldSkipDraftFetch(user?.id || null, tenantSlug, templateId, 5 * 60_000)) {
+      return;
+    }
 
-    setIsLoadingDraft(true);
-    fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || "Failed to load draft");
-        return data as {
-          draft: null | {
-            id: string;
-            payload: Record<string, unknown>;
+    let controller: AbortController | null = null;
+    let timeout: number | null = null;
+
+    const runFetch = () => {
+      const url = new URL("/api/audit/draft", window.location.origin);
+      url.searchParams.set("tenantSlug", tenantSlug);
+      url.searchParams.set("templateId", templateId);
+
+      controller = new AbortController();
+      timeout = window.setTimeout(() => controller?.abort(), 2500);
+
+      fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || "Failed to load draft");
+          return data as {
+            draft: null | {
+              id: string;
+              payload: Record<string, unknown>;
+            };
           };
-        };
-      })
-      .then((data) => {
-        if (!data.draft) return;
-        setDraftAuditId(data.draft.id);
-        form.reset({ ...defaultValues, ...data.draft.payload });
-        writeLocalDraft(user?.id || null, tenantSlug, templateId, data.draft.payload, data.draft.id);
-      })
-      .catch(() => {
-        // Silent fallback: form starts from defaults when no draft is available.
-      })
-      .finally(() => setIsLoadingDraft(false));
-  }, [defaultValues, form, session?.access_token, templateId, tenantSlug]);
+        })
+        .then((data) => {
+          if (!data.draft) return;
+          setDraftAuditId(data.draft.id);
+          form.reset({ ...defaultValues, ...data.draft.payload });
+          writeLocalDraft(user?.id || null, tenantSlug, templateId, data.draft.payload, data.draft.id);
+          markDraftFetch(user?.id || null, tenantSlug, templateId);
+        })
+        .catch(() => {
+          // Silent fallback: form starts from defaults when no draft is available.
+        })
+        .finally(() => {
+          if (timeout !== null) window.clearTimeout(timeout);
+          setIsLoadingDraft(false);
+        });
+    };
+
+    const cancelDeferred = local
+      ? scheduleBackgroundTask(runFetch, 900)
+      : (() => {
+          runFetch();
+          return () => {
+            // no-op
+          };
+        })();
+
+    return () => {
+      cancelDeferred();
+      if (timeout !== null) window.clearTimeout(timeout);
+      controller?.abort();
+    };
+  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, user?.id]);
 
   async function persistAudit(values: FormValues, mode: "submit" | "draft") {
     const accessToken = session?.access_token;
@@ -292,6 +367,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
           <div className="text-center">
             <div className="text-xl font-semibold tracking-tight">{schema.title}</div>
+            {activeStaffName ? (
+              <div className="mt-1 text-xs text-foreground/70">Staff: {activeStaffName}</div>
+            ) : null}
           </div>
         </div>
       ) : null}

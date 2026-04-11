@@ -12,6 +12,12 @@ function asText(value: unknown) {
   return JSON.stringify(value);
 }
 
+function asYesNo(value: unknown) {
+  if (value === "yes" || value === true) return "Yes";
+  if (value === "no" || value === false) return "No";
+  return asText(value);
+}
+
 function isDataUrl(value: unknown) {
   return typeof value === "string" && value.startsWith("data:image");
 }
@@ -85,6 +91,12 @@ export default async function AuditReportPage({
 
   const schema = template.schema as FormSchemaV1;
   const payload = (audit.payload as Record<string, unknown>) ?? {};
+  const auditMeta =
+    payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
+      ? (payload.__auditMeta as Record<string, unknown>)
+      : null;
+  const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
+  const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
   const sections = splitSections(schema);
   const resolvedOrientation = orientation || (shouldUseLandscape(schema) ? "landscape" : "portrait");
 
@@ -143,6 +155,12 @@ export default async function AuditReportPage({
             </div>
           </div>
           <div className="mt-3 text-center text-2xl font-bold tracking-tight">{schema.title || template.title}</div>
+          {submittedByName || submittedByEmail ? (
+            <div className="mt-2 text-center text-xs text-foreground/70">
+              Submitted by {submittedByName || "Staff"}
+              {submittedByEmail ? ` (${submittedByEmail})` : ""}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
@@ -216,7 +234,7 @@ export default async function AuditReportPage({
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img src={cell as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />
                                   ) : (
-                                    asText(cell)
+                                    col.type === "yesno" ? asYesNo(cell) : asText(cell)
                                   )}
                                 </td>
                               );

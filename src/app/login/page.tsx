@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import { createClient } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +21,50 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
+
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const accessToken = session?.access_token || "";
+      if (accessToken) {
+        const verifyRes = await fetch("/api/staff/verify-pin", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+            body: JSON.stringify({}),
+        });
+
+        const verifyJson = await verifyRes.json().catch(() => ({}));
+        if (!verifyRes.ok) {
+          throw new Error(verifyJson?.error || "PIN verification failed");
+        }
+
+        try {
+          localStorage.setItem(
+            "active-staff-profile:v1",
+            JSON.stringify({
+              tenantSlug: verifyJson?.tenantSlug || null,
+              name: verifyJson?.staffName || null,
+              email: verifyJson?.staffEmail || email,
+              userId: session?.user?.id || null,
+              ts: Date.now(),
+            })
+          );
+        } catch {
+          // ignore local storage failures
+        }
+
+        const tenantSlug = typeof verifyJson?.tenantSlug === "string" ? verifyJson.tenantSlug : "";
+        if (tenantSlug) {
+          router.push(`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`);
+          return;
+        }
+      }
+
       // Redirect to workspace after login
       router.push("/workspace");
     } catch (err: any) {

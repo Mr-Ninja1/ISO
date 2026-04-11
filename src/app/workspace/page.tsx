@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Clock3, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
+import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { NotificationModal } from "@/components/NotificationModal";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 import {
@@ -130,7 +131,7 @@ function WorkspaceSkeleton() {
   );
 }
 
-export default function WorkspacePage() {
+function WorkspacePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading, signOut } = useAuth();
@@ -166,7 +167,9 @@ export default function WorkspacePage() {
   const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [revalidateTick, setRevalidateTick] = useState(0);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
+  const workspaceRetryTimerRef = useRef<number | null>(null);
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
 
@@ -290,6 +293,56 @@ export default function WorkspacePage() {
     }
   }
 
+  async function primeOfflineCachesInBackground() {
+    if (!workspace || !accessToken || !tenantSlug) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    try {
+      const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
+
+      for (const cid of targets) {
+        const url = new URL("/api/workspace", window.location.origin);
+        url.searchParams.set("tenantSlug", tenantSlug);
+        if (cid) url.searchParams.set("categoryId", cid);
+
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) continue;
+        const data = (await res.json().catch(() => null)) as WorkspaceData | null;
+        if (!data) continue;
+        writeWorkspaceCache(tenantSlug, cid, data);
+      }
+
+      const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
+      templatesUrl.searchParams.set("tenantSlug", tenantSlug);
+      const templatesRes = await fetch(templatesUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (templatesRes.ok) {
+        const templatesJson = await templatesRes.json().catch(() => ({}));
+        for (const t of templatesJson.templates || []) {
+          writeAuditTemplateCache(tenantSlug, t.id, {
+            tenant: templatesJson.tenant,
+            template: {
+              id: t.id,
+              title: t.title,
+              schema: t.schema,
+              updatedAt: t.updatedAt,
+            },
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      localStorage.setItem("offlineModeEnabled", "1");
+      localStorage.setItem("offlinePreparedAt", now);
+      setOfflinePreparedAt(now);
+    } catch {
+      // silent background warm-up
+    }
+  }
+
   async function handleLogout() {
     try {
       setMenuOpen(false);
@@ -407,6 +460,7 @@ export default function WorkspacePage() {
     if (!tenantSlug) return;
 
     const cached = readWorkspaceCache(tenantSlug, categoryId);
+    const hasCached = Boolean(cached);
     if (cached) {
       setWorkspace(cached);
       setUiActiveCategoryId(null);
@@ -414,12 +468,11 @@ export default function WorkspacePage() {
       setSwitchingCategory(false);
       setError("");
       localStorage.setItem("lastTenantSlug", cached.tenant.slug);
-      if (!forceRefresh) return;
     }
 
-    if (workspace) {
+    if (workspace && !hasCached) {
       setSwitchingCategory(true);
-    } else {
+    } else if (!hasCached) {
       setWorkspaceLoading(true);
     }
 
@@ -429,15 +482,42 @@ export default function WorkspacePage() {
     url.searchParams.set("tenantSlug", tenantSlug);
     if (categoryId) url.searchParams.set("categoryId", categoryId);
 
+    let keepLoading = false;
+
     fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Failed to load workspace (${res.status})`);
+        if (!res.ok) {
+          const err = new Error(data?.error || `Failed to load workspace (${res.status})`) as Error & { status?: number };
+          err.status = res.status;
+          throw err;
+        }
         return data as WorkspaceData;
       })
       .then((data) => {
-        setWorkspace(data);
-        setUiActiveCategoryId(null);
+        const sameTenant =
+          workspace?.tenant.slug === data.tenant.slug &&
+          workspace?.tenant.name === data.tenant.name &&
+          workspace?.tenant.logoUrl === data.tenant.logoUrl;
+        const sameCategory = workspace?.selectedCategoryId === data.selectedCategoryId;
+        const sameTemplates =
+          Array.isArray(workspace?.templates) &&
+          workspace.templates.length === data.templates.length &&
+          workspace.templates.every((t, idx) => {
+            const n = data.templates[idx];
+            return (
+              n &&
+              t.id === n.id &&
+              t.updatedAt === n.updatedAt &&
+              t.categoryId === n.categoryId &&
+              t.title === n.title
+            );
+          });
+
+        if (!(sameTenant && sameCategory && sameTemplates)) {
+          setWorkspace(data);
+          setUiActiveCategoryId(null);
+        }
         localStorage.setItem("lastTenantSlug", data.tenant.slug);
         writeWorkspaceCache(tenantSlug, categoryId, data);
 
@@ -459,16 +539,40 @@ export default function WorkspacePage() {
         }
       })
       .catch((err) => {
-        setWorkspace(null);
-        setUiActiveCategoryId(null);
-        setError(err?.message || "Failed to load workspace");
+        const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
+        if (!hasCached) {
+          if (busy) {
+            // Keep skeleton visible and retry shortly instead of flashing an error state.
+            keepLoading = true;
+            setWorkspace(null);
+            setUiActiveCategoryId(null);
+            setError("");
+            if (workspaceRetryTimerRef.current !== null) {
+              window.clearTimeout(workspaceRetryTimerRef.current);
+            }
+            workspaceRetryTimerRef.current = window.setTimeout(() => {
+              setRevalidateTick((x) => x + 1);
+            }, 1200);
+            return;
+          }
+          setWorkspace(null);
+          setUiActiveCategoryId(null);
+          setError(err?.message || "Failed to load workspace");
+        }
       })
       .finally(() => {
-        setWorkspaceLoading(false);
+        if (!keepLoading) setWorkspaceLoading(false);
         setSwitchingCategory(false);
       });
+
+    return () => {
+      if (workspaceRetryTimerRef.current !== null) {
+        window.clearTimeout(workspaceRetryTimerRef.current);
+        workspaceRetryTimerRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey]);
+  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey, revalidateTick]);
 
   async function handleSeed(names: string[]) {
     if (!accessToken || !tenantSlug) return;
@@ -506,9 +610,87 @@ export default function WorkspacePage() {
   }, []);
 
   useEffect(() => {
+    if (!workspace || !tenantSlug || !accessToken) return;
+    if (offlinePreparedAt) return;
+
+    primeOfflineCachesInBackground();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, tenantSlug, accessToken, offlinePreparedAt]);
+
+  useEffect(() => {
     if (!tenantSlug) return;
     setRecentTemplateIds(readRecentTemplateIds(tenantSlug));
   }, [tenantSlug]);
+
+  useEffect(() => {
+    if (!workspace || !accessToken || !tenantSlug) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    let active = true;
+    const key = `template-bulk-warm:v1:${tenantSlug}`;
+    const last = Number(localStorage.getItem(key) || "0");
+    // Avoid hammering API while still keeping cache fresh enough for snappy opens.
+    if (Date.now() - last < 60 * 1000) return;
+
+    (async () => {
+      try {
+        const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
+        templatesUrl.searchParams.set("tenantSlug", tenantSlug);
+        const templatesRes = await fetch(templatesUrl.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!templatesRes.ok || !active) return;
+
+        const templatesJson = await templatesRes.json().catch(() => ({}));
+        for (const t of templatesJson.templates || []) {
+          writeAuditTemplateCache(tenantSlug, t.id, {
+            tenant: templatesJson.tenant,
+            template: {
+              id: t.id,
+              title: t.title,
+              schema: t.schema,
+              updatedAt: t.updatedAt,
+            },
+          });
+        }
+        localStorage.setItem(key, String(Date.now()));
+      } catch {
+        // best-effort warm-up
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.tenant.slug, workspace?.templates?.length, accessToken, tenantSlug]);
+
+  useEffect(() => {
+    if (!workspace) return;
+    const toPrefetch = workspace.templates.slice(0, 8);
+    for (const t of toPrefetch) {
+      router.prefetch(`/${workspace.tenant.slug}/audits/new?templateId=${t.id}`);
+    }
+  }, [workspace?.tenant.slug, workspace?.templates, router]);
+
+  useEffect(() => {
+    const onOnline = () => setRevalidateTick((x) => x + 1);
+    const onFocus = () => setRevalidateTick((x) => x + 1);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        setRevalidateTick((x) => x + 1);
+      }
+    };
+
+    window.addEventListener("online", onOnline);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   useEffect(() => {
     if (!seedOpen) return;
@@ -676,6 +858,7 @@ export default function WorkspacePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <LoggedInStaffBadge tenantSlug={tenant.slug} />
             <ConnectivityIndicator />
             {prefetchingSchemas && prefetchProgress.total > 0 ? (
               <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
@@ -728,45 +911,49 @@ export default function WorkspacePage() {
                       </button>
                     ) : null}
 
-                    <Link
-                      role="menuitem"
-                      href={`/${tenant.slug}/templates/new${workspace.selectedCategoryId ? `?categoryId=${encodeURIComponent(workspace.selectedCategoryId)}` : ""}`}
-                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <Plus className="h-4 w-4" />
-                      Create custom form
-                    </Link>
+                    {workspace.isAdmin ? (
+                      <>
+                        <Link
+                          role="menuitem"
+                          href={`/${tenant.slug}/templates/new${workspace.selectedCategoryId ? `?categoryId=${encodeURIComponent(workspace.selectedCategoryId)}` : ""}`}
+                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create custom form
+                        </Link>
 
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                      onClick={prepareOfflineMode}
-                      disabled={offlinePreparing}
-                    >
-                      {offlinePreparing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {offlinePreparing ? "Preparing offline mode..." : "Prepare offline mode"}
-                    </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                          onClick={prepareOfflineMode}
+                          disabled={offlinePreparing}
+                        >
+                          {offlinePreparing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                          {offlinePreparing ? "Preparing offline mode..." : "Prepare offline mode"}
+                        </button>
 
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                      onClick={clearTenantLocalCache}
-                    >
-                      Clear local cache
-                    </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                          onClick={clearTenantLocalCache}
+                        >
+                          Clear local cache
+                        </button>
 
-                    <Link
-                      role="menuitem"
-                      href={`/${tenant.slug}/settings`}
-                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      <Settings className="h-4 w-4" />
-                      Settings
-                    </Link>
+                        <Link
+                          role="menuitem"
+                          href={`/${tenant.slug}/settings`}
+                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Settings className="h-4 w-4" />
+                          Settings
+                        </Link>
+                      </>
+                    ) : null}
 
                     <button
                       type="button"
@@ -916,6 +1103,18 @@ export default function WorkspacePage() {
                               <button
                                 key={`recent-dropdown-${t.id}`}
                                 type="button"
+                                onMouseEnter={() => {
+                                  prefetchTemplateSchema(t.id).catch(() => {
+                                    // best-effort prefetch
+                                  });
+                                  router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                }}
+                                onFocus={() => {
+                                  prefetchTemplateSchema(t.id).catch(() => {
+                                    // best-effort prefetch
+                                  });
+                                  router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                }}
                                 onClick={() => {
                                   setRecentOpen(false);
                                   setOpeningTemplateId(t.id);
@@ -974,6 +1173,18 @@ export default function WorkspacePage() {
                   key={t.id}
                   role="button"
                   tabIndex={0}
+                  onMouseEnter={() => {
+                    prefetchTemplateSchema(t.id).catch(() => {
+                      // best-effort prefetch
+                    });
+                    router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                  }}
+                  onFocus={() => {
+                    prefetchTemplateSchema(t.id).catch(() => {
+                      // best-effort prefetch
+                    });
+                    router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                  }}
                   onClick={() => {
                     setOpeningTemplateId(t.id);
                     rememberRecentTemplate(t.id);
@@ -1052,5 +1263,13 @@ export default function WorkspacePage() {
         onClose={() => setNotification(null)}
       />
     </div>
+  );
+}
+
+export default function WorkspacePage() {
+  return (
+    <Suspense fallback={<WorkspaceSkeleton />}>
+      <WorkspacePageInner />
+    </Suspense>
   );
 }

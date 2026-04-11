@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         try {
           localStorage.removeItem("lastTenantSlug");
+          localStorage.removeItem("active-staff-profile:v1");
         } catch {
           // ignore
         }
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       localStorage.removeItem("lastTenantSlug");
+      localStorage.removeItem("active-staff-profile:v1");
     } catch {
       // ignore
     }

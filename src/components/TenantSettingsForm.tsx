@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/auth";
+import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 
 type Props = {
   tenant: {
@@ -106,6 +107,18 @@ export function TenantSettingsForm({ tenant }: Props) {
 
     try {
       const accessToken = await getAccessToken();
+      if (!navigator.onLine) {
+        enqueueBackgroundMutation({
+          url: `/api/tenants/${tenant.id}/update`,
+          method: "POST",
+          body: { logoUrl: null, name },
+          dedupeKey: `tenant-update:${tenant.id}`,
+        });
+        setLogoUrl("");
+        setMessage("Offline: change queued and will sync automatically.");
+        return;
+      }
+
       const response = await fetch(`/api/tenants/${tenant.id}/update`, {
         method: "POST",
         headers: {
@@ -132,7 +145,20 @@ export function TenantSettingsForm({ tenant }: Props) {
       router.refresh();
       setMessage("Logo removed.");
     } catch (error: any) {
-      setMessage(error?.message || "Failed to remove logo");
+      const msg = String(error?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        enqueueBackgroundMutation({
+          url: `/api/tenants/${tenant.id}/update`,
+          method: "POST",
+          body: { logoUrl: null, name },
+          dedupeKey: `tenant-update:${tenant.id}`,
+        });
+        setLogoUrl("");
+        setMessage("Offline: change queued and will sync automatically.");
+      } else {
+        setMessage(error?.message || "Failed to remove logo");
+      }
     } finally {
       setUploadingLogo(false);
     }
@@ -145,6 +171,17 @@ export function TenantSettingsForm({ tenant }: Props) {
 
     try {
       const accessToken = await getAccessToken();
+      if (!navigator.onLine) {
+        enqueueBackgroundMutation({
+          url: `/api/tenants/${tenant.id}/update`,
+          method: "POST",
+          body: { name, logoUrl },
+          dedupeKey: `tenant-update:${tenant.id}`,
+        });
+        setMessage("Offline: settings queued and will sync automatically.");
+        return;
+      }
+
       const response = await fetch(`/api/tenants/${tenant.id}/update`, {
         method: "POST",
         headers: {
@@ -171,7 +208,19 @@ export function TenantSettingsForm({ tenant }: Props) {
       router.refresh();
       setTimeout(() => setMessage(""), 3000);
     } catch (error: any) {
-      setMessage(error.message || "Update failed");
+      const msg = String(error?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        enqueueBackgroundMutation({
+          url: `/api/tenants/${tenant.id}/update`,
+          method: "POST",
+          body: { name, logoUrl },
+          dedupeKey: `tenant-update:${tenant.id}`,
+        });
+        setMessage("Offline: settings queued and will sync automatically.");
+      } else {
+        setMessage(error.message || "Update failed");
+      }
     } finally {
       setLoading(false);
     }

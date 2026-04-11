@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 
 type TemplateItem = {
   id: string;
@@ -49,6 +50,16 @@ export function TemplateManagementPanel({
     setMessage("");
 
     try {
+      if (!navigator.onLine) {
+        enqueueBackgroundMutation({
+          url: "/api/templates/delete",
+          method: "POST",
+          body: { tenantSlug, templateId },
+        });
+        setMessage("Offline: delete queued and will sync automatically.");
+        return;
+      }
+
       const res = await fetch("/api/templates/delete", {
         method: "POST",
         headers: {
@@ -66,7 +77,18 @@ export function TemplateManagementPanel({
       setMessage("Form deleted.");
       router.refresh();
     } catch (err: any) {
-      setMessage(err?.message || "Delete failed");
+      const msg = String(err?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        enqueueBackgroundMutation({
+          url: "/api/templates/delete",
+          method: "POST",
+          body: { tenantSlug, templateId },
+        });
+        setMessage("Offline: delete queued and will sync automatically.");
+      } else {
+        setMessage(err?.message || "Delete failed");
+      }
     } finally {
       setDeletingId(null);
     }

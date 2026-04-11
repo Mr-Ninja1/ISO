@@ -47,9 +47,12 @@ export async function GET(req: Request) {
 
     const membership = await prisma.tenantMember.findFirst({
       where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (membership.role !== "ADMIN") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
 
     const template = await prisma.formTemplate.findFirst({
       where: { id: templateId, tenantId: tenant.id },

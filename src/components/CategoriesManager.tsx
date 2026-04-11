@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Tenant, Category } from "@prisma/client";
 import { useAuth } from "@/components/AuthProvider";
+import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 
 type TenantWithCategories = Tenant & { categories: Category[] };
 
@@ -10,9 +11,11 @@ type Props = {
   tenant: TenantWithCategories;
 };
 
+type CategoryItem = Pick<Category, "id" | "name" | "sortOrder">;
+
 export function CategoriesManager({ tenant }: Props) {
   const { session } = useAuth();
-  const [categories, setCategories] = useState(tenant.categories);
+  const [categories, setCategories] = useState<CategoryItem[]>(tenant.categories);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -27,6 +30,26 @@ export function CategoriesManager({ tenant }: Props) {
     try {
       const accessToken = session?.access_token;
       if (!accessToken) throw new Error("Not authenticated");
+
+      if (!navigator.onLine) {
+        const optimistic: CategoryItem = {
+          id: `local_${Date.now()}`,
+          name: newCategoryName.trim(),
+          sortOrder: 0,
+        };
+        setCategories((prev) => [...prev, optimistic]);
+        enqueueBackgroundMutation({
+          url: "/api/categories",
+          method: "POST",
+          body: {
+            tenantId: tenant.id,
+            name: newCategoryName.trim(),
+          },
+        });
+        setNewCategoryName("");
+        setMessage("Offline: category queued and will sync automatically.");
+        return;
+      }
 
       const response = await fetch(`/api/categories`, {
         method: "POST",
@@ -51,7 +74,28 @@ export function CategoriesManager({ tenant }: Props) {
       setMessage("Category created!");
       setTimeout(() => setMessage(""), 2000);
     } catch (error: any) {
-      setMessage(error.message || "Failed to create category");
+      const msg = String(error?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        const optimistic: CategoryItem = {
+          id: `local_${Date.now()}`,
+          name: newCategoryName.trim(),
+          sortOrder: 0,
+        };
+        setCategories((prev) => [...prev, optimistic]);
+        enqueueBackgroundMutation({
+          url: "/api/categories",
+          method: "POST",
+          body: {
+            tenantId: tenant.id,
+            name: newCategoryName.trim(),
+          },
+        });
+        setNewCategoryName("");
+        setMessage("Offline: category queued and will sync automatically.");
+      } else {
+        setMessage(error.message || "Failed to create category");
+      }
     } finally {
       setLoading(false);
     }
@@ -63,6 +107,18 @@ export function CategoriesManager({ tenant }: Props) {
     try {
       const accessToken = session?.access_token;
       if (!accessToken) throw new Error("Not authenticated");
+
+      if (!navigator.onLine) {
+        setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+        if (!categoryId.startsWith("local_")) {
+          enqueueBackgroundMutation({
+            url: `/api/categories/${categoryId}`,
+            method: "DELETE",
+          });
+        }
+        setMessage("Offline: delete queued and will sync automatically.");
+        return;
+      }
 
       const response = await fetch(`/api/categories/${categoryId}`, {
         method: "DELETE",
@@ -78,7 +134,20 @@ export function CategoriesManager({ tenant }: Props) {
 
       setCategories(categories.filter((c) => c.id !== categoryId));
     } catch (error: any) {
-      setMessage(error.message || "Failed to delete category");
+      const msg = String(error?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+        if (!categoryId.startsWith("local_")) {
+          enqueueBackgroundMutation({
+            url: `/api/categories/${categoryId}`,
+            method: "DELETE",
+          });
+        }
+        setMessage("Offline: delete queued and will sync automatically.");
+      } else {
+        setMessage(error.message || "Failed to delete category");
+      }
     }
   }
 

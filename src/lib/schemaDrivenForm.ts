@@ -19,9 +19,7 @@ function numberFromString(value: unknown) {
 function fieldToZod(field: FieldDef | SimpleFieldDef) {
   switch (field.type) {
     case "text": {
-      const requiredInner = z
-        .string({ required_error: "Required", invalid_type_error: "Required" })
-        .min(1, "Required");
+      const requiredInner = z.string().min(1, "Required");
       const optionalInner = z.string().optional();
 
       return field.required
@@ -29,16 +27,14 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
         : z.preprocess(emptyStringToUndefined, optionalInner);
     }
     case "date": {
-      const requiredInner = z
-        .string({ required_error: "Required", invalid_type_error: "Required" })
-        .min(1, "Required");
+      const requiredInner = z.string().min(1, "Required");
       const optionalInner = z.string().optional();
       return field.required
         ? z.preprocess(emptyStringToUndefined, requiredInner)
         : z.preprocess(emptyStringToUndefined, optionalInner);
     }
     case "number": {
-      let inner = z.number({ required_error: "Required", invalid_type_error: "Required" });
+      let inner = z.number();
       if (typeof (field as any).min === "number") inner = inner.min((field as any).min);
       if (typeof (field as any).max === "number") inner = inner.max((field as any).max);
       return field.required
@@ -46,7 +42,7 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
         : z.preprocess(numberFromString, inner.optional());
     }
     case "temp": {
-      let inner = z.number({ required_error: "Required", invalid_type_error: "Required" });
+      let inner = z.number();
       if (typeof field.min === "number") inner = inner.min(field.min);
       if (typeof field.max === "number") inner = inner.max(field.max);
 
@@ -55,9 +51,7 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
         : z.preprocess(numberFromString, inner.optional());
     }
     case "signature": {
-      const requiredInner = z
-        .string({ required_error: "Required", invalid_type_error: "Required" })
-        .min(1, "Required");
+      const requiredInner = z.string().min(1, "Required");
       const optionalInner = z.string().optional();
 
       return field.required
@@ -65,13 +59,18 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
         : z.preprocess(emptyStringToUndefined, optionalInner);
     }
     case "checkbox": {
-      const inner = z.boolean({ required_error: "Required", invalid_type_error: "Required" });
+      const inner = z.boolean();
       return field.required ? inner : inner.optional();
     }
+    case "yesno": {
+      const requiredInner = z.enum(["yes", "no"]);
+      const optionalInner = z.enum(["yes", "no"]).optional();
+      return field.required
+        ? z.preprocess(emptyStringToUndefined, requiredInner)
+        : z.preprocess(emptyStringToUndefined, optionalInner);
+    }
     case "time": {
-      const requiredInner = z
-        .string({ required_error: "Required", invalid_type_error: "Required" })
-        .min(1, "Required");
+      const requiredInner = z.string().min(1, "Required");
       const optionalInner = z.string().optional();
       return field.required
         ? z.preprocess(emptyStringToUndefined, requiredInner)

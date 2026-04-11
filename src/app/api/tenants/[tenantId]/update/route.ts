@@ -10,10 +10,13 @@ function getBearerToken(req: Request) {
 
 export async function POST(
   req: Request,
-  { params }: { params: { tenantId: string } }
+  { params }: { params: Promise<{ tenantId: string }> }
 ) {
   try {
-    const { tenantId } = params;
+    const { tenantId } = await params;
+    if (!tenantId) {
+      return NextResponse.json({ error: "Missing tenant id" }, { status: 400 });
+    }
 
     const token = getBearerToken(req);
     if (!token) {

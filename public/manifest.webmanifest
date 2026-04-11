@@ -1,0 +1,10 @@
+{
+  "name": "QHSE Audit Platform",
+  "short_name": "QHSE",
+  "description": "Offline-capable QHSE and food safety audits.",
+  "start_url": "/workspace",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111111"
+}

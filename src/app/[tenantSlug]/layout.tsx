@@ -1,7 +1,20 @@
-﻿import Link from "next/link";
-import { notFound } from "next/navigation";
+﻿import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
+import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
+import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
+
+type TenantHeaderMeta = { name: string; slug: string; logoUrl: string | null };
+type TenantHeaderCacheEntry = { ts: number; tenant: TenantHeaderMeta };
+
+const globalForTenantHeaderCache = globalThis as unknown as {
+  tenantHeaderCache?: Map<string, TenantHeaderCacheEntry>;
+};
+
+const tenantHeaderCache = globalForTenantHeaderCache.tenantHeaderCache ?? new Map<string, TenantHeaderCacheEntry>();
+if (!globalForTenantHeaderCache.tenantHeaderCache) {
+  globalForTenantHeaderCache.tenantHeaderCache = tenantHeaderCache;
+}
 
 function displayNameFromSlug(slug: string) {
   const cleaned = slug.replace(/[-_]+/g, " ").trim();
@@ -10,6 +23,29 @@ function displayNameFromSlug(slug: string) {
     .split(" ")
     .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : p))
     .join(" ");
+}
+
+async function findTenantWithTimeout(tenantSlug: string, timeoutMs: number) {
+  return Promise.race([
+    prisma.tenant.findUnique({ where: { slug: tenantSlug } }),
+    new Promise<null>((_, reject) => {
+      setTimeout(() => reject(new Error("Tenant lookup timed out")), timeoutMs);
+    }),
+  ]);
+}
+
+function readTenantHeaderCache(tenantSlug: string, ttlMs: number): TenantHeaderMeta | null {
+  const item = tenantHeaderCache.get(tenantSlug);
+  if (!item) return null;
+  if (Date.now() - item.ts > ttlMs) {
+    tenantHeaderCache.delete(tenantSlug);
+    return null;
+  }
+  return item.tenant;
+}
+
+function writeTenantHeaderCache(tenant: TenantHeaderMeta) {
+  tenantHeaderCache.set(tenant.slug, { ts: Date.now(), tenant });
 }
 
 export default async function TenantLayout({
@@ -22,29 +58,32 @@ export default async function TenantLayout({
   const { tenantSlug } = await params;
   if (!tenantSlug) notFound();
 
-  let tenant: { name: string; slug: string; logoUrl: string | null } | null = null;
+  let tenant: TenantHeaderMeta | null = readTenantHeaderCache(tenantSlug, 5 * 60_000);
   let dbUnavailable = false;
 
-  try {
-    const dbTenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
-    if (dbTenant) {
+  if (!tenant) {
+    try {
+      const dbTenant = await findTenantWithTimeout(tenantSlug, 1200);
+      if (dbTenant) {
+        tenant = {
+          name: dbTenant.name,
+          slug: dbTenant.slug,
+          logoUrl: dbTenant.logoUrl,
+        };
+        writeTenantHeaderCache(tenant);
+      } else {
+        // Tenant not found (db reachable). Keep existing behavior.
+        notFound();
+      }
+    } catch {
+      dbUnavailable = true;
+      // Offline/DB timeout fallback: keep route usable for cached client data.
       tenant = {
-        name: dbTenant.name,
-        slug: dbTenant.slug,
-        logoUrl: dbTenant.logoUrl,
+        name: displayNameFromSlug(tenantSlug),
+        slug: tenantSlug,
+        logoUrl: null,
       };
-    } else {
-      // Tenant not found (db reachable). Keep existing behavior.
-      notFound();
     }
-  } catch {
-    dbUnavailable = true;
-    // Offline/DB timeout fallback: keep route usable for cached client data.
-    tenant = {
-      name: displayNameFromSlug(tenantSlug),
-      slug: tenantSlug,
-      logoUrl: null,
-    };
   }
 
   return (
@@ -72,6 +111,8 @@ export default async function TenantLayout({
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           <div id="tenant-header-actions" className="mr-1 flex flex-wrap items-center justify-end gap-1.5 sm:mr-2" />
+          <LoggedInStaffBadge tenantSlug={tenant.slug} />
+          <BackgroundSyncManager />
           <TenantHeaderNav tenantSlug={tenant.slug} />
         </div>
       </header>

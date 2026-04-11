@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
+import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 
 export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string }) {
   const router = useRouter();
@@ -23,6 +24,10 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
     if (!open) return;
     if (!accessToken) return;
     if (suggestionsLoading) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setSuggestions([]);
+      return;
+    }
 
     setSuggestionsLoading(true);
     fetch("/api/workspace/suggestions", {
@@ -44,6 +49,17 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
     setBusy(true);
     setError("");
     try {
+      if (!navigator.onLine) {
+        enqueueBackgroundMutation({
+          url: "/api/workspace/seed",
+          method: "POST",
+          body: { tenantSlug, names },
+        });
+        setOpen(false);
+        setError("Offline: category updates queued and will sync automatically.");
+        return;
+      }
+
       const res = await fetch("/api/workspace/seed", {
         method: "POST",
         headers: {
@@ -59,7 +75,19 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
       setOpen(false);
       router.refresh();
     } catch (e: any) {
-      setError(e?.message || "Failed to add categories");
+      const msg = String(e?.message || "");
+      const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
+      if (isNetwork) {
+        enqueueBackgroundMutation({
+          url: "/api/workspace/seed",
+          method: "POST",
+          body: { tenantSlug, names },
+        });
+        setOpen(false);
+        setError("Offline: category updates queued and will sync automatically.");
+      } else {
+        setError(e?.message || "Failed to add categories");
+      }
     } finally {
       setBusy(false);
     }

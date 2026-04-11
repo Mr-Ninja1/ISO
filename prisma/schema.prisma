@@ -10,6 +10,9 @@ datasource db {
 
 enum TenantRole {
   ADMIN
+  MANAGER
+  AUDITOR
+  VIEWER
   MEMBER
 }
 
@@ -30,6 +33,23 @@ model Tenant {
   templates  FormTemplate[]
   auditLogs  AuditLog[]
   members    TenantMember[]
+  staffPins  TenantStaffPin[]
+}
+
+model TenantStaffPin {
+  tenantId  String   @db.Uuid @map("tenant_id")
+  userId    String   @db.Uuid @map("user_id")
+  email     String
+  fullName  String   @map("full_name")
+  pinHash   String   @map("pin_hash")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_staff_pin")
 }
 
 model TenantMember {

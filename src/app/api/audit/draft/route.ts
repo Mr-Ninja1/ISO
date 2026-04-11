@@ -55,9 +55,12 @@ export async function GET(req: Request) {
 
   const membership = await prisma.tenantMember.findFirst({
     where: { tenantId: tenant.id, userId: user.id },
-    select: { id: true },
+    select: { id: true, role: true },
   });
   if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (String(membership.role) === "VIEWER") {
+    return NextResponse.json({ error: "Viewer role cannot access draft workflow" }, { status: 403 });
+  }
 
   const candidates = await prisma.auditLog.findMany({
     where: {
