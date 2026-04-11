@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
+import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -14,10 +15,12 @@ export default function OnboardingPage() {
 
   const supabase = createClient();
 
-  if (authLoading) return <div className="flex min-h-dvh items-center justify-center">Loading...</div>;
+  if (authLoading) {
+    return <AppLoadingScreen title="Loading onboarding" subtitle="Checking your account session..." />;
+  }
 
   if (user && !session) {
-    return <div className="flex min-h-dvh items-center justify-center">Preparing your session...</div>;
+    return <AppLoadingScreen title="Preparing session" subtitle="Finalizing authentication..." />;
   }
 
   if (!user) {

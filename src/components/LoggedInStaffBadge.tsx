@@ -55,13 +55,13 @@ export function LoggedInStaffBadge({ tenantSlug }: { tenantSlug?: string }) {
   if (!user) return null;
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-foreground/20 bg-background px-2.5 py-1">
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-foreground/20 bg-foreground/[0.04]">
-        <UserRound className="h-3.5 w-3.5" />
+    <div className="inline-flex max-w-[210px] items-center gap-2 rounded-full border border-foreground/20 bg-background px-2 py-1">
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-foreground/20 bg-foreground/[0.04] sm:h-6 sm:w-6">
+        <UserRound className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
       </span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-[11px] font-semibold">{displayName}</span>
-        {subtitle ? <span className="text-[10px] text-foreground/65">{subtitle}</span> : null}
+      <span className="min-w-0 flex flex-col leading-tight">
+        <span className="truncate text-[11px] font-semibold">{displayName}</span>
+        {subtitle ? <span className="hidden truncate text-[10px] text-foreground/65 sm:inline">{subtitle}</span> : null}
       </span>
     </div>
   );

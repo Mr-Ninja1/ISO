@@ -41,6 +41,13 @@ type WorkspaceData = {
   selectedCategoryId: string | null;
   templates: TemplateSummary[];
   isAdmin: boolean;
+  role?: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
+  capabilities?: {
+    canAccessSettings?: boolean;
+    canCreateForms?: boolean;
+    canManageCategories?: boolean;
+    canManageStaff?: boolean;
+  };
 };
 
 type WorkspaceCacheEnvelope = {
@@ -50,14 +57,14 @@ type WorkspaceCacheEnvelope = {
 
 const RECENT_TEMPLATES_LIMIT = 6;
 
-function workspaceCacheKey(tenantSlug: string, categoryId: string | null) {
-  return `workspace-cache:v1:${tenantSlug}:${categoryId || "all"}`;
+function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
+  return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
 }
 
-function readWorkspaceCache(tenantSlug: string, categoryId: string | null): WorkspaceData | null {
+function readWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null): WorkspaceData | null {
   if (!tenantSlug) return null;
   try {
-    const raw = localStorage.getItem(workspaceCacheKey(tenantSlug, categoryId));
+    const raw = localStorage.getItem(workspaceCacheKey(userId, tenantSlug, categoryId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
     if (!parsed?.data || typeof parsed.ts !== "number") return null;
@@ -68,11 +75,11 @@ function readWorkspaceCache(tenantSlug: string, categoryId: string | null): Work
   }
 }
 
-function writeWorkspaceCache(tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
+function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
   if (!tenantSlug) return;
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
-    localStorage.setItem(workspaceCacheKey(tenantSlug, categoryId), JSON.stringify(payload));
+    localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
   } catch {
     // ignore quota / serialization failures
   }
@@ -141,6 +148,7 @@ function WorkspacePageInner() {
   const forceRefresh = searchParams.get("refresh") === "1";
 
   const accessToken = session?.access_token || "";
+  const cacheUserId = user?.id || null;
 
   const [tenantChoices, setTenantChoices] = useState<TenantSummary[]>([]);
   const [tenantChoiceLoading, setTenantChoiceLoading] = useState(false);
@@ -168,6 +176,9 @@ function WorkspacePageInner() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [revalidateTick, setRevalidateTick] = useState(0);
+  const [confirmOfflineOpen, setConfirmOfflineOpen] = useState(false);
+  const [openingSettings, setOpeningSettings] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const workspaceRetryTimerRef = useRef<number | null>(null);
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
@@ -186,7 +197,7 @@ function WorkspacePageInner() {
   function clearTenantLocalCache() {
     if (!tenantSlug) return;
 
-    const prefixA = `workspace-cache:v1:${tenantSlug}:`;
+    const prefixA = `workspace-cache:v2:${cacheUserId || "anon"}:${tenantSlug}:`;
     const prefixB = `audit-template-cache:v1:${tenantSlug}:`;
     const keysToDelete: string[] = [];
     for (let i = 0; i < localStorage.length; i += 1) {
@@ -230,11 +241,6 @@ function WorkspacePageInner() {
   async function prepareOfflineMode() {
     if (!workspace || !accessToken || !tenantSlug) return;
 
-    const accepted = window.confirm(
-      "Enable offline mode? This will cache all forms and category data for faster loading and continued use during weak internet."
-    );
-    if (!accepted) return;
-
     setOfflinePreparing(true);
     setError("");
 
@@ -251,7 +257,7 @@ function WorkspacePageInner() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || `Offline prep failed (${res.status})`);
-        writeWorkspaceCache(tenantSlug, cid, data as WorkspaceData);
+        writeWorkspaceCache(cacheUserId, tenantSlug, cid, data as WorkspaceData);
       }
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
@@ -311,7 +317,7 @@ function WorkspacePageInner() {
         if (!res.ok) continue;
         const data = (await res.json().catch(() => null)) as WorkspaceData | null;
         if (!data) continue;
-        writeWorkspaceCache(tenantSlug, cid, data);
+        writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
       }
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
@@ -344,12 +350,22 @@ function WorkspacePageInner() {
   }
 
   async function handleLogout() {
+    if (loggingOut) return;
     try {
+      setLoggingOut(true);
       setMenuOpen(false);
       await signOut();
     } finally {
       router.push("/login");
+      setLoggingOut(false);
     }
+  }
+
+  function handleOpenSettings(targetTenantSlug: string) {
+    if (openingSettings) return;
+    setOpeningSettings(true);
+    setMenuOpen(false);
+    router.push(`/${targetTenantSlug}/settings`);
   }
 
   function handleAddFromTemplates(selectedCategoryId: string | null) {
@@ -393,7 +409,7 @@ function WorkspacePageInner() {
   // Hydrate instantly from local cache, independent of auth/network timing.
   useEffect(() => {
     if (!tenantSlug) return;
-    const cached = readWorkspaceCache(tenantSlug, categoryId);
+    const cached = readWorkspaceCache(cacheUserId, tenantSlug, categoryId);
     if (!cached) return;
 
     setWorkspace(cached);
@@ -402,6 +418,8 @@ function WorkspacePageInner() {
     setSwitchingCategory(false);
     setError("");
     localStorage.setItem("lastTenantSlug", cached.tenant.slug);
+    // Keep dependency size stable to avoid React dev warning during fast refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantSlug, categoryId]);
 
   useEffect(() => {
@@ -459,7 +477,7 @@ function WorkspacePageInner() {
     if (!accessToken) return;
     if (!tenantSlug) return;
 
-    const cached = readWorkspaceCache(tenantSlug, categoryId);
+    const cached = readWorkspaceCache(cacheUserId, tenantSlug, categoryId);
     const hasCached = Boolean(cached);
     if (cached) {
       setWorkspace(cached);
@@ -519,11 +537,11 @@ function WorkspacePageInner() {
           setUiActiveCategoryId(null);
         }
         localStorage.setItem("lastTenantSlug", data.tenant.slug);
-        writeWorkspaceCache(tenantSlug, categoryId, data);
+        writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, data);
 
         // Also cache under resolved selected category for instant tab switching.
         if (data.selectedCategoryId) {
-          writeWorkspaceCache(tenantSlug, data.selectedCategoryId, data);
+          writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
         }
 
         if (data.selectedCategoryId && data.selectedCategoryId !== (categoryId ?? "")) {
@@ -572,7 +590,7 @@ function WorkspacePageInner() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey, revalidateTick]);
+  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey, revalidateTick, cacheUserId]);
 
   async function handleSeed(names: string[]) {
     if (!accessToken || !tenantSlug) return;
@@ -607,6 +625,31 @@ function WorkspacePageInner() {
   useEffect(() => {
     const ts = localStorage.getItem("offlinePreparedAt");
     if (ts) setOfflinePreparedAt(ts);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("workspace-notice:v1");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        message?: string;
+        tone?: "default" | "success" | "warning" | "error";
+        ts?: number;
+      };
+      if (!parsed?.message) return;
+      if (typeof parsed.ts === "number" && Date.now() - parsed.ts > 90_000) {
+        localStorage.removeItem("workspace-notice:v1");
+        return;
+      }
+      setNotification({
+        title: "Workspace update",
+        message: parsed.message,
+        tone: parsed.tone || "default",
+      });
+      localStorage.removeItem("workspace-notice:v1");
+    } catch {
+      localStorage.removeItem("workspace-notice:v1");
+    }
   }, []);
 
   useEffect(() => {
@@ -664,6 +707,23 @@ function WorkspacePageInner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace?.tenant.slug, workspace?.templates?.length, accessToken, tenantSlug]);
+
+  useEffect(() => {
+    if (!workspace) return;
+
+    const role = workspace.role || (workspace.isAdmin ? "ADMIN" : "MEMBER");
+    const canAccessSettings =
+      workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
+    if (!canAccessSettings) return;
+
+    router.prefetch(`/${workspace.tenant.slug}/settings`);
+  }, [
+    workspace?.tenant.slug,
+    workspace?.capabilities?.canAccessSettings,
+    workspace?.role,
+    workspace?.isAdmin,
+    router,
+  ]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -828,14 +888,21 @@ function WorkspacePageInner() {
   if (!workspace) return <WorkspaceSkeleton />;
 
   const { tenant, categories, selectedCategoryId, templates } = workspace;
+  const role = workspace.role || (workspace.isAdmin ? "ADMIN" : "MEMBER");
+  const canManageCategories =
+    workspace.capabilities?.canManageCategories ?? (role === "ADMIN" || role === "MANAGER");
+  const canCreateForms =
+    workspace.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
+  const canAccessSettings =
+    workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
 
   const hasCategories = categories.length > 0;
 
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
       <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background/95 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
+          <div className="min-w-0 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
               {tenant.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -848,17 +915,19 @@ function WorkspacePageInner() {
                 <span className="text-sm font-semibold">{tenant.name[0]}</span>
               )}
             </div>
-            <div className="flex flex-col">
+            <div className="min-w-0 flex flex-col">
               <div className="flex items-center gap-2">
                 <LayoutDashboard className="h-4 w-4 text-foreground/70" />
-                <h1 className="text-base font-semibold">{tenant.name}</h1>
+                <h1 className="truncate text-base font-semibold">{tenant.name}</h1>
               </div>
-              <p className="text-sm text-foreground/70">Workspace</p>
+              <p className="hidden text-sm text-foreground/70 sm:block">Workspace</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <LoggedInStaffBadge tenantSlug={tenant.slug} />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden md:block">
+              <LoggedInStaffBadge tenantSlug={tenant.slug} />
+            </div>
             <ConnectivityIndicator />
             {prefetchingSchemas && prefetchProgress.total > 0 ? (
               <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
@@ -870,6 +939,18 @@ function WorkspacePageInner() {
                 Offline ready
               </span>
             ) : null}
+            {openingSettings ? (
+              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Opening settings...
+              </span>
+            ) : null}
+            {loggingOut ? (
+              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Signing out...
+              </span>
+            ) : null}
 
             <div className="relative">
               <button
@@ -879,6 +960,7 @@ function WorkspacePageInner() {
                 title="Menu"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
+                disabled={openingSettings || loggingOut}
                 onClick={() => setMenuOpen((v) => !v)}
               >
                 <MoreVertical className="h-4 w-4" />
@@ -896,7 +978,7 @@ function WorkspacePageInner() {
                     className="absolute right-0 top-11 z-20 w-56 rounded-md border border-foreground/20 bg-background p-1 shadow-sm"
                     role="menu"
                   >
-                    {workspace.isAdmin ? (
+                    {canManageCategories ? (
                       <button
                         type="button"
                         role="menuitem"
@@ -911,7 +993,7 @@ function WorkspacePageInner() {
                       </button>
                     ) : null}
 
-                    {workspace.isAdmin ? (
+                    {canCreateForms ? (
                       <>
                         <Link
                           role="menuitem"
@@ -923,45 +1005,51 @@ function WorkspacePageInner() {
                           Create custom form
                         </Link>
 
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                          onClick={prepareOfflineMode}
-                          disabled={offlinePreparing}
-                        >
-                          {offlinePreparing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                          {offlinePreparing ? "Preparing offline mode..." : "Prepare offline mode"}
-                        </button>
-
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                          onClick={clearTenantLocalCache}
-                        >
-                          Clear local cache
-                        </button>
-
-                        <Link
-                          role="menuitem"
-                          href={`/${tenant.slug}/settings`}
-                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-                          onClick={() => setMenuOpen(false)}
-                        >
-                          <Settings className="h-4 w-4" />
-                          Settings
-                        </Link>
                       </>
                     ) : null}
 
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-foreground/5"
-                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                      onClick={() => setConfirmOfflineOpen(true)}
+                      disabled={offlinePreparing}
                     >
-                      Log out
+                      {offlinePreparing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {offlinePreparing ? "Preparing offline mode..." : "Prepare offline mode"}
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                      onClick={clearTenantLocalCache}
+                    >
+                      Clear local cache
+                    </button>
+
+                    {canAccessSettings ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => handleOpenSettings(tenant.slug)}
+                        disabled={openingSettings || loggingOut}
+                      >
+                        {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
+                        {openingSettings ? "Opening settings..." : "Settings"}
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleLogout}
+                      disabled={openingSettings || loggingOut}
+                    >
+                      {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {loggingOut ? "Signing out..." : "Log out"}
                     </button>
                   </div>
                 </>
@@ -981,7 +1069,7 @@ function WorkspacePageInner() {
                     type="button"
                     onClick={() => {
                       if (c.id === activeCategoryId) return;
-                      const cachedCategoryData = readWorkspaceCache(tenant.slug, c.id);
+                      const cachedCategoryData = readWorkspaceCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {
                         setWorkspace(cachedCategoryData);
                         setUiActiveCategoryId(null);
@@ -1254,6 +1342,19 @@ function WorkspacePageInner() {
           onCreateCustom={handleCreateCustomForm}
         />
       ) : null}
+
+      <NotificationModal
+        open={confirmOfflineOpen}
+        title="Enable offline mode?"
+        message="This will cache forms and category data for faster loading and reliable use on weak internet."
+        tone="warning"
+        actionLabel="Enable"
+        onAction={async () => {
+          setConfirmOfflineOpen(false);
+          await prepareOfflineMode();
+        }}
+        onClose={() => setConfirmOfflineOpen(false)}
+      />
 
       <NotificationModal
         open={Boolean(notification)}

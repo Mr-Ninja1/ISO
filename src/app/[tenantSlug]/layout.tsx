@@ -89,7 +89,7 @@ export default async function TenantLayout({
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.04)_0%,rgba(23,23,23,0.02)_40%,rgba(23,23,23,0.05)_100%)]">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6">
-      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-foreground/15 bg-background/95 p-4 shadow-sm backdrop-blur sm:items-center sm:gap-4">
+      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-foreground/15 bg-background/95 p-3 shadow-sm backdrop-blur sm:items-center sm:gap-4 sm:p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20">
             {tenant.logoUrl ? (
@@ -103,16 +103,20 @@ export default async function TenantLayout({
               <span className="text-sm font-semibold">{tenant.name[0]}</span>
             )}
           </div>
-          <div className="flex flex-col">
-            <h1 className="text-lg font-semibold">{tenant.name}</h1>
+          <div className="min-w-0 flex flex-col">
+            <h1 className="truncate text-base font-semibold sm:text-lg">{tenant.name}</h1>
             <p className="text-sm text-foreground/70">/{tenant.slug}{dbUnavailable ? " (offline)" : ""}</p>
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <div id="tenant-header-actions" className="mr-1 flex flex-wrap items-center justify-end gap-1.5 sm:mr-2" />
-          <LoggedInStaffBadge tenantSlug={tenant.slug} />
-          <BackgroundSyncManager />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <div id="tenant-header-actions" className="order-3 flex w-full flex-wrap items-center justify-end gap-1.5 sm:order-1 sm:mr-2 sm:w-auto" />
+          <div className="hidden md:block">
+            <LoggedInStaffBadge tenantSlug={tenant.slug} />
+          </div>
+          <div className="hidden md:block">
+            <BackgroundSyncManager />
+          </div>
           <TenantHeaderNav tenantSlug={tenant.slug} />
         </div>
       </header>

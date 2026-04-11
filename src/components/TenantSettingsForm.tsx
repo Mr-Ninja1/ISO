@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/auth";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
+import { NotificationModal } from "@/components/NotificationModal";
 
 type Props = {
   tenant: {
@@ -21,6 +22,7 @@ export function TenantSettingsForm({ tenant }: Props) {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [confirmRemoveLogoOpen, setConfirmRemoveLogoOpen] = useState(false);
 
   async function getAccessToken() {
     const supabase = createClient();
@@ -99,8 +101,6 @@ export function TenantSettingsForm({ tenant }: Props) {
 
   async function handleRemoveLogo() {
     if (!logoUrl) return;
-    const ok = window.confirm("Remove the brand logo?");
-    if (!ok) return;
 
     setMessage("");
     setUploadingLogo(true);
@@ -227,7 +227,8 @@ export function TenantSettingsForm({ tenant }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
+    <>
+      <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
       <div className="rounded-md border border-foreground/20 p-6 space-y-4">
         <h3 className="font-semibold">Brand Details</h3>
 
@@ -276,7 +277,7 @@ export function TenantSettingsForm({ tenant }: Props) {
               <img src={logoUrl} alt="Logo preview" className="h-16 w-16 object-contain" />
               <button
                 type="button"
-                onClick={handleRemoveLogo}
+                onClick={() => setConfirmRemoveLogoOpen(true)}
                 disabled={uploadingLogo}
                 className="mt-3 rounded-md border border-foreground/20 px-3 py-2 text-sm"
               >
@@ -306,6 +307,20 @@ export function TenantSettingsForm({ tenant }: Props) {
       >
         {loading ? "Saving..." : "Save Settings"}
       </button>
-    </form>
+      </form>
+      <NotificationModal
+        open={confirmRemoveLogoOpen}
+        title="Remove logo?"
+        message="This will remove the current brand logo from settings."
+        tone="warning"
+        actionLabel="Remove"
+        actionTone="danger"
+        onAction={async () => {
+          setConfirmRemoveLogoOpen(false);
+          await handleRemoveLogo();
+        }}
+        onClose={() => setConfirmRemoveLogoOpen(false)}
+      />
+    </>
   );
 }

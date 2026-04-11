@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { getTemplateSchemaMeta } from "@/lib/templateVersioning";
+import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -47,8 +48,8 @@ export async function POST(req: Request) {
     });
 
     if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (membership.role !== "ADMIN") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!hasPermission(membership.role, "forms.delete")) {
+      return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
     const current = await prisma.formTemplate.findFirst({

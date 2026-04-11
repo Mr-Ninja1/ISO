@@ -212,6 +212,17 @@ function buildLocalTemplateId() {
   return `local_tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
+function writeWorkspaceNotice(message: string, tone: "default" | "success" | "warning" | "error" = "default") {
+  try {
+    localStorage.setItem(
+      "workspace-notice:v1",
+      JSON.stringify({ message, tone, ts: Date.now() })
+    );
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function cacheTemplateSchemaForOffline(
   tenantSlug: string,
   templateId: string,
@@ -279,6 +290,7 @@ export default function NewTemplatePage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
   const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
+  const [offlineDraftTemplateId, setOfflineDraftTemplateId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const categoryOptions = useMemo(
@@ -461,7 +473,12 @@ export default function NewTemplatePage() {
       };
 
       if (!accessToken || !navigator.onLine) {
-        const localTemplateId = isEditMode ? editTemplateId || "" : buildLocalTemplateId();
+        const localTemplateId = isEditMode
+          ? editTemplateId || ""
+          : offlineDraftTemplateId || buildLocalTemplateId();
+        if (!isEditMode && !offlineDraftTemplateId && localTemplateId) {
+          setOfflineDraftTemplateId(localTemplateId);
+        }
         enqueueTemplateSync({
           mode: isEditMode ? "save-changes" : "create",
           payload: {
@@ -487,6 +504,7 @@ export default function NewTemplatePage() {
           );
         }
         setError("Saved offline. Your form changes are queued and will sync automatically when online.");
+        writeWorkspaceNotice("Form saved offline. It will sync automatically when internet returns.", "warning");
         const next = new URLSearchParams();
         next.set("tenantSlug", tenantSlug);
         if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
@@ -516,6 +534,7 @@ export default function NewTemplatePage() {
         });
       }
 
+      writeWorkspaceNotice(isEditMode ? "Form changes saved." : "Form created successfully.", "success");
       const next = new URLSearchParams();
       next.set("tenantSlug", tenantSlug);
       if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
@@ -526,7 +545,12 @@ export default function NewTemplatePage() {
       const msg = String(err?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
-        const localTemplateId = isEditMode ? editTemplateId || "" : buildLocalTemplateId();
+        const localTemplateId = isEditMode
+          ? editTemplateId || ""
+          : offlineDraftTemplateId || buildLocalTemplateId();
+        if (!isEditMode && !offlineDraftTemplateId && localTemplateId) {
+          setOfflineDraftTemplateId(localTemplateId);
+        }
         const schema = {
           version: 1 as const,
           title,
@@ -560,6 +584,7 @@ export default function NewTemplatePage() {
           );
         }
         setError("Offline detected. Your form changes were queued and will sync automatically.");
+        writeWorkspaceNotice("Offline detected. Form changes were queued and will sync automatically.", "warning");
         const next = new URLSearchParams();
         next.set("tenantSlug", tenantSlug);
         if (selectedCategoryId) next.set("categoryId", selectedCategoryId);

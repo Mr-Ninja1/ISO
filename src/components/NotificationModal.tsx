@@ -9,8 +9,11 @@ export type NotificationModalProps = {
   message: string;
   tone?: "default" | "success" | "warning" | "error";
   actionLabel?: string;
+  cancelLabel?: string;
   onClose: () => void;
   onAction?: () => void;
+  onCancel?: () => void;
+  actionTone?: "default" | "danger";
 };
 
 export function NotificationModal({
@@ -19,8 +22,11 @@ export function NotificationModal({
   message,
   tone = "default",
   actionLabel = "OK",
+  cancelLabel = "Cancel",
   onClose,
   onAction,
+  onCancel,
+  actionTone = "default",
 }: NotificationModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -43,6 +49,10 @@ export function NotificationModal({
         : tone === "error"
           ? "border-red-200 bg-red-50 text-red-800"
           : "border-foreground/20 bg-background text-foreground";
+  const actionButtonClasses =
+    actionTone === "danger"
+      ? "h-10 rounded-md border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50"
+      : "h-10 rounded-md border border-current/20 px-4 text-sm font-medium hover:bg-black/5";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -74,8 +84,18 @@ export function NotificationModal({
           {onAction ? (
             <button
               type="button"
-              onClick={onAction}
+              onClick={onCancel || onClose}
               className="h-10 rounded-md border border-current/20 px-4 text-sm font-medium hover:bg-black/5"
+            >
+              {cancelLabel}
+            </button>
+          ) : null}
+
+          {onAction ? (
+            <button
+              type="button"
+              onClick={onAction}
+              className={actionButtonClasses}
             >
               {actionLabel}
             </button>

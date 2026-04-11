@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
+import { hasPermission, normalizeRole } from "@/lib/roleGate";
 
 type PrismaLikeError = { code?: string; message?: string };
 
@@ -85,7 +86,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const isAdmin = membership.role === "ADMIN";
+    const normalizedRole = normalizeRole(membership.role);
+    const isAdmin = normalizedRole === "ADMIN";
+    const capabilities = {
+      canAccessSettings: hasPermission(normalizedRole, "settings.view"),
+      canCreateForms: hasPermission(normalizedRole, "forms.create"),
+      canManageCategories: hasPermission(normalizedRole, "categories.manage"),
+      canManageStaff: hasPermission(normalizedRole, "staff.manage"),
+    };
 
     const categories = await withTimeout(
       prisma.category.findMany({
@@ -138,7 +146,8 @@ export async function GET(req: Request) {
       selectedCategoryId,
       templates,
       isAdmin,
-      role: membership.role,
+      role: normalizedRole,
+      capabilities,
     });
   } catch (error: any) {
     if (isPoolTimeoutError(error)) {

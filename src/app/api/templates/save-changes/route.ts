@@ -8,6 +8,7 @@ import {
   normalizeTemplateSchema,
   withTemplateSchemaMeta,
 } from "@/lib/templateVersioning";
+import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -54,8 +55,8 @@ export async function POST(req: Request) {
       select: { id: true, role: true },
     });
     if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (membership.role !== "ADMIN") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!hasPermission(membership.role, "forms.edit")) {
+      return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
     if (categoryId) {

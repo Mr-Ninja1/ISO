@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { NotificationModal } from "@/components/NotificationModal";
 
 type StaffRow = {
   userId: string;
   role: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
   fullName: string;
   email: string;
-  hasPin: boolean;
+  hasPassword: boolean;
 };
 
 type AssignableRole = "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
@@ -46,6 +47,9 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
   const [password, setPassword] = useState("");
   const [newStaffRole, setNewStaffRole] = useState<AssignableRole>("AUDITOR");
   const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
+  const [passwordModalUserId, setPasswordModalUserId] = useState<string | null>(null);
+  const [nextPassword, setNextPassword] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -124,8 +128,6 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
 
   async function removeStaff(userId: string) {
     if (!accessToken) return;
-    const accepted = window.confirm("Remove this staff member from the brand?");
-    if (!accepted) return;
 
     setBusy(true);
     setError("");
@@ -151,14 +153,8 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
     }
   }
 
-  async function setStaffPassword(userId: string) {
+  async function setStaffPassword(userId: string, password: string) {
     if (!accessToken) return;
-    const nextPassword = window.prompt("Enter new password for this staff account (min 8 characters):", "");
-    if (!nextPassword) return;
-    if (nextPassword.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
 
     setBusy(true);
     setError("");
@@ -171,17 +167,29 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
           Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tenantSlug, userId, password: nextPassword }),
+        body: JSON.stringify({ tenantSlug, userId, password }),
       });
       const data = (await res.json().catch(() => ({}))) as PatchStaffResponse;
       if (!res.ok) throw new Error(data?.error || `Failed to set password (${res.status})`);
 
       setMessage("Staff password updated.");
+      setPasswordModalUserId(null);
+      setNextPassword("");
     } catch (err: any) {
       setError(err?.message || "Failed to set password");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitStaffPassword() {
+    if (!passwordModalUserId) return;
+    if (nextPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    await setStaffPassword(passwordModalUserId, nextPassword);
   }
 
   async function updateStaffRole(userId: string) {
@@ -328,7 +336,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
                 <td className="px-3 py-2">{r.fullName || "(name not set)"}</td>
                 <td className="px-3 py-2">{r.email || "(email hidden)"}</td>
                 <td className="px-3 py-2">{r.role}</td>
-                <td className="px-3 py-2">{r.hasPin ? "Set" : "Not set"}</td>
+                <td className="px-3 py-2">{r.hasPassword ? "Set" : "Not set"}</td>
                 <td className="px-3 py-2">
                   {r.role === "ADMIN" ? (
                     <span className="text-xs text-foreground/60">Owner</span>
@@ -360,7 +368,11 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
                       <button
                         type="button"
                         className="inline-flex h-8 items-center gap-1 rounded-md border border-foreground/20 px-2 text-xs"
-                        onClick={() => setStaffPassword(r.userId)}
+                        onClick={() => {
+                          setPasswordModalUserId(r.userId);
+                          setNextPassword("");
+                          setError("");
+                        }}
                         disabled={busy}
                       >
                         Set password
@@ -368,7 +380,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
                       <button
                         type="button"
                         className="inline-flex h-8 items-center gap-1 rounded-md border border-red-300 px-2 text-xs text-red-700"
-                        onClick={() => removeStaff(r.userId)}
+                        onClick={() => setConfirmRemoveUserId(r.userId)}
                         disabled={busy}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -387,6 +399,71 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
           </tbody>
         </table>
       </div>
+
+      {passwordModalUserId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close password modal"
+            onClick={() => {
+              if (busy) return;
+              setPasswordModalUserId(null);
+              setNextPassword("");
+            }}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-lg border border-foreground/20 bg-background p-4 shadow-xl sm:p-5">
+            <h3 className="text-sm font-semibold">Set staff password</h3>
+            <p className="mt-1 text-xs text-foreground/70">Enter a new password (minimum 8 characters).</p>
+            <input
+              type="password"
+              value={nextPassword}
+              onChange={(e) => setNextPassword(e.target.value)}
+              placeholder="New password"
+              className="mt-3 h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+              disabled={busy}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-10 rounded-md border border-foreground/20 px-3 text-sm"
+                onClick={() => {
+                  if (busy) return;
+                  setPasswordModalUserId(null);
+                  setNextPassword("");
+                }}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-10 rounded-md bg-foreground px-3 text-sm font-medium text-background disabled:opacity-50"
+                onClick={submitStaffPassword}
+                disabled={busy || nextPassword.length < 8}
+              >
+                {busy ? "Saving..." : "Save password"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <NotificationModal
+        open={Boolean(confirmRemoveUserId)}
+        title="Remove staff member?"
+        message="This will remove the staff member from this brand workspace."
+        tone="warning"
+        actionLabel="Remove"
+        actionTone="danger"
+        onAction={async () => {
+          if (!confirmRemoveUserId) return;
+          const userId = confirmRemoveUserId;
+          setConfirmRemoveUserId(null);
+          await removeStaff(userId);
+        }}
+        onClose={() => setConfirmRemoveUserId(null)}
+      />
     </div>
   );
 }

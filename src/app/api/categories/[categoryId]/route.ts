@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -55,8 +56,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (membership.role !== "ADMIN") {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!hasPermission(membership.role, "categories.manage")) {
+      return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
     await prisma.category.delete({

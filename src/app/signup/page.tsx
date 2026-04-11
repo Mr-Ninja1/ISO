@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function SignUpPage() {
@@ -70,6 +71,7 @@ export default function SignUpPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            disabled={loading}
             className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2"
             placeholder="your@email.com"
           />
@@ -85,6 +87,7 @@ export default function SignUpPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            disabled={loading}
             className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2"
             placeholder="••••••••"
           />
@@ -95,8 +98,9 @@ export default function SignUpPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
         >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Creating..." : "Create Account"}
         </button>
       </form>

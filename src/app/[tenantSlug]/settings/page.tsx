@@ -45,30 +45,30 @@ export default async function TenantSettingsPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-semibold">Brand Settings</h2>
           <p className="text-sm text-foreground/70">Manage your brand details</p>
         </div>
 
         <Link
-          className="text-sm underline"
+          className="text-sm underline sm:text-right"
           href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
         >
           Back to workspace
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-foreground/20 bg-background p-3">
+      <div className="flex flex-col gap-2 rounded-md border border-foreground/20 bg-background p-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Link
           href={`/${tenant.slug}/templates/new`}
-          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+          className="inline-flex h-9 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5 sm:w-auto"
         >
           Create custom form
         </Link>
         <Link
           href={`/${tenant.slug}/templates/library`}
-          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+          className="inline-flex h-9 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5 sm:w-auto"
         >
           Import from library
         </Link>

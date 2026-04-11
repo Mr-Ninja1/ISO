@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Tenant, Category } from "@prisma/client";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
+import { NotificationModal } from "@/components/NotificationModal";
 
 type TenantWithCategories = Tenant & { categories: Category[] };
 
@@ -19,6 +20,7 @@ export function CategoriesManager({ tenant }: Props) {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
 
   async function handleAddCategory(e: React.FormEvent) {
     e.preventDefault();
@@ -102,8 +104,6 @@ export function CategoriesManager({ tenant }: Props) {
   }
 
   async function handleDeleteCategory(categoryId: string) {
-    if (!confirm("Delete this category?")) return;
-
     try {
       const accessToken = session?.access_token;
       if (!accessToken) throw new Error("Not authenticated");
@@ -152,7 +152,8 @@ export function CategoriesManager({ tenant }: Props) {
   }
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       <form onSubmit={handleAddCategory} className="rounded-md border border-foreground/20 p-6">
         <div className="flex gap-2">
           <input
@@ -194,7 +195,8 @@ export function CategoriesManager({ tenant }: Props) {
                 <p className="text-sm text-foreground/50">Sort order: {cat.sortOrder}</p>
               </div>
               <button
-                onClick={() => handleDeleteCategory(cat.id)}
+                type="button"
+                onClick={() => setConfirmDeleteCategoryId(cat.id)}
                 className="rounded-md border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50"
               >
                 Delete
@@ -203,6 +205,23 @@ export function CategoriesManager({ tenant }: Props) {
           ))}
         </div>
       )}
-    </div>
+      </div>
+
+      <NotificationModal
+        open={Boolean(confirmDeleteCategoryId)}
+        title="Delete category?"
+        message="This category will be removed from the brand."
+        tone="warning"
+        actionLabel="Delete"
+        actionTone="danger"
+        onAction={async () => {
+          if (!confirmDeleteCategoryId) return;
+          const id = confirmDeleteCategoryId;
+          setConfirmDeleteCategoryId(null);
+          await handleDeleteCategory(id);
+        }}
+        onClose={() => setConfirmDeleteCategoryId(null)}
+      />
+    </>
   );
 }

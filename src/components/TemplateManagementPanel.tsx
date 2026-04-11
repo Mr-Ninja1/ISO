@@ -5,6 +5,7 @@ import { Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
+import { NotificationModal } from "@/components/NotificationModal";
 
 type TemplateItem = {
   id: string;
@@ -27,6 +28,7 @@ export function TemplateManagementPanel({
 
   const [query, setQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [message, setMessage] = useState<string>("");
 
   const filtered = useMemo(() => {
@@ -42,9 +44,6 @@ export function TemplateManagementPanel({
       setMessage("Please sign in again.");
       return;
     }
-
-    const ok = window.confirm(`Delete '${title}' from the system? This cannot be undone.`);
-    if (!ok) return;
 
     setDeletingId(templateId);
     setMessage("");
@@ -95,7 +94,8 @@ export function TemplateManagementPanel({
   }
 
   return (
-    <section className="rounded-md border border-foreground/20 bg-background p-4">
+    <>
+      <section className="rounded-md border border-foreground/20 bg-background p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">Edit Forms</h3>
@@ -156,7 +156,7 @@ export function TemplateManagementPanel({
                 <button
                   type="button"
                   className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-red-300 px-2 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
-                  onClick={() => handleDelete(t.id, t.title)}
+                  onClick={() => setConfirmDelete({ id: t.id, title: t.title })}
                   disabled={deletingId === t.id}
                 >
                   {deletingId === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -167,6 +167,23 @@ export function TemplateManagementPanel({
           ))
         )}
       </div>
-    </section>
+      </section>
+
+      <NotificationModal
+        open={Boolean(confirmDelete)}
+        title="Delete form?"
+        message={confirmDelete ? `Delete '${confirmDelete.title}' from the system? This cannot be undone.` : ""}
+        tone="warning"
+        actionLabel="Delete"
+        actionTone="danger"
+        onAction={async () => {
+          if (!confirmDelete) return;
+          const next = confirmDelete;
+          setConfirmDelete(null);
+          await handleDelete(next.id, next.title);
+        }}
+        onClose={() => setConfirmDelete(null)}
+      />
+    </>
   );
 }

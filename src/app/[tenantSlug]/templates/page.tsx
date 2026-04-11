@@ -35,9 +35,9 @@ export default async function TemplatesPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h2 className="text-xl font-semibold">Templates</h2>
-        <span className="text-sm text-foreground/70">
+        <span className="text-sm text-foreground/70 sm:text-right">
           Seeded demo templates are ready
         </span>
       </div>

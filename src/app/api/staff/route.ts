@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { hashPin } from "@/lib/staffPin";
+import { hasPermission } from "@/lib/roleGate";
 
 const STAFF_ROLE_VALUES = ["MANAGER", "AUDITOR", "VIEWER", "MEMBER"] as const;
 
@@ -111,8 +112,8 @@ async function resolveAdminTenant(tenantSlug: string, userId: string) {
     select: { role: true },
   });
 
-  if (!membership || membership.role !== "ADMIN") {
-    return { error: NextResponse.json({ error: "Admin access required" }, { status: 403 }) };
+  if (!membership || !hasPermission(membership.role, "staff.manage")) {
+    return { error: NextResponse.json({ error: "Staff management access required" }, { status: 403 }) };
   }
 
   return { tenant };
@@ -175,7 +176,7 @@ export async function GET(req: Request) {
         role: m.role,
         email: pin?.email || "",
         fullName: pin?.fullName || "",
-        hasPin: Boolean(pin?.pinHash),
+        hasPassword: Boolean(pin?.pinHash),
       };
     });
 
@@ -290,8 +291,33 @@ export async function DELETE(req: Request) {
     const adminTenant = await resolveAdminTenant(tenantSlug, user.id);
     if (adminTenant.error) return adminTenant.error;
 
+    const membership = await prisma.tenantMember.findUnique({
+      where: {
+        tenantId_userId: {
+          tenantId: adminTenant.tenant.id,
+          userId,
+        },
+      },
+      select: { role: true },
+    });
+
+    if (!membership) {
+      return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
+    }
+
+    if (membership.role === "ADMIN") {
+      return NextResponse.json({ error: "Admin accounts cannot be removed here" }, { status: 409 });
+    }
+
     await prisma.$transaction([
-      prisma.tenantMember.deleteMany({ where: { tenantId: adminTenant.tenant.id, userId, role: "MEMBER" } }),
+      prisma.tenantMember.delete({
+        where: {
+          tenantId_userId: {
+            tenantId: adminTenant.tenant.id,
+            userId,
+          },
+        },
+      }),
       prisma.tenantStaffPin.deleteMany({ where: { tenantId: adminTenant.tenant.id, userId } }),
     ]);
 

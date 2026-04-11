@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 
 type Tenant = {
   id: string;
@@ -17,6 +19,8 @@ export default function DashboardPage() {
   const { user, session, loading: authLoading, signOut } = useAuth();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+  const [openingTenantId, setOpeningTenantId] = useState<string>("");
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
@@ -57,44 +61,51 @@ export default function DashboardPage() {
   }, [user, session?.access_token, authLoading, router]);
 
   async function handleSignOut() {
-    await signOut();
-    router.push("/login");
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.push("/login");
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   if (authLoading) {
-    return <div className="flex min-h-dvh items-center justify-center">Loading...</div>;
+    return <AppLoadingScreen title="Loading dashboard" subtitle="Fetching your brands and account context..." />;
   }
 
   if (user && !session) {
-    return <div className="flex min-h-dvh items-center justify-center">Preparing your session...</div>;
+    return <AppLoadingScreen title="Preparing session" subtitle="Finalizing authentication..." />;
   }
 
   if (loading) {
-    return <div className="flex min-h-dvh items-center justify-center">Loading...</div>;
+    return <AppLoadingScreen title="Loading dashboard" subtitle="Fetching your brands and account context..." />;
   }
 
   return (
-    <div className="mx-auto min-h-dvh max-w-4xl p-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="mx-auto min-h-dvh max-w-4xl p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-foreground/70">{user?.email}</p>
+          <h1 className="text-2xl font-bold sm:text-3xl">Dashboard</h1>
+          <p className="break-all text-foreground/70">{user?.email}</p>
         </div>
 
         <button
           onClick={handleSignOut}
-          className="rounded-md border border-foreground/20 px-4 py-2"
+          disabled={signingOut}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 py-2 disabled:opacity-60 sm:w-auto"
         >
-          Sign Out
+          {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {signingOut ? "Signing out..." : "Sign Out"}
         </button>
       </div>
 
       <div className="mt-8 space-y-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <h2 className="text-xl font-semibold">Your Brands</h2>
           <Link
             href="/onboarding"
-            className="rounded-md bg-foreground px-4 py-2 text-background"
+            className="inline-flex h-10 w-full items-center justify-center rounded-md bg-foreground px-4 py-2 text-background sm:w-auto"
           >
             Create New Brand
           </Link>
@@ -113,10 +124,14 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {tenants.map((tenant) => (
-              <Link
+              <button
                 key={tenant.id}
-                href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
-                className="rounded-md border border-foreground/20 p-4 hover:bg-foreground/5"
+                type="button"
+                onClick={() => {
+                  setOpeningTenantId(tenant.id);
+                  router.push(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+                }}
+                className="w-full rounded-md border border-foreground/20 p-4 text-left hover:bg-foreground/5"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3">
@@ -137,9 +152,12 @@ export default function DashboardPage() {
                       <p className="text-sm text-foreground/70">/{tenant.slug}</p>
                     </div>
                   </div>
-                  <span className="text-sm text-foreground/50">→</span>
+                  <span className="inline-flex items-center gap-1 text-sm text-foreground/50">
+                    {openingTenantId === tenant.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {openingTenantId === tenant.id ? "Opening..." : "→"}
+                  </span>
                 </div>
-              </Link>
+              </button>
             ))}
           </div>
         )}
