@@ -5,6 +5,33 @@ import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 import { hasPermission, normalizeRole } from "@/lib/roleGate";
 
 type PrismaLikeError = { code?: string; message?: string };
+type WorkspaceResponse = {
+  tenant: { id: string; name: string; slug: string; logoUrl: string | null };
+  categories: Array<{ id: string; name: string; sortOrder: number }>;
+  selectedCategoryId: string | null;
+  templates: Array<{ id: string; title: string; updatedAt: Date; categoryId: string | null }>;
+  isAdmin: boolean;
+  role: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
+  capabilities: {
+    canAccessSettings: boolean;
+    canCreateForms: boolean;
+    canManageCategories: boolean;
+    canManageStaff: boolean;
+  };
+};
+
+type CachedWorkspaceEntry = { ts: number; value: WorkspaceResponse };
+
+const globalForWorkspaceCache = globalThis as unknown as {
+  workspaceResponseCache?: Map<string, CachedWorkspaceEntry>;
+};
+
+const workspaceResponseCache =
+  globalForWorkspaceCache.workspaceResponseCache ?? new Map<string, CachedWorkspaceEntry>();
+
+if (!globalForWorkspaceCache.workspaceResponseCache) {
+  globalForWorkspaceCache.workspaceResponseCache = workspaceResponseCache;
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return Promise.race([
@@ -30,6 +57,24 @@ function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   return match?.[1] || null;
+}
+
+function workspaceCacheKey(tenantSlug: string, requestedCategoryId: string | null) {
+  return `${tenantSlug}:${requestedCategoryId || "all"}`;
+}
+
+function readCachedWorkspace(tenantSlug: string, requestedCategoryId: string | null, ttlMs: number) {
+  const entry = workspaceResponseCache.get(workspaceCacheKey(tenantSlug, requestedCategoryId));
+  if (!entry) return null;
+  if (Date.now() - entry.ts > ttlMs) return null;
+  return entry.value;
+}
+
+function writeCachedWorkspace(tenantSlug: string, requestedCategoryId: string | null, value: WorkspaceResponse) {
+  workspaceResponseCache.set(workspaceCacheKey(tenantSlug, requestedCategoryId), {
+    ts: Date.now(),
+    value,
+  });
 }
 
 async function getUserFromToken(token: string) {
@@ -58,6 +103,8 @@ export async function GET(req: Request) {
     if (!tenantSlug) {
       return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
     }
+
+    const staleCached = readCachedWorkspace(tenantSlug, requestedCategoryId, 10 * 60_000);
 
     const user = await getUserFromToken(token);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -140,7 +187,7 @@ export async function GET(req: Request) {
         )
       : [];
 
-    return NextResponse.json({
+    const response: WorkspaceResponse = {
       tenant,
       categories,
       selectedCategoryId,
@@ -148,9 +195,31 @@ export async function GET(req: Request) {
       isAdmin,
       role: normalizedRole,
       capabilities,
+    };
+
+    writeCachedWorkspace(tenantSlug, requestedCategoryId, response);
+
+    return NextResponse.json(response, {
+      headers: {
+        "Cache-Control": "private, max-age=15, stale-while-revalidate=120",
+      },
     });
   } catch (error: any) {
     if (isPoolTimeoutError(error)) {
+      const url = new URL(req.url);
+      const tenantSlug = url.searchParams.get("tenantSlug") || "";
+      const requestedCategoryId = url.searchParams.get("categoryId");
+      const staleCached = readCachedWorkspace(tenantSlug, requestedCategoryId, 30 * 60_000);
+      if (staleCached) {
+        return NextResponse.json(staleCached, {
+          status: 200,
+          headers: {
+            "Cache-Control": "private, max-age=10, stale-while-revalidate=120",
+            "X-Workspace-Cache": "stale",
+          },
+        });
+      }
+
       return NextResponse.json(
         { error: "Workspace backend is busy. Using cached data where available." },
         { status: 503, headers: { "Retry-After": "2" } }

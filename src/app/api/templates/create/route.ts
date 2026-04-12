@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeTemplateSchema, withTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -101,6 +102,15 @@ export async function POST(req: Request) {
       });
 
       return { id: first.id };
+    });
+
+    await recordActivity({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: "template.create",
+      entityType: "FormTemplate",
+      entityId: created.id,
+      details: { title, categoryId: categoryId ?? null },
     });
 
     return NextResponse.json({ templateId: created.id });

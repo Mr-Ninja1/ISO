@@ -56,9 +56,11 @@ function scheduleBackgroundTask(task: () => void, delayMs: number) {
 export function AuditRunClient({
   tenantSlug,
   templateId,
+  auditId,
 }: {
   tenantSlug: string;
   templateId: string;
+  auditId?: string;
 }) {
   const router = useRouter();
   const { user, session, loading: authLoading } = useAuth();
@@ -217,13 +219,14 @@ export function AuditRunClient({
         tenantName={data.tenant.name}
         tenantLogoUrl={data.tenant.logoUrl}
         templateId={data.template.id}
+        initialAuditId={auditId}
         schema={data.template.schema}
       />
     );
-  }, [loading, data, error, tenantSlug]);
+  }, [loading, data, error, tenantSlug, auditId]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-24 sm:pb-6">
       <p className="text-sm text-foreground/70">Complete the form and submit.</p>
       {content}
     </div>

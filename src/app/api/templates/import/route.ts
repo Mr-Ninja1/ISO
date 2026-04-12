@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { Prisma } from "@prisma/client";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -97,6 +98,19 @@ export async function POST(req: Request) {
         schema: libraryTemplate.schema as Prisma.InputJsonValue,
       },
       select: { id: true },
+    });
+
+    await recordActivity({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: "template.import",
+      entityType: "FormTemplate",
+      entityId: created.id,
+      details: {
+        libraryTemplateId,
+        title: libraryTemplate.title,
+        categoryId: categoryId ?? null,
+      },
     });
 
     return NextResponse.json({ templateId: created.id });

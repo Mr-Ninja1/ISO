@@ -9,6 +9,7 @@ import {
   withTemplateSchemaMeta,
 } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -108,6 +109,15 @@ export async function POST(req: Request) {
         },
       });
 
+      await recordActivity({
+        tenantId: tenant.id,
+        userId: user.id,
+        action: "template.update.overwrite",
+        entityType: "FormTemplate",
+        entityId: current.id,
+        details: { title, categoryId: categoryId ?? null, version: currentVersion },
+      });
+
       return NextResponse.json({
         mode: "overwrite",
         templateId: current.id,
@@ -157,6 +167,20 @@ export async function POST(req: Request) {
       });
 
       return next;
+    });
+
+    await recordActivity({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: "template.update.versioned",
+      entityType: "FormTemplate",
+      entityId: created.id,
+      details: {
+        previousTemplateId: current.id,
+        title,
+        categoryId: categoryId ?? null,
+        version: nextVersion,
+      },
     });
 
     return NextResponse.json({

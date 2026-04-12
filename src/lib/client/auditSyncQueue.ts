@@ -13,6 +13,17 @@ export type AuditSyncItem = {
 };
 
 const KEY = "audit-sync-queue:v1";
+const OFFLINE_SUBMITTED_KEY = "audit-offline-submitted:v1";
+
+export type OfflineSubmittedForm = {
+  localId: string;
+  queueId: string;
+  tenantSlug: string;
+  templateId: string;
+  templateTitle: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+};
 
 function readQueue(): AuditSyncItem[] {
   try {
@@ -31,6 +42,48 @@ function writeQueue(items: AuditSyncItem[]) {
   } catch {
     // ignore
   }
+}
+
+function readOfflineSubmitted(): OfflineSubmittedForm[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_SUBMITTED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as OfflineSubmittedForm[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOfflineSubmitted(items: OfflineSubmittedForm[]) {
+  try {
+    localStorage.setItem(OFFLINE_SUBMITTED_KEY, JSON.stringify(items));
+  } catch {
+    // ignore
+  }
+}
+
+export function addOfflineSubmittedForm(item: Omit<OfflineSubmittedForm, "localId" | "createdAt">) {
+  const next: OfflineSubmittedForm = {
+    ...item,
+    localId: `local_${Math.random().toString(16).slice(2)}_${Date.now()}`,
+    createdAt: Date.now(),
+  };
+  const all = readOfflineSubmitted();
+  all.unshift(next);
+  writeOfflineSubmitted(all.slice(0, 300));
+  return next;
+}
+
+export function getOfflineSubmittedForms(tenantSlug: string) {
+  return readOfflineSubmitted().filter((x) => x.tenantSlug === tenantSlug);
+}
+
+export function removeOfflineSubmittedByQueueId(queueId: string) {
+  const all = readOfflineSubmitted();
+  const next = all.filter((x) => x.queueId !== queueId);
+  if (next.length === all.length) return;
+  writeOfflineSubmitted(next);
 }
 
 export function enqueueAuditSync(item: Omit<AuditSyncItem, "id" | "queuedAt">) {
@@ -75,6 +128,10 @@ export async function flushAuditSyncQueue(accessToken: string) {
       if (!res.ok) {
         remaining.push(item);
         continue;
+      }
+
+      if (item.mode === "submit") {
+        removeOfflineSubmittedByQueueId(item.id);
       }
 
       processed += 1;

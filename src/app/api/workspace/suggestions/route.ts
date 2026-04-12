@@ -35,7 +35,14 @@ export async function GET(req: Request) {
       select: { name: true },
     });
 
-    return NextResponse.json({ suggestions: suggestions.map((s) => s.name) });
+    return NextResponse.json(
+      { suggestions: suggestions.map((s) => s.name) },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=120, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (error: any) {
     console.error("/api/workspace/suggestions GET error", error);
     return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });

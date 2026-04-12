@@ -16,6 +16,20 @@ function numberFromString(value: unknown) {
   return value;
 }
 
+function photoValueFromInput(value: unknown) {
+  if (value == null || value === "") return undefined;
+  if (Array.isArray(value)) {
+    const next = value.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+    return next.length ? next : undefined;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return trimmed;
+  }
+  return value;
+}
+
 function fieldToZod(field: FieldDef | SimpleFieldDef) {
   switch (field.type) {
     case "text": {
@@ -57,6 +71,15 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
       return field.required
         ? z.preprocess(emptyStringToUndefined, requiredInner)
         : z.preprocess(emptyStringToUndefined, optionalInner);
+    }
+    case "photo": {
+      const single = z.string().min(1, "Required");
+      const multiple = z.array(z.string().min(1, "Required")).min(1, "Attach at least one photo");
+      const requiredInner = z.union([single, multiple]);
+      const optionalInner = z.union([z.string(), z.array(z.string())]).optional();
+      return field.required
+        ? z.preprocess(photoValueFromInput, requiredInner)
+        : z.preprocess(photoValueFromInput, optionalInner);
     }
     case "checkbox": {
       const inner = z.boolean();
@@ -161,6 +184,7 @@ export function buildDefaultValues(schema: FormSchemaV1) {
       for (const field of section.fields.filter(isActiveField)) {
         if (field.type === "dynamic-table") defaults[field.id] = [];
         else if (field.type === "checkbox") defaults[field.id] = false;
+        else if (field.type === "photo") defaults[field.id] = [];
         else defaults[field.id] = "";
       }
     }

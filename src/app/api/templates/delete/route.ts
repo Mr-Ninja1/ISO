@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { getTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -86,6 +87,15 @@ export async function POST(req: Request) {
 
     await prisma.formTemplate.deleteMany({
       where: { tenantId: tenant.id, id: { in: lineageTemplateIds } },
+    });
+
+    await recordActivity({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: "template.delete",
+      entityType: "FormTemplateLineage",
+      entityId: lineageId,
+      details: { deletedTemplateIds: lineageTemplateIds },
     });
 
     return NextResponse.json({ deleted: lineageTemplateIds.length });

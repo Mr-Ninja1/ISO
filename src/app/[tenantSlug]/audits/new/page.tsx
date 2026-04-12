@@ -6,11 +6,11 @@ export default async function NewAuditPage({
   searchParams,
 }: {
   params: Promise<{ tenantSlug: string }>;
-  searchParams: Promise<{ templateId?: string }>;
+  searchParams: Promise<{ templateId?: string; auditId?: string }>;
 }) {
   const { tenantSlug } = await params;
-  const { templateId } = await searchParams;
+  const { templateId, auditId } = await searchParams;
   if (!templateId) notFound();
 
-  return <AuditRunClient tenantSlug={tenantSlug} templateId={templateId} />;
+  return <AuditRunClient tenantSlug={tenantSlug} templateId={templateId} auditId={auditId || undefined} />;
 }

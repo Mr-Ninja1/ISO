@@ -12,7 +12,10 @@ function getBearerToken(req: Request) {
 
 const querySchema = z.object({
   tenantSlug: z.string().min(1),
-  templateId: z.string().uuid(),
+  templateId: z.string().uuid().optional(),
+  auditId: z.string().uuid().optional(),
+}).refine((v) => Boolean(v.templateId || v.auditId), {
+  message: "templateId or auditId is required",
 });
 
 function draftUserIdFromPayload(payload: unknown): string | null {
@@ -43,13 +46,14 @@ export async function GET(req: Request) {
   const parsed = querySchema.safeParse({
     tenantSlug: url.searchParams.get("tenantSlug"),
     templateId: url.searchParams.get("templateId"),
+    auditId: url.searchParams.get("auditId"),
   });
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const { tenantSlug, templateId } = parsed.data;
+  const { tenantSlug, templateId, auditId } = parsed.data;
 
   const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
@@ -63,22 +67,52 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
   }
 
-  const candidates = await prisma.auditLog.findMany({
-    where: {
-      tenantId: tenant.id,
-      templateId,
-      status: "DRAFT",
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      payload: true,
-      updatedAt: true,
-    },
-  });
+  let mine:
+    | {
+        id: string;
+        payload: unknown;
+        updatedAt: Date;
+      }
+    | undefined;
 
-  const mine = candidates.find((d) => draftUserIdFromPayload(d.payload) === user.id);
+  if (auditId) {
+    const exact = await prisma.auditLog.findFirst({
+      where: {
+        id: auditId,
+        tenantId: tenant.id,
+        status: "DRAFT",
+        ...(templateId ? { templateId } : {}),
+      },
+      select: {
+        id: true,
+        payload: true,
+        updatedAt: true,
+      },
+    });
+
+    if (exact) {
+      mine = exact;
+    }
+  }
+
+  if (!mine && templateId) {
+    const candidates = await prisma.auditLog.findMany({
+      where: {
+        tenantId: tenant.id,
+        templateId,
+        status: "DRAFT",
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        payload: true,
+        updatedAt: true,
+      },
+    });
+
+    mine = candidates.find((d) => draftUserIdFromPayload(d.payload) === user.id);
+  }
   if (!mine) {
     return NextResponse.json({ draft: null });
   }

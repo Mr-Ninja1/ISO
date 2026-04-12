@@ -5,7 +5,8 @@ import { TenantSettingsForm } from "@/components/TenantSettingsForm";
 import { TenantCategoriesSeedSection } from "@/components/TenantCategoriesSeedSection";
 import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
 import { StaffManagementPanel } from "@/components/StaffManagementPanel";
-import { isLiveTemplateSchema } from "@/lib/templateVersioning";
+import { DeferredDetailsSection } from "@/components/DeferredDetailsSection";
+import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 
 export default async function TenantSettingsPage({
   params,
@@ -28,14 +29,12 @@ export default async function TenantSettingsPage({
     prisma.formTemplate.findMany({
       where: { tenantId: tenant.id },
       orderBy: [{ updatedAt: "desc" }],
-      select: { id: true, title: true, categoryId: true, updatedAt: true, schema: true },
+      select: { id: true, title: true, categoryId: true, updatedAt: true },
     }),
   ]);
 
   const categoryById = new Map(categories.map((c) => [c.id, c.name]));
-  const templates = templatesRaw
-    .filter((t) => isLiveTemplateSchema(t.schema))
-    .map((t) => ({
+  const templates = templatesRaw.map((t) => ({
       id: t.id,
       title: t.title,
       categoryId: t.categoryId,
@@ -45,6 +44,11 @@ export default async function TenantSettingsPage({
 
   return (
     <div className="flex flex-col gap-6">
+      <FeatureSyncNotice
+        title="Live database sync"
+        message="Brand settings, staff, categories, and template management are live-sync features. They can show cached data while offline, but changes need internet so they can update the database and stay in sync across devices."
+      />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-semibold">Brand Settings</h2>
@@ -74,33 +78,21 @@ export default async function TenantSettingsPage({
         </Link>
       </div>
 
-      <details className="rounded-md border border-foreground/20 bg-background p-3">
-        <summary className="cursor-pointer select-none text-sm font-semibold">Brand profile</summary>
-        <div className="mt-4">
-          <TenantSettingsForm tenant={tenant} />
-        </div>
-      </details>
+      <DeferredDetailsSection title="Brand profile" defaultOpen>
+        <TenantSettingsForm tenant={tenant} />
+      </DeferredDetailsSection>
 
-      <details className="rounded-md border border-foreground/20 bg-background p-3">
-        <summary className="cursor-pointer select-none text-sm font-semibold">Form management</summary>
-        <div className="mt-4">
-          <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
-        </div>
-      </details>
+      <DeferredDetailsSection title="Form management">
+        <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
+      </DeferredDetailsSection>
 
-      <details className="rounded-md border border-foreground/20 bg-background p-3">
-        <summary className="cursor-pointer select-none text-sm font-semibold">Category tools</summary>
-        <div className="mt-4">
-          <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
-        </div>
-      </details>
+      <DeferredDetailsSection title="Category tools">
+        <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
+      </DeferredDetailsSection>
 
-      <details className="rounded-md border border-foreground/20 bg-background p-3">
-        <summary className="cursor-pointer select-none text-sm font-semibold">Brand staff management</summary>
-        <div className="mt-4">
-          <StaffManagementPanel tenantSlug={tenant.slug} />
-        </div>
-      </details>
+      <DeferredDetailsSection title="Brand staff management">
+        <StaffManagementPanel tenantSlug={tenant.slug} />
+      </DeferredDetailsSection>
     </div>
   );
 }

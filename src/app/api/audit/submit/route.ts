@@ -3,6 +3,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { hasPermission } from "@/lib/roleGate";
+import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
+import { recordActivity } from "@/lib/activityTracker";
+import { persistPhotoEvidenceToBucket } from "@/lib/photoEvidenceStorage";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -26,6 +29,26 @@ function draftUserIdFromPayload(payload: unknown): string | null {
   return typeof userId === "string" && userId ? userId : null;
 }
 
+async function clearOtherUserDrafts(params: {
+  tenantId: string;
+  templateId: string;
+  userId: string;
+  keepAuditId: string;
+}) {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM "AuditLog"
+     WHERE "tenantId" = $1::uuid
+       AND "templateId" = $2::uuid
+       AND status = 'DRAFT'
+       AND id <> $4::uuid
+       AND COALESCE(payload->'__draftMeta'->>'userId', '') = $3`,
+    params.tenantId,
+    params.templateId,
+    params.userId,
+    params.keepAuditId
+  );
+}
+
 export async function POST(req: Request) {
   const token = getBearerToken(req);
   if (!token) {
@@ -38,9 +61,21 @@ export async function POST(req: Request) {
     { auth: { persistSession: false } }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(token);
+  let user: { id: string; email?: string | null; user_metadata?: unknown } | null = null;
+  try {
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser(token);
+    user = authUser;
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Authentication service is temporarily unavailable. You can continue offline and sync later.",
+        code: "AUTH_SERVICE_UNAVAILABLE",
+      },
+      { status: 503 }
+    );
+  }
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,6 +89,8 @@ export async function POST(req: Request) {
 
   const { tenantSlug, templateId, payload, mode, auditId } = parsed.data;
   const isDraft = mode === "draft";
+
+  try {
 
   const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
   if (!tenant) {
@@ -75,14 +112,32 @@ export async function POST(req: Request) {
 
   const template = await prisma.formTemplate.findFirst({
     where: { id: templateId, tenantId: tenant.id },
-    select: { id: true },
+    select: { id: true, ...(isDraft ? {} : { schema: true }) },
   });
   if (!template) {
     return NextResponse.json({ error: "Template not found" }, { status: 404 });
   }
 
+  let payloadRecord = payload as Record<string, unknown>;
+  if (!isDraft) {
+    const targetAuditId = auditId || `pending_${template.id}_${Date.now()}`;
+    payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, targetAuditId);
+  }
+  const existingTempMeta =
+    payloadRecord.__temperatureMeta && typeof payloadRecord.__temperatureMeta === "object"
+      ? (payloadRecord.__temperatureMeta as Record<string, unknown>)
+      : {};
+  const temperatureAlerts = !isDraft
+    ? collectTemperatureAlerts(template.schema as any, payloadRecord)
+    : [];
+  const temperatureMeta = {
+    ...existingTempMeta,
+    alerts: temperatureAlerts,
+    capturedAt: new Date().toISOString(),
+  };
+
   const staffRows = (await prisma.$queryRawUnsafe(
-    `SELECT full_name, email FROM tenant_staff_pin WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
+    `SELECT full_name, email FROM tenant_staff_pin WHERE tenant_id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
     tenant.id,
     user.id
   )) as Array<{ full_name: string; email: string }>;
@@ -94,6 +149,7 @@ export async function POST(req: Request) {
   if (isDraft) {
     const draftPayload = {
       ...payload,
+      __temperatureMeta: temperatureMeta,
       __draftMeta: {
         userId: user.id,
         userName: actorName,
@@ -122,19 +178,21 @@ export async function POST(req: Request) {
     }
 
     if (!targetDraftId) {
-      const candidates = await prisma.auditLog.findMany({
-        where: {
-          tenantId: tenant.id,
-          templateId: template.id,
-          status: "DRAFT",
-        },
-        orderBy: { updatedAt: "desc" },
-        take: 50,
-        select: { id: true, payload: true },
-      });
+      const mine = (await prisma.$queryRawUnsafe(
+        `SELECT id
+         FROM "AuditLog"
+         WHERE "tenantId" = $1::uuid
+           AND "templateId" = $2::uuid
+           AND status = 'DRAFT'
+           AND COALESCE(payload->'__draftMeta'->>'userId', '') = $3
+         ORDER BY "updatedAt" DESC
+         LIMIT 1`,
+        tenant.id,
+        template.id,
+        user.id
+      )) as Array<{ id: string }>;
 
-      const mine = candidates.find((d) => draftUserIdFromPayload(d.payload) === user.id);
-      if (mine) targetDraftId = mine.id;
+      if (mine[0]?.id) targetDraftId = mine[0].id;
     }
 
     const audit = targetDraftId
@@ -158,6 +216,15 @@ export async function POST(req: Request) {
           select: { id: true },
         });
 
+    await recordActivity({
+      tenantId: tenant.id,
+      userId: user.id,
+      action: "audit.saveDraft",
+      entityType: "AuditLog",
+      entityId: audit.id,
+      details: { templateId: template.id, hasTemperatureAlerts: temperatureAlerts.length > 0 },
+    });
+
     return NextResponse.json({ auditId: audit.id, status: "DRAFT" });
   }
 
@@ -177,6 +244,7 @@ export async function POST(req: Request) {
         data: {
           payload: {
             ...payload,
+            __temperatureMeta: temperatureMeta,
             __auditMeta: {
               submittedByUserId: user.id,
               submittedByName: actorName,
@@ -187,6 +255,22 @@ export async function POST(req: Request) {
           submittedAt: new Date(),
         },
         select: { id: true },
+      });
+
+      await recordActivity({
+        tenantId: tenant.id,
+        userId: user.id,
+        action: "audit.submit",
+        entityType: "AuditLog",
+        entityId: audit.id,
+        details: { templateId: template.id, mode: "update", hasTemperatureAlerts: temperatureAlerts.length > 0 },
+      });
+
+      await clearOtherUserDrafts({
+        tenantId: tenant.id,
+        templateId: template.id,
+        userId: user.id,
+        keepAuditId: audit.id,
       });
 
       return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
@@ -200,6 +284,7 @@ export async function POST(req: Request) {
       status: "SUBMITTED",
       payload: {
         ...payload,
+        __temperatureMeta: temperatureMeta,
         __auditMeta: {
           submittedByUserId: user.id,
           submittedByName: actorName,
@@ -211,5 +296,34 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
+  await recordActivity({
+    tenantId: tenant.id,
+    userId: user.id,
+    action: "audit.submit",
+    entityType: "AuditLog",
+    entityId: audit.id,
+    details: { templateId: template.id, mode: "create", hasTemperatureAlerts: temperatureAlerts.length > 0 },
+  });
+
+  await clearOtherUserDrafts({
+    tenantId: tenant.id,
+    templateId: template.id,
+    userId: user.id,
+    keepAuditId: audit.id,
+  });
+
   return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
+  } catch (error: any) {
+    if (error?.code === "P2024") {
+      return NextResponse.json(
+        {
+          error: "Server is busy right now (database pool timeout). Please retry in a few seconds.",
+          code: "DB_POOL_TIMEOUT",
+        },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json({ error: "Failed to process audit submission" }, { status: 500 });
+  }
 }

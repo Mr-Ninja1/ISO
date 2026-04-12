@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { UserRound } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
 
 type ActiveStaffProfile = {
   tenantSlug?: string | null;
@@ -12,7 +11,6 @@ type ActiveStaffProfile = {
 };
 
 export function LoggedInStaffBadge({ tenantSlug }: { tenantSlug?: string }) {
-  const { user } = useAuth();
   const [profile, setProfile] = useState<ActiveStaffProfile | null>(null);
 
   useEffect(() => {
@@ -43,16 +41,16 @@ export function LoggedInStaffBadge({ tenantSlug }: { tenantSlug?: string }) {
   const displayName = useMemo(() => {
     const fromProfile = (profile?.name || "").trim();
     if (fromProfile) return fromProfile;
-    const email = profile?.email || user?.email || "";
+    const email = profile?.email || "";
     if (!email) return "User";
     return email.split("@")[0] || email;
-  }, [profile?.name, profile?.email, user?.email]);
+  }, [profile?.name, profile?.email]);
 
   const subtitle = useMemo(() => {
-    return (profile?.email || user?.email || "").trim();
-  }, [profile?.email, user?.email]);
+    return (profile?.email || "").trim();
+  }, [profile?.email]);
 
-  if (!user) return null;
+  if (!profile?.name && !profile?.email) return null;
 
   return (
     <div className="inline-flex max-w-[210px] items-center gap-2 rounded-full border border-foreground/20 bg-background px-2 py-1">

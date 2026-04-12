@@ -168,18 +168,31 @@ export function GridField({
 
     if (col.type === "temp") {
       const unit = (col as any)?.unit === "F" ? "°F" : "°C";
+      const current = watch(cellName as any) as unknown;
+      const numeric = typeof current === "number" ? current : Number(current);
+      const alertBelow = (col as any)?.alertBelow;
+      const alertAbove = (col as any)?.alertAbove;
+      const isBelow = typeof alertBelow === "number" && Number.isFinite(numeric) && numeric < alertBelow;
+      const isAbove = typeof alertAbove === "number" && Number.isFinite(numeric) && numeric > alertAbove;
+      const hasAlert = isBelow || isAbove;
       return (
         <div className="relative">
           <input
             type="number"
             inputMode="decimal"
             step="0.1"
-            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 pr-10 text-sm"
+            className={
+              "h-10 w-full rounded-md border bg-background px-3 pr-10 text-sm " +
+              (hasAlert ? "border-red-700" : "border-foreground/20")
+            }
             {...register(cellName as any)}
           />
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-foreground/60">
             {unit}
           </span>
+          {hasAlert ? (
+            <div className="mt-1 text-xs text-red-700">Out of limit</div>
+          ) : null}
           {errorMessage ? (
             <div className="mt-1 text-xs text-red-700">{errorMessage}</div>
           ) : null}

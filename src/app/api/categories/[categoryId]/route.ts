@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -62,6 +63,14 @@ export async function DELETE(
 
     await prisma.category.delete({
       where: { id: categoryId },
+    });
+
+    await recordActivity({
+      tenantId: category.tenantId,
+      userId: user.id,
+      action: "category.delete",
+      entityType: "Category",
+      entityId: categoryId,
     });
 
     return NextResponse.json({ success: true });

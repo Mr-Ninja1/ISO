@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Calendar, Check, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
+import { Calendar, Camera, Check, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
 import type { FieldDef, FieldType, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
 
 type BuilderState = {
@@ -51,6 +51,8 @@ function defaultField(fieldType: FieldType): FieldDef {
       return { id, type: "number", label: "Number", required: false, placeholder: "", step: 1 };
     case "signature":
       return { id, type: "signature", label: "Signature", required: false };
+    case "photo":
+      return { id, type: "photo", label: "Photo evidence", required: false };
     case "temp":
       return { id, type: "temp", label: "Temperature", required: false, unit: "C" };
     case "checkbox":
@@ -92,6 +94,7 @@ function palette(): PaletteItem[] {
     { id: "palette_text", label: "Text field", icon: <FileText className="h-4 w-4" />, fieldType: "text" },
     { id: "palette_date", label: "Date field", icon: <Calendar className="h-4 w-4" />, fieldType: "date" },
     { id: "palette_number", label: "Number field", icon: <Hash className="h-4 w-4" />, fieldType: "number" },
+    { id: "palette_photo", label: "Photo evidence", icon: <Camera className="h-4 w-4" />, fieldType: "photo" },
     { id: "palette_signature", label: "Signature field", icon: <PenLine className="h-4 w-4" />, fieldType: "signature" },
     { id: "palette_table", label: "Table block", icon: <Table2 className="h-4 w-4" />, fieldType: "table" },
   ];
@@ -203,6 +206,63 @@ function FieldCard({
                 placeholder="Optional"
               />
             </div>
+          ) : null}
+
+          {field.type === "text" ? (
+            <label className="inline-flex items-center gap-2 text-xs text-foreground/80">
+              <input
+                type="checkbox"
+                checked={Boolean((field as any).multiline)}
+                onChange={(e) => onChange({ ...field, multiline: e.target.checked } as any)}
+              />
+              Multiline (comment section)
+            </label>
+          ) : null}
+
+          {field.type === "temp" ? (
+            <>
+              <div className="grid gap-1">
+                <div className="text-xs font-medium text-foreground/70">Unit</div>
+                <select
+                  className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={(field as any).unit === "F" ? "F" : "C"}
+                  onChange={(e) => onChange({ ...field, unit: e.target.value === "F" ? "F" : "C" } as any)}
+                >
+                  <option value="C">Celsius (C)</option>
+                  <option value="F">Fahrenheit (F)</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-foreground/70">Alert below</div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                    value={typeof (field as any).alertBelow === "number" ? String((field as any).alertBelow) : ""}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      onChange({ ...field, alertBelow: val === "" ? undefined : Number(val) } as any);
+                    }}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-foreground/70">Alert above</div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                    value={typeof (field as any).alertAbove === "number" ? String((field as any).alertAbove) : ""}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      onChange({ ...field, alertAbove: val === "" ? undefined : Number(val) } as any);
+                    }}
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+            </>
           ) : null}
         </div>
       </div>
@@ -491,6 +551,52 @@ function GridBuilder({
                 }}
               />
             </div>
+
+            {activeCol.type === "temp" ? (
+              <>
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-foreground/70">Temperature unit</div>
+                  <select
+                    className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                    value={(activeCol as any).unit === "F" ? "F" : "C"}
+                    onChange={(e) => updateColumn(activeCol.id, { unit: e.target.value === "F" ? "F" : "C" } as any)}
+                  >
+                    <option value="C">Celsius (C)</option>
+                    <option value="F">Fahrenheit (F)</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="grid gap-1">
+                    <div className="text-xs font-medium text-foreground/70">Alert below</div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                      value={typeof (activeCol as any).alertBelow === "number" ? String((activeCol as any).alertBelow) : ""}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        updateColumn(activeCol.id, { alertBelow: val === "" ? undefined : Number(val) } as any);
+                      }}
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <div className="text-xs font-medium text-foreground/70">Alert above</div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                      value={typeof (activeCol as any).alertAbove === "number" ? String((activeCol as any).alertAbove) : ""}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        updateColumn(activeCol.id, { alertAbove: val === "" ? undefined : Number(val) } as any);
+                      }}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : null}
             <label className="inline-flex items-center gap-2 text-xs text-foreground/80">
               <input
                 type="checkbox"
@@ -778,6 +884,20 @@ export function FormBuilder({
                           onClick={() => addItem("text", "bottom")}
                         >
                           + Text
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => {
+                            const commentField = {
+                              ...defaultField("text"),
+                              label: "Comments",
+                              multiline: true,
+                            } as FieldDef;
+                            sync({ ...state, bottomFields: [...state.bottomFields, commentField] });
+                          }}
+                        >
+                          + Comment
                         </button>
                         <button
                           type="button"

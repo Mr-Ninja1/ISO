@@ -25,17 +25,69 @@ import type {
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
-import { enqueueAuditSync } from "@/lib/client/auditSyncQueue";
+import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyncQueue";
+import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 
 type Props = {
   tenantSlug: string;
   tenantName?: string;
   tenantLogoUrl?: string | null;
   templateId: string;
+  initialAuditId?: string;
   schema: FormSchemaV1;
 };
 
 type FormValues = Record<string, unknown>;
+
+const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
+
+function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
+  const sections: FormSection[] =
+    Array.isArray(schema.sections) && schema.sections.length
+      ? schema.sections.map((s) =>
+          s.type === "fields"
+            ? { ...s, fields: [...s.fields] }
+            : { ...s, columns: [...s.columns] }
+        )
+      : [{ type: "fields", title: "Fields", fields: [...(schema.fields ?? [])] }];
+
+  const hasPhoto = sections.some(
+    (section) =>
+      section.type === "fields" &&
+      section.fields.some((field) => field.isActive !== false && field.type === "photo")
+  );
+
+  if (hasPhoto) {
+    return { ...schema, sections };
+  }
+
+  const evidenceField: FieldDef = {
+    id: DEFAULT_EVIDENCE_FIELD_ID,
+    type: "photo",
+    label: "Photo evidence",
+    required: false,
+    isActive: true,
+    helpText: "Capture evidence photo for this form.",
+  };
+
+  const footerIndex = sections.findIndex(
+    (section) => section.type === "fields" && /footer/i.test(section.title || "")
+  );
+
+  if (footerIndex >= 0 && sections[footerIndex].type === "fields") {
+    sections[footerIndex] = {
+      ...sections[footerIndex],
+      fields: [...sections[footerIndex].fields, evidenceField],
+    };
+  } else {
+    sections.push({ type: "fields", title: "Evidence", fields: [evidenceField] });
+  }
+
+  return {
+    ...schema,
+    sections,
+  };
+}
 
 function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string) {
   return `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
@@ -60,6 +112,14 @@ function shouldSkipDraftFetch(userId: string | null, tenantSlug: string, templat
 function markDraftFetch(userId: string | null, tenantSlug: string, templateId: string) {
   try {
     localStorage.setItem(draftFetchCooldownKey(userId, tenantSlug, templateId), String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
+function writeQueuedNotice(tenantSlug: string, notice: string) {
+  try {
+    localStorage.setItem(`workspace-notice:v1:${tenantSlug}`, notice);
   } catch {
     // ignore
   }
@@ -100,6 +160,14 @@ function writeLocalDraft(
   }
 }
 
+function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string) {
+  try {
+    localStorage.removeItem(draftCacheKey(userId, tenantSlug, templateId));
+  } catch {
+    // ignore
+  }
+}
+
 function readLocalDraft(
   userId: string | null,
   tenantSlug: string,
@@ -117,17 +185,52 @@ function readLocalDraft(
   }
 }
 
-export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, schema }: Props) {
+function isNetworkFailure(error: unknown) {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (error instanceof TypeError) return true;
+  return false;
+}
+
+function isTimedOutRequest(error: unknown) {
+  return (error as any)?.name === "AbortError";
+}
+
+function normalizePhotoValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return [value];
+  }
+  return [] as string[];
+}
+
+function isOfflineQueueableServerError(error: unknown) {
+  const status = (error as any)?.status;
+  const code = (error as any)?.code;
+  if (status !== 503) return false;
+  return code === "AUTH_SERVICE_UNAVAILABLE";
+}
+
+export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, initialAuditId, schema }: Props) {
   const router = useRouter();
   const { session, user } = useAuth();
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
   const [activeStaffName, setActiveStaffName] = useState<string>("");
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
+  const [correctiveAction, setCorrectiveAction] = useState("");
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
+  const hasSeenUserEditRef = useRef(false);
+  const autoSaveInFlightRef = useRef(false);
+  const autoSavePauseUntilRef = useRef(0);
 
-  const zodSchema = useMemo(() => buildZodSchema(schema), [schema]);
-  const defaultValues = useMemo(() => buildDefaultValues(schema), [schema]);
+  const effectiveSchema = useMemo(() => ensureDefaultPhotoEvidence(schema), [schema]);
+
+  const zodSchema = useMemo(() => buildZodSchema(effectiveSchema), [effectiveSchema]);
+  const defaultValues = useMemo(() => buildDefaultValues(effectiveSchema), [effectiveSchema]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(zodSchema),
@@ -135,9 +238,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     mode: "onBlur",
   });
 
-  const sections: FormSection[] = Array.isArray(schema.sections) && schema.sections.length
-    ? schema.sections
-    : [{ type: "fields", fields: schema.fields ?? [] }];
+  const sections: FormSection[] = Array.isArray(effectiveSchema.sections) && effectiveSchema.sections.length
+    ? effectiveSchema.sections
+    : [{ type: "fields", fields: effectiveSchema.fields ?? [] }];
 
   const visibleSections: FormSection[] = useMemo(
     () =>
@@ -158,6 +261,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     [sections]
   );
 
+  const watchedValues = useWatch({ control: form.control }) as FormValues;
+  const temperatureAlerts = useMemo(
+    () => collectTemperatureAlerts(effectiveSchema, (watchedValues || {}) as Record<string, unknown>),
+    [effectiveSchema, watchedValues]
+  );
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem("active-staff-profile:v1");
@@ -175,9 +284,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   useEffect(() => {
     const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
     if (!local) return;
+    if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
     setDraftAuditId(local.auditId || null);
     form.reset({ ...defaultValues, ...local.values });
-  }, [defaultValues, form, templateId, tenantSlug, user?.id]);
+  }, [defaultValues, form, templateId, tenantSlug, user?.id, initialAuditId]);
 
   useEffect(() => {
     const accessToken = session?.access_token;
@@ -193,9 +303,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     let timeout: number | null = null;
 
     const runFetch = () => {
+      setIsLoadingDraft(true);
       const url = new URL("/api/audit/draft", window.location.origin);
       url.searchParams.set("tenantSlug", tenantSlug);
       url.searchParams.set("templateId", templateId);
+      if (initialAuditId) url.searchParams.set("auditId", initialAuditId);
 
       controller = new AbortController();
       timeout = window.setTimeout(() => controller?.abort(), 2500);
@@ -246,22 +358,51 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (timeout !== null) window.clearTimeout(timeout);
       controller?.abort();
     };
-  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, user?.id]);
+  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, user?.id, initialAuditId]);
 
-  async function persistAudit(values: FormValues, mode: "submit" | "draft") {
+  async function persistAudit(
+    values: FormValues,
+    mode: "submit" | "draft",
+    options?: { silent?: boolean; allowQueue?: boolean }
+  ) {
+    const silent = Boolean(options?.silent);
+    const allowQueue = options?.allowQueue !== false;
     const accessToken = session?.access_token;
     if (!accessToken) {
-      setNotification({
-        title: "Sign in required",
-        message: "Your session is missing or expired. Please sign in again to continue.",
-        tone: "warning",
-      });
+      if (!silent) {
+        setNotification({
+          title: "Sign in required",
+          message: "Your session is missing or expired. Please sign in again to continue.",
+          tone: "warning",
+        });
+      }
       router.push("/login");
       return false;
     }
 
+    const normalizedCorrectiveAction = correctiveAction.trim();
+    const payloadWithMeta: FormValues = {
+      ...values,
+      __temperatureMeta: {
+        alerts: temperatureAlerts,
+        correctiveAction: normalizedCorrectiveAction || null,
+        capturedAt: new Date().toISOString(),
+      },
+    };
+
+    if (mode === "submit" && temperatureAlerts.length > 0 && !normalizedCorrectiveAction) {
+      if (!silent) {
+        setNotification({
+          title: "Corrective action required",
+          message: "Please record corrective action details for out-of-spec temperatures before submitting.",
+          tone: "warning",
+        });
+      }
+      return false;
+    }
+
     if (mode === "draft") {
-      writeLocalDraft(user?.id || null, tenantSlug, templateId, values, draftAuditId);
+      writeLocalDraft(user?.id || null, tenantSlug, templateId, payloadWithMeta, draftAuditId);
     }
 
     try {
@@ -274,50 +415,133 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tenantSlug, templateId, payload: values, mode, auditId: draftAuditId ?? undefined }),
+        body: JSON.stringify({ tenantSlug, templateId, payload: payloadWithMeta, mode, auditId: draftAuditId ?? undefined }),
         signal: controller.signal,
       });
 
       window.clearTimeout(timeout);
 
       if (!res.ok) {
-        throw new Error(mode === "draft" ? "Saving draft failed" : "Submit failed");
+        const data = await res.json().catch(() => ({}));
+        const message =
+          (typeof data?.error === "string" && data.error) ||
+          (mode === "draft" ? "Saving draft failed" : "Submit failed");
+        const error = new Error(message) as Error & { status?: number; code?: string };
+        error.status = res.status;
+        if (typeof data?.code === "string") {
+          error.code = data.code;
+        }
+        throw error;
       }
 
       const json = (await res.json()) as { auditId: string };
       setDraftAuditId(json.auditId);
 
       if (mode === "draft") {
-        writeLocalDraft(user?.id || null, tenantSlug, templateId, values, json.auditId);
-        setNotification({
-          title: "Draft saved",
-          message: "Your draft was saved successfully.",
-          tone: "success",
-        });
+        writeLocalDraft(user?.id || null, tenantSlug, templateId, payloadWithMeta, json.auditId);
+        if (!silent) {
+          setNotification({
+            title: "Draft saved",
+            message: "Your draft was saved successfully.",
+            tone: "success",
+          });
+        }
         return true;
       }
 
-      router.push(`/${tenantSlug}/audits/${json.auditId}`);
+      clearLocalDraft(user?.id || null, tenantSlug, templateId);
+      setDraftAuditId(null);
+      router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=submitted&auditId=${encodeURIComponent(json.auditId)}`);
       return true;
-    } catch {
-      enqueueAuditSync({
+    } catch (error: unknown) {
+      const timedOut = isTimedOutRequest(error);
+      const shouldQueue = allowQueue && (isNetworkFailure(error) || isOfflineQueueableServerError(error) || timedOut);
+      if (!shouldQueue) {
+        if (!silent) {
+          setNotification({
+            title: mode === "draft" ? "Draft save failed" : "Submission failed",
+            message:
+              (error as any)?.message ||
+              (mode === "draft"
+                ? "Could not save draft on server. Please retry."
+                : "Could not submit on server. Please retry."),
+            tone: "error",
+          });
+        }
+        return false;
+      }
+
+      const queued = enqueueAuditSync({
         tenantSlug,
         templateId,
-        payload: values,
+        payload: payloadWithMeta,
         mode,
         auditId: draftAuditId ?? undefined,
       });
-      setNotification({
-        title: mode === "draft" ? "Draft queued" : "Submission queued",
-        message:
-          mode === "draft"
-            ? "Your draft will sync automatically when the connection returns."
-            : "Your submission will sync automatically when the connection returns.",
-        tone: "warning",
-      });
+      if (!silent) {
+        setNotification({
+          title: mode === "draft" ? "Draft saved locally" : "Submission queued",
+          message:
+            mode === "draft"
+              ? timedOut
+                ? "The draft is stored locally and will finish syncing in the background."
+                : "Your draft will sync automatically when the connection returns."
+              : "Your submission will sync automatically when the connection returns.",
+          tone: "warning",
+        });
+      }
+
+      if (mode === "submit") {
+        addOfflineSubmittedForm({
+          queueId: queued.id,
+          tenantSlug,
+          templateId,
+          templateTitle: effectiveSchema.title || "Form",
+          payload: payloadWithMeta,
+        });
+        clearLocalDraft(user?.id || null, tenantSlug, templateId);
+        setDraftAuditId(null);
+        writeQueuedNotice(tenantSlug, "Submission queued while offline. It will sync once connection is restored.");
+        router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=queued-submit`);
+      }
+
       return true;
     }
   }
+
+  useEffect(() => {
+    if (isLoadingDraft) return;
+    if (form.formState.isSubmitting || isSavingDraft) return;
+    if (!session?.access_token || !tenantSlug || !templateId) return;
+    if (Date.now() < autoSavePauseUntilRef.current) return;
+
+    if (!hasSeenUserEditRef.current) {
+      hasSeenUserEditRef.current = true;
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      if (autoSaveInFlightRef.current) return;
+      const values = form.getValues();
+      writeLocalDraft(user?.id || null, tenantSlug, templateId, values, draftAuditId);
+
+      autoSaveInFlightRef.current = true;
+      setIsAutoSaving(true);
+      try {
+        const ok = await persistAudit(values, "draft", { silent: true, allowQueue: false });
+        if (ok) setLastAutoSavedAt(Date.now());
+        if (!ok) {
+          // Back off autosave API retries when server is under pressure.
+          autoSavePauseUntilRef.current = Date.now() + 30_000;
+        }
+      } finally {
+        autoSaveInFlightRef.current = false;
+        setIsAutoSaving(false);
+      }
+    }, 10_000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [watchedValues, form, isLoadingDraft, isSavingDraft, session?.access_token, tenantSlug, templateId, user?.id, draftAuditId]);
 
   async function onSubmit(values: FormValues) {
     await persistAudit(values, "submit");
@@ -379,7 +603,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           return (
             <div key={`fields-${idx}`} className="flex flex-col gap-4 rounded-lg border border-foreground/15 bg-background p-4 sm:p-5">
               {section.title ? (
-                <div className="text-sm font-semibold text-foreground/80">{section.title}</div>
+                section.title.trim().toLowerCase() !== "fields" ? (
+                  <div className="text-sm font-semibold text-foreground/80">{section.title}</div>
+                ) : null
               ) : null}
               <div className="grid grid-cols-1 gap-4 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
                 {section.fields.map((field) => (
@@ -423,10 +649,37 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return null;
       })}
 
-      <div className="flex items-center justify-end gap-2">
+      {temperatureAlerts.length > 0 ? (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+          <div className="text-sm font-semibold text-amber-900">Out-of-spec temperature alert</div>
+          <ul className="mt-2 space-y-1 text-xs text-amber-900">
+            {temperatureAlerts.slice(0, 6).map((alert) => (
+              <li key={alert.key}>
+                {alert.label}: {alert.value}
+                {alert.unit ? ` ${alert.unit === "F" ? "°F" : "°C"}` : ""}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-amber-900">Corrective action</label>
+            <textarea
+              className="min-h-24 w-full rounded-md border border-amber-300 bg-background p-2 text-sm"
+              placeholder="Describe the corrective action taken"
+              value={correctiveAction}
+              onChange={(e) => setCorrectiveAction(e.target.value)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
+        <div className="mr-auto text-xs text-foreground/60">
+          {isAutoSaving ? "Auto-saving draft..." : lastAutoSavedAt ? `Auto-saved ${new Date(lastAutoSavedAt).toLocaleTimeString()}` : "Auto-save on"}
+        </div>
         <button
           type="button"
-          className="h-12 rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50"
+          className="h-11 w-full rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50 sm:h-12 sm:w-auto"
           onClick={onSaveDraft}
           disabled={isSavingDraft || form.formState.isSubmitting}
         >
@@ -434,11 +687,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         </button>
         <button
           type="submit"
-          className="h-12 rounded-md bg-foreground px-4 text-background disabled:opacity-50"
+          className="h-11 w-full rounded-md bg-foreground px-4 text-background disabled:opacity-50 sm:h-12 sm:w-auto"
           disabled={isSavingDraft || form.formState.isSubmitting}
         >
           {form.formState.isSubmitting ? "Submitting..." : "Submit"}
         </button>
+      </div>
       </div>
 
       <NotificationModal
@@ -539,6 +793,10 @@ function Field({
 
   if (field.type === "temp") {
     return <TempFieldInput field={field} control={control} errors={errors} />;
+  }
+
+  if (field.type === "photo") {
+    return <PhotoFieldInput field={field} control={control} errors={errors} />;
   }
 
   if (field.type === "signature") {
@@ -793,6 +1051,114 @@ function DynamicTableInput({
           </tbody>
         </table>
       </div>
+      {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+    </div>
+  );
+}
+
+function PhotoFieldInput({
+  field,
+  control,
+  errors,
+}: {
+  field: { id: string; label: string; required?: boolean };
+  control: Control<FormValues>;
+  errors: FieldErrors<FormValues>;
+}) {
+  const errorMessage = errors?.[field.id]?.message as string | undefined;
+  const value = useWatch({ control, name: field.id as never }) as unknown;
+  const photos = normalizePhotoValue(value);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!previewSrc) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewSrc(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewSrc]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-medium" htmlFor={field.id}>
+        {field.label}
+        {field.required ? <span className="ml-1">*</span> : null}
+      </label>
+      <Controller
+        control={control}
+        name={field.id as never}
+        render={({ field: rhfField }) => (
+          <>
+            <input
+              id={field.id}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="h-12 rounded-md border border-foreground/20 bg-background px-3 py-2"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.currentTarget.value = "";
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const next = typeof reader.result === "string" ? reader.result : "";
+                  if (!next) return;
+                  const current = normalizePhotoValue(rhfField.value);
+                  rhfField.onChange([...current, next]);
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+            {photos.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {photos.map((photo, index) => (
+                  <button
+                    key={`${field.id}_${index}`}
+                    type="button"
+                    onClick={() => setPreviewSrc(photo)}
+                    className="relative block w-16 overflow-hidden rounded-md border border-foreground/20"
+                    title="Click to view full image"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo} alt={`${field.label} ${index + 1}`} className="h-14 w-16 object-cover" />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                type="button"
+                className="h-8 rounded-md border border-foreground/20 px-2 text-xs"
+                onClick={() => rhfField.onChange([])}
+              >
+                Clear photos
+              </button>
+            </div>
+
+            {previewSrc ? (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+                onClick={() => setPreviewSrc(null)}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className="relative max-h-[90vh] w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs text-white"
+                    onClick={() => setPreviewSrc(null)}
+                  >
+                    Close
+                  </button>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={previewSrc} alt={`${field.label} preview`} className="max-h-[90vh] w-full rounded-md object-contain" />
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      />
       {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
     </div>
   );

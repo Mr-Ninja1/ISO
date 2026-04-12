@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -61,6 +62,15 @@ export async function POST(req: Request) {
         name,
         sortOrder: 0,
       },
+    });
+
+    await recordActivity({
+      tenantId,
+      userId: user.id,
+      action: "category.create",
+      entityType: "Category",
+      entityId: category.id,
+      details: { name: category.name },
     });
 
     return NextResponse.json(category);

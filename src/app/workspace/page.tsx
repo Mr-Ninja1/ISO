@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Clock3, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, X } from "lucide-react";
+import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { NotificationModal } from "@/components/NotificationModal";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
+import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import {
   readAuditTemplateCache,
   writeAuditTemplateCache,
 } from "@/lib/client/auditTemplateCache";
+import { writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
 
 type TenantSummary = {
   id: string;
@@ -61,18 +63,27 @@ function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId
   return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
 }
 
-function readWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null): WorkspaceData | null {
+function readWorkspaceCacheEnvelope(userId: string | null, tenantSlug: string, categoryId: string | null): WorkspaceCacheEnvelope | null {
   if (!tenantSlug) return null;
   try {
     const raw = localStorage.getItem(workspaceCacheKey(userId, tenantSlug, categoryId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
     if (!parsed?.data || typeof parsed.ts !== "number") return null;
-    // Strict cache-first: if data exists locally, use it regardless of age.
-    return parsed.data;
+    return parsed;
   } catch {
     return null;
   }
+}
+
+function readWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null): WorkspaceData | null {
+  return readWorkspaceCacheEnvelope(userId, tenantSlug, categoryId)?.data || null;
+}
+
+function isWorkspaceCacheFresh(userId: string | null, tenantSlug: string, categoryId: string | null, ttlMs: number) {
+  const envelope = readWorkspaceCacheEnvelope(userId, tenantSlug, categoryId);
+  if (!envelope) return false;
+  return Date.now() - envelope.ts <= ttlMs;
 }
 
 function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
@@ -80,6 +91,13 @@ function writeWorkspaceCache(userId: string | null, tenantSlug: string, category
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
     localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("workspace-cache-updated", {
+          detail: { tenantSlug, categoryId },
+        })
+      );
+    }
   } catch {
     // ignore quota / serialization failures
   }
@@ -138,6 +156,22 @@ function WorkspaceSkeleton() {
   );
 }
 
+function WorkspaceCardSkeletonGrid() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} className="rounded-lg border border-foreground/20 bg-background p-4 shadow-sm">
+          <div className="space-y-3 animate-pulse">
+            <div className="h-4 w-2/3 rounded bg-foreground/10" />
+            <div className="h-3 w-1/2 rounded bg-foreground/10" />
+            <div className="mt-4 h-10 w-full rounded-md bg-foreground/10" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WorkspacePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -168,6 +202,7 @@ function WorkspacePageInner() {
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
   const [offlinePreparing, setOfflinePreparing] = useState(false);
+  const [nativeWarmupRunning, setNativeWarmupRunning] = useState(false);
   const [offlinePreparedAt, setOfflinePreparedAt] = useState<string | null>(null);
   const [prefetchingSchemas, setPrefetchingSchemas] = useState(false);
   const [prefetchProgress, setPrefetchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -282,6 +317,21 @@ function WorkspacePageInner() {
         });
       }
 
+      const auditsUrl = new URL("/api/audit/list", window.location.origin);
+      auditsUrl.searchParams.set("tenantSlug", tenantSlug);
+      const auditsRes = await fetch(auditsUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const auditsJson = await auditsRes.json().catch(() => ({}));
+      if (auditsRes.ok && Array.isArray(auditsJson.rows)) {
+        writeAuditsListCache(
+          cacheUserId,
+          tenantSlug,
+          auditsJson.rows as CachedAuditRow[],
+          typeof auditsJson.maxUpdatedAt === "string" ? auditsJson.maxUpdatedAt : null
+        );
+      }
+
       const now = new Date().toISOString();
       localStorage.setItem("offlineModeEnabled", "1");
       localStorage.setItem("offlinePreparedAt", now);
@@ -303,6 +353,7 @@ function WorkspacePageInner() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
+    setNativeWarmupRunning(true);
     try {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
@@ -340,12 +391,31 @@ function WorkspacePageInner() {
         }
       }
 
+      const auditsUrl = new URL("/api/audit/list", window.location.origin);
+      auditsUrl.searchParams.set("tenantSlug", tenantSlug);
+      const auditsRes = await fetch(auditsUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (auditsRes.ok) {
+        const auditsJson = await auditsRes.json().catch(() => ({}));
+        if (Array.isArray(auditsJson.rows)) {
+          writeAuditsListCache(
+            cacheUserId,
+            tenantSlug,
+            auditsJson.rows as CachedAuditRow[],
+            typeof auditsJson.maxUpdatedAt === "string" ? auditsJson.maxUpdatedAt : null
+          );
+        }
+      }
+
       const now = new Date().toISOString();
       localStorage.setItem("offlineModeEnabled", "1");
       localStorage.setItem("offlinePreparedAt", now);
       setOfflinePreparedAt(now);
     } catch {
       // silent background warm-up
+    } finally {
+      setNativeWarmupRunning(false);
     }
   }
 
@@ -421,6 +491,26 @@ function WorkspacePageInner() {
     // Keep dependency size stable to avoid React dev warning during fast refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantSlug, categoryId]);
+
+  useEffect(() => {
+    const onWorkspaceCacheUpdated = (event: Event) => {
+      const custom = event as CustomEvent<{ tenantSlug?: string; categoryId?: string | null }>;
+      if (custom.detail?.tenantSlug !== tenantSlug) return;
+      const currentCategoryId = categoryId || null;
+      const cached = readWorkspaceCache(cacheUserId, tenantSlug, currentCategoryId) || readWorkspaceCache(cacheUserId, tenantSlug, null);
+      if (!cached) return;
+      setWorkspace(cached);
+      setUiActiveCategoryId(null);
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      setError("");
+    };
+
+    window.addEventListener("workspace-cache-updated", onWorkspaceCacheUpdated as EventListener);
+    return () => {
+      window.removeEventListener("workspace-cache-updated", onWorkspaceCacheUpdated as EventListener);
+    };
+  }, [tenantSlug, categoryId, cacheUserId]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -501,6 +591,35 @@ function WorkspacePageInner() {
     if (categoryId) url.searchParams.set("categoryId", categoryId);
 
     let keepLoading = false;
+
+    const hasFreshCache = isWorkspaceCacheFresh(cacheUserId, tenantSlug, categoryId, 2 * 60_000);
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+
+    if ((hasFreshCache || isOffline) && cached) {
+      setWorkspace(cached);
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      return () => {
+        if (workspaceRetryTimerRef.current !== null) {
+          window.clearTimeout(workspaceRetryTimerRef.current);
+          workspaceRetryTimerRef.current = null;
+        }
+      };
+    }
+
+    if (cached && !forceRefresh) {
+      // Cache-first: keep the UI responsive and let background sync revalidate later.
+      setWorkspace(cached);
+      setUiActiveCategoryId(null);
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      return () => {
+        if (workspaceRetryTimerRef.current !== null) {
+          window.clearTimeout(workspaceRetryTimerRef.current);
+          workspaceRetryTimerRef.current = null;
+        }
+      };
+    }
 
     fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(async (res) => {
@@ -858,12 +977,24 @@ function WorkspacePageInner() {
   }
 
   if (error && !workspace) {
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
     return (
       <div className="min-h-dvh bg-background">
         <div className="mx-auto max-w-4xl p-6">
           <h1 className="text-xl font-semibold">Workspace</h1>
-          <div className="mt-4 rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">
-            {error}
+          <div className="mt-4 space-y-3">
+            <FeatureSyncNotice
+              title={offline ? "Offline and no cache available" : "Live sync required"}
+              message={
+                offline
+                  ? "This brand has not been cached on this device yet. Connect to the internet once so the workspace, schemas, and saved data can be downloaded and kept locally for offline use."
+                  : "The workspace works offline from cache, but to see fresh cross-device updates you need internet so the app can pull the latest changes in the background."
+              }
+              tone="warning"
+            />
+            <div className="rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">
+              {error}
+            </div>
           </div>
           <div className="mt-4 flex gap-2">
             <button
@@ -895,6 +1026,7 @@ function WorkspacePageInner() {
     workspace.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
   const canAccessSettings =
     workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
+  const canSeeAdminHub = role === "ADMIN" || role === "MANAGER";
 
   const hasCategories = categories.length > 0;
 
@@ -929,6 +1061,12 @@ function WorkspacePageInner() {
               <LoggedInStaffBadge tenantSlug={tenant.slug} />
             </div>
             <ConnectivityIndicator />
+            {nativeWarmupRunning ? (
+              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Optimizing local cache...
+              </span>
+            ) : null}
             {prefetchingSchemas && prefetchProgress.total > 0 ? (
               <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
                 Preloading forms {prefetchProgress.done}/{prefetchProgress.total}
@@ -1110,6 +1248,93 @@ function WorkspacePageInner() {
           </div>
         ) : null}
 
+        <section className="mb-4 rounded-xl border border-foreground/20 bg-background p-3 sm:p-4">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">Quick access</div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Link
+              href={`/${tenant.slug}/audits?status=SUBMITTED`}
+              className="rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+            >
+              <div className="text-sm font-medium">Submitted forms</div>
+              <div className="text-xs text-foreground/65">View all submitted records across staff</div>
+            </Link>
+            <Link
+              href={`/${tenant.slug}/audits`}
+              className="rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+            >
+              <div className="text-sm font-medium">All forms</div>
+              <div className="text-xs text-foreground/65">Browse drafts and submitted forms</div>
+            </Link>
+          </div>
+        </section>
+
+        {canSeeAdminHub ? (
+          <section className="mb-4 rounded-xl border border-foreground/20 bg-background p-3 sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Admin quick actions</div>
+              <span className="text-xs text-foreground/60">Control center</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Link
+                href={`/${tenant.slug}/audits`}
+                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">View forms</span>
+                    <span className="block text-xs text-foreground/65">Drafts and submitted records</span>
+                  </span>
+                </div>
+              </Link>
+              <Link
+                href={`/${tenant.slug}/activity`}
+                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                    <Activity className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Activity monitor</span>
+                    <span className="block text-xs text-foreground/65">Track staff and system actions</span>
+                  </span>
+                </div>
+              </Link>
+              <Link
+                href="/dashboard"
+                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                    <LayoutDashboard className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Dashboard</span>
+                    <span className="block text-xs text-foreground/65">Switch brands and account scope</span>
+                  </span>
+                </div>
+              </Link>
+              <Link
+                href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                    <LayoutDashboard className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Workspace home</span>
+                    <span className="block text-xs text-foreground/65">Template operations and quick start</span>
+                  </span>
+                </div>
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
         {!hasCategories ? (
           <div className="rounded-lg border border-foreground/20 bg-background p-6">
             <h2 className="text-lg font-semibold">Setup Your Workspace</h2>
@@ -1125,11 +1350,14 @@ function WorkspacePageInner() {
             </button>
           </div>
         ) : switchingCategory ? (
-          <div className="rounded-lg border border-foreground/20 bg-background p-6">
-            <div className="flex items-center gap-2 text-sm text-foreground/70">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading forms...
+          <div className="space-y-3">
+            <div className="rounded-lg border border-foreground/20 bg-background p-4">
+              <div className="flex items-center gap-2 text-sm text-foreground/70">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading forms and syncing cache...
+              </div>
             </div>
+            <WorkspaceCardSkeletonGrid />
           </div>
         ) : templates.length === 0 ? (
           <div className="rounded-lg border border-foreground/20 bg-background p-6">

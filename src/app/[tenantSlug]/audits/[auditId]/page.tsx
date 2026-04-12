@@ -3,6 +3,11 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PrintButton } from "@/components/PrintButton";
 import type { FormSchemaV1, FormSection, FieldDef } from "@/types/forms";
+import { collectTemperatureSeries } from "@/lib/temperatureMonitoring";
+import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
+import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
+
+const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
 function asText(value: unknown) {
   if (value == null) return "";
@@ -20,6 +25,21 @@ function asYesNo(value: unknown) {
 
 function isDataUrl(value: unknown) {
   return typeof value === "string" && value.startsWith("data:image");
+}
+
+function isImageSource(value: unknown) {
+  if (typeof value !== "string") return false;
+  if (value.startsWith("data:image")) return true;
+  if (/^https?:\/\//i.test(value)) return true;
+  return false;
+}
+
+function photoList(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((x): x is string => isImageSource(x));
+  }
+  if (isImageSource(value)) return [value as string];
+  return [] as string[];
 }
 
 function splitSections(schema: FormSchemaV1): FormSection[] {
@@ -58,6 +78,14 @@ function renderFieldValue(field: FieldDef, payload: Record<string, unknown>) {
     return <span className="text-foreground/50">Not signed</span>;
   }
 
+  if (field.type === "photo") {
+    const items = photoList(value);
+    if (items.length > 0) {
+      return <ReportPhotoGallery photos={items} label={field.label} />;
+    }
+    return <span className="text-foreground/50">No photo</span>;
+  }
+
   if (field.type === "checkbox") {
     return <span>{value ? "Checked" : "Not checked"}</span>;
   }
@@ -74,22 +102,63 @@ export default async function AuditReportPage({
 }) {
   const { tenantSlug, auditId } = await params;
   const { orientation } = await searchParams;
+  let audit:
+    | {
+        id: string;
+        status: "DRAFT" | "SUBMITTED";
+        createdAt: Date;
+        payload: unknown;
+        tenant: { name: string; logoUrl: string | null; slug: string };
+        template: { title: string; schema: unknown };
+      }
+    | null = null;
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
-  if (!tenant) notFound();
+  try {
+    audit = await prisma.auditLog.findFirst({
+      where: {
+        id: auditId,
+        tenant: { slug: tenantSlug },
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        payload: true,
+        tenant: {
+          select: {
+            name: true,
+            logoUrl: true,
+            slug: true,
+          },
+        },
+        template: {
+          select: {
+            title: true,
+            schema: true,
+          },
+        },
+      },
+    });
+  } catch (error: any) {
+    if (error?.code === "P2024") {
+      return (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          Report loading is delayed because the database is busy. Please retry in a few seconds.
+          <div className="mt-2">
+            <Link className="underline" href={`/${tenantSlug}/audits`}>
+              Back to stored forms
+            </Link>
+          </div>
+        </div>
+      );
+    }
+    throw error;
+  }
 
-  const audit = await prisma.auditLog.findFirst({
-    where: { id: auditId, tenantId: tenant.id },
-  });
   if (!audit) notFound();
 
-  const template = await prisma.formTemplate.findFirst({
-    where: { id: audit.templateId, tenantId: tenant.id },
-    select: { title: true, schema: true },
-  });
-  if (!template) notFound();
-
-  const schema = template.schema as FormSchemaV1;
+  const tenant = audit.tenant;
+  const schema = audit.template.schema as FormSchemaV1;
   const payload = (audit.payload as Record<string, unknown>) ?? {};
   const auditMeta =
     payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
@@ -98,6 +167,15 @@ export default async function AuditReportPage({
   const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
   const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
   const sections = splitSections(schema);
+  const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
+  const payloadTempMeta =
+    payload && typeof payload.__temperatureMeta === "object" && payload.__temperatureMeta !== null
+      ? (payload.__temperatureMeta as Record<string, unknown>)
+      : null;
+  const correctiveAction = payloadTempMeta && typeof payloadTempMeta.correctiveAction === "string"
+    ? payloadTempMeta.correctiveAction
+    : "";
+  const trends = collectTemperatureSeries(schema, payload);
   const resolvedOrientation = orientation || (shouldUseLandscape(schema) ? "landscape" : "portrait");
 
   const printCss = `
@@ -112,6 +190,15 @@ export default async function AuditReportPage({
 
   return (
     <div className="flex flex-col gap-4">
+      <ReportSnapshotCacheWriter
+        tenantSlug={tenantSlug}
+        auditId={auditId}
+        title={schema.title || audit.template.title}
+        status={audit.status}
+        createdAt={audit.createdAt.toISOString()}
+        tenantName={tenant.name}
+        payload={payload}
+      />
       <style>{printCss}</style>
 
       <div className="print-hide flex items-center justify-between gap-3">
@@ -154,7 +241,7 @@ export default async function AuditReportPage({
               <div><span className="font-semibold">Date:</span> {new Date(audit.createdAt).toLocaleDateString()}</div>
             </div>
           </div>
-          <div className="mt-3 text-center text-2xl font-bold tracking-tight">{schema.title || template.title}</div>
+          <div className="mt-3 text-center text-2xl font-bold tracking-tight">{schema.title || audit.template.title}</div>
           {submittedByName || submittedByEmail ? (
             <div className="mt-2 text-center text-xs text-foreground/70">
               Submitted by {submittedByName || "Staff"}
@@ -164,11 +251,49 @@ export default async function AuditReportPage({
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
+          {trends.length > 0 ? (
+            <section className="print-page-break-avoid rounded-md border border-foreground/20 p-3">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">Temperature trends</h3>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {trends.map((trend) => {
+                  const min = Math.min(...trend.values);
+                  const max = Math.max(...trend.values);
+                  const range = max - min || 1;
+                  const points = trend.values
+                    .map((v, i) => {
+                      const x = (i / Math.max(1, trend.values.length - 1)) * 260;
+                      const y = 70 - ((v - min) / range) * 60;
+                      return `${x},${y}`;
+                    })
+                    .join(" ");
+                  return (
+                    <div key={trend.key} className="rounded-md border border-foreground/15 p-2">
+                      <div className="text-xs font-semibold text-foreground/80">{trend.label}</div>
+                      <svg viewBox="0 0 260 80" className="mt-2 h-20 w-full rounded bg-foreground/[0.03]">
+                        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" />
+                      </svg>
+                      <div className="mt-1 text-[11px] text-foreground/70">
+                        Min: {min.toFixed(1)}°{trend.unit} | Max: {max.toFixed(1)}°{trend.unit}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {correctiveAction ? (
+            <section className="print-page-break-avoid rounded-md border border-amber-300 bg-amber-50 p-3">
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-900">Corrective action</h3>
+              <div className="text-sm text-amber-900">{correctiveAction}</div>
+            </section>
+          ) : null}
+
           {sections.map((section, idx) => {
             if (section.type === "fields") {
               return (
                 <section key={`fields-${idx}`} className="print-page-break-avoid rounded-md border border-foreground/20 p-3">
-                  {section.title ? <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title}</h3> : null}
+                  {section.title && section.title.trim().toLowerCase() !== "fields" ? <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title}</h3> : null}
                   <div className="grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
                     {section.fields.map((field) => (
                       <div
@@ -234,7 +359,11 @@ export default async function AuditReportPage({
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img src={cell as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />
                                   ) : (
-                                    col.type === "yesno" ? asYesNo(cell) : asText(cell)
+                                    isImageSource(cell)
+                                      ? (
+                                        <a href={cell as string} target="_blank" rel="noreferrer" className="underline">View image</a>
+                                      )
+                                      : col.type === "yesno" ? asYesNo(cell) : asText(cell)
                                   )}
                                 </td>
                               );
@@ -248,12 +377,15 @@ export default async function AuditReportPage({
               </section>
             );
           })}
+
+          {photoList(defaultEvidence).length > 0 ? (
+            <section className="print-page-break-avoid rounded-md border border-foreground/20 p-3">
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide">Photo evidence</h3>
+              <ReportPhotoGallery photos={photoList(defaultEvidence)} label="Photo evidence" />
+            </section>
+          ) : null}
         </div>
       </div>
-
-      <Link className="print-hide text-sm underline" href={`/${tenantSlug}/templates`}>
-        Back to templates
-      </Link>
     </div>
   );
 }

@@ -3,6 +3,7 @@ export type FieldType =
   | "date"
   | "number"
   | "temp"
+  | "photo"
   | "signature"
   | "checkbox"
   | "yesno"
@@ -60,6 +61,10 @@ export type SignatureField = BaseField & {
   type: "signature";
 };
 
+export type PhotoField = BaseField & {
+  type: "photo";
+};
+
 export type CheckboxField = BaseField & {
   type: "checkbox";
 };
@@ -88,6 +93,7 @@ export type FieldDef =
   | DateField
   | NumberField
   | TempField
+  | PhotoField
   | SignatureField
   | CheckboxField
   | YesNoField

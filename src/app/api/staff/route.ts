@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
 import { hashPin } from "@/lib/staffPin";
 import { hasPermission } from "@/lib/roleGate";
+import { recordActivity } from "@/lib/activityTracker";
 
 const STAFF_ROLE_VALUES = ["MANAGER", "AUDITOR", "VIEWER", "MEMBER"] as const;
 
@@ -262,6 +263,15 @@ export async function POST(req: Request) {
       },
     });
 
+    await recordActivity({
+      tenantId: adminTenant.tenant.id,
+      userId: user.id,
+      action: "staff.upsert",
+      entityType: "TenantMember",
+      entityId: target.userId,
+      details: { role: role || "MEMBER", email: target.normalizedEmail, fullName: normalizedFullName },
+    });
+
     return NextResponse.json({
       ok: true,
       userId: target.userId,
@@ -320,6 +330,15 @@ export async function DELETE(req: Request) {
       }),
       prisma.tenantStaffPin.deleteMany({ where: { tenantId: adminTenant.tenant.id, userId } }),
     ]);
+
+    await recordActivity({
+      tenantId: adminTenant.tenant.id,
+      userId: user.id,
+      action: "staff.remove",
+      entityType: "TenantMember",
+      entityId: userId,
+      details: { role: membership.role },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
@@ -437,6 +456,20 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
     }
+
+    await recordActivity({
+      tenantId: adminTenant.tenant.id,
+      userId: user.id,
+      action: "staff.update",
+      entityType: "TenantMember",
+      entityId: userId,
+      details: {
+        changedRole: Boolean(role),
+        changedPassword: Boolean(password),
+        changedEmail: Boolean(normalizedEmail),
+        changedName: Boolean(fullName),
+      },
+    });
 
     return NextResponse.json({
       ok: true,
