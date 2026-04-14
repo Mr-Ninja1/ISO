@@ -62,13 +62,13 @@ export default function LoginPage() {
 
         const tenantSlug = typeof verifyJson?.tenantSlug === "string" ? verifyJson.tenantSlug : "";
         if (tenantSlug) {
-          router.push(`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`);
+          router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`);
           return;
         }
       }
 
       // Redirect to workspace after login
-      router.push("/workspace");
+      router.push("/workspace/forms");
     } catch (err: any) {
       setError(err.message || "Sign in failed");
     } finally {

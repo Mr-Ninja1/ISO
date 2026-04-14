@@ -302,7 +302,7 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
         title="Admin dashboard needs internet"
         message="This dashboard reads live compliance data and staff activity from the database. Open it again once you are online so it can refresh safely."
         hint="Offline cache is reserved for the workspace, saved forms, and form drafting."
-        backHref={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
         backLabel="Back to workspace"
       />
     );

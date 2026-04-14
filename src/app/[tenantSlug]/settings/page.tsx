@@ -59,7 +59,7 @@ export default async function TenantSettingsPage({
 
         <Link
           className="text-sm underline sm:text-right"
-          href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+          href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`}
         >
           Back to workspace
         </Link>

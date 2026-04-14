@@ -331,7 +331,7 @@ export default function TemplatesLibraryPage() {
           <h2 className="text-xl font-semibold">Template library</h2>
           <p className="text-sm text-foreground/70">Add a standard form into one of your categories.</p>
         </div>
-        <Link href={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`} className="text-sm underline">
+        <Link href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`} className="text-sm underline">
           Back to workspace
         </Link>
       </div>

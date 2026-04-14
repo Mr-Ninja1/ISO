@@ -677,7 +677,7 @@ export default function NewTemplatePage() {
                 {previewOpen ? "Hide panel" : "Show panel"}
               </button>
               <Link
-                href={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+                href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
                 className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
               >
                 Back

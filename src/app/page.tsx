@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
@@ -11,13 +10,7 @@ export default function Home() {
   const { session, loading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (session) {
-      router.push("/workspace");
-    }
-  }, [session, router]);
-
-  if (loading || session) {
+  if (loading) {
     return <AppLoadingScreen title="Loading" subtitle="Preparing your workspace..." />;
   }
 
@@ -33,16 +26,16 @@ export default function Home() {
             <div className="max-w-2xl space-y-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
                 <Sparkles className="h-3.5 w-3.5" />
-                QHSE + HACCP PWA
+                ISO-ready compliance PWA
               </div>
 
               <div className="space-y-4">
                 <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-                  A production-grade audit platform that feels native on tablet and web.
+                  A production-grade audit platform for service brands that work to ISO standards.
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-foreground/70 sm:text-lg">
                   Cache your workspace, forms, drafts, evidence, and audit history locally, then sync cross-device updates when internet is available.
-                  Designed for teams that need speed, reliability, and offline confidence.
+                  Designed for teams that need speed, reliability, and offline confidence across any ISO-led operation.
                 </p>
               </div>
 
@@ -60,6 +53,15 @@ export default function Home() {
                 >
                   Sign In
                 </Link>
+                {session ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/workspace")}
+                    className="inline-flex h-12 items-center justify-center rounded-full border border-foreground/15 px-6 font-medium transition hover:bg-foreground/5"
+                  >
+                    Continue to workspace
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -84,9 +86,9 @@ export default function Home() {
             </div>
 
             <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.03] p-5">
-              <div className="text-sm font-semibold">Built for food safety teams</div>
+              <div className="text-sm font-semibold">Built for ISO-led service brands</div>
               <p className="mt-2 text-sm leading-6 text-foreground/65">
-                Replace the need for a native app with a fast PWA that works on tablets, supports evidence capture, and keeps your audit trail usable offline.
+                Replace the need for a native app with a fast PWA that works on tablets, supports evidence capture, and keeps your audit trail usable offline for any service brand following ISO standards.
               </p>
             </div>
           </div>

@@ -119,7 +119,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               </>
             ) : null}
             <Link
-              href={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+              href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
               className="mt-1 block rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
             >
               Workspace
@@ -175,7 +175,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             </>
           ) : null}
           <Link
-            href={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+            href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
             className="mt-1 block rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
           >
             Workspace

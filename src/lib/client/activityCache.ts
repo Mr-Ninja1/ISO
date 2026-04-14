@@ -8,6 +8,7 @@ export type CachedActivityRow = {
   createdAt: string;
   actorName: string | null;
   actorEmail: string | null;
+  targetName?: string | null;
 };
 
 type ActivityCacheEnvelope = {
@@ -16,7 +17,7 @@ type ActivityCacheEnvelope = {
 };
 
 function activityCacheKey(tenantSlug: string) {
-  return `activity-cache:v1:${tenantSlug}`;
+  return `activity-cache:v2:${tenantSlug}`;
 }
 
 export function readCachedActivityRows(tenantSlug: string): CachedActivityRow[] {

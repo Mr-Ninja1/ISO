@@ -159,7 +159,7 @@ export default function DashboardPage() {
                 type="button"
                 onClick={() => {
                   setOpeningTenantId(tenant.id);
-                  router.push(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+                  router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`);
                 }}
                 className="w-full rounded-md border border-foreground/20 p-4 text-left hover:bg-foreground/5"
               >

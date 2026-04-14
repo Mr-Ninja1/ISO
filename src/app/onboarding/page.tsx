@@ -82,7 +82,7 @@ export default function OnboardingPage() {
       } catch {
         // ignore
       }
-      router.push(`/workspace?tenantSlug=${encodeURIComponent(slug)}`);
+      router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(slug)}`);
     } catch (err: any) {
       setError(err.message || "Failed to create tenant");
     } finally {

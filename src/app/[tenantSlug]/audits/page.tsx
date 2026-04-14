@@ -57,7 +57,7 @@ export default async function AuditsPage({
           <Link href={`/${tenantSlug}/audits/local`} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
             Open offline queued forms
           </Link>
-          <Link href={`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
+          <Link href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
             Back to workspace
           </Link>
         </div>
@@ -158,7 +158,7 @@ export default async function AuditsPage({
             Last offline report
           </Link>
           <Link
-            href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+            href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`}
             className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
           >
             Back to workspace

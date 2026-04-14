@@ -19,7 +19,24 @@ type ActivityRow = {
   createdAt: Date;
   actorName: string | null;
   actorEmail: string | null;
+  targetName: string | null;
 };
+
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function GET(req: Request) {
   const token = getBearerToken(req);
@@ -68,6 +85,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const templates = await prisma.formTemplate.findMany({
+    where: { tenantId: tenant.id },
+    select: { id: true, title: true },
+  });
+  const templateTitleById = new Map(templates.map((template) => [template.id, template.title]));
+
+  const rowUserIds = Array.from(new Set([user.id]));
+
   const rows = (await prisma.$queryRawUnsafe(
     `SELECT
       a."id",
@@ -90,5 +115,71 @@ export async function GET(req: Request) {
     limit
   )) as ActivityRow[];
 
-  return NextResponse.json({ rows });
+  for (const row of rows) {
+    if (!rowUserIds.includes(row.userId)) {
+      rowUserIds.push(row.userId);
+    }
+  }
+
+  const authUserById = new Map<string, { fullName: string | null; email: string | null }>();
+  const supabaseAdmin = getSupabaseAdmin();
+  if (supabaseAdmin) {
+    let page = 1;
+    const pendingIds = new Set(rowUserIds);
+
+    while (pendingIds.size > 0 && page <= 20) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+      if (error) break;
+
+      const users = data?.users || [];
+      for (const authUser of users) {
+        if (!pendingIds.has(authUser.id)) continue;
+        authUserById.set(authUser.id, {
+          fullName: (authUser.user_metadata as Record<string, unknown> | undefined)?.full_name as string | null ?? null,
+          email: authUser.email || null,
+        });
+        pendingIds.delete(authUser.id);
+      }
+
+      if (users.length < 200) break;
+      page += 1;
+    }
+  }
+
+  const enrichedRows = rows.map((row) => {
+    const details = row.details && typeof row.details === "object" && !Array.isArray(row.details) ? (row.details as Record<string, unknown>) : null;
+    const detailTemplateId = typeof details?.templateId === "string" ? details.templateId : null;
+    const detailActorName =
+      typeof details?.submittedByName === "string"
+        ? details.submittedByName
+        : typeof details?.userName === "string"
+          ? details.userName
+          : null;
+    const detailActorEmail =
+      typeof details?.submittedByEmail === "string"
+        ? details.submittedByEmail
+        : typeof details?.userEmail === "string"
+          ? details.userEmail
+          : null;
+    const authUser = authUserById.get(row.userId) || null;
+    const targetName =
+      row.entityType === "AuditLog"
+        ? (detailTemplateId ? templateTitleById.get(detailTemplateId) || null : null)
+        : row.entityType === "FormTemplate"
+          ? (row.entityId ? templateTitleById.get(row.entityId) || null : null)
+          : typeof details?.title === "string"
+            ? details.title
+            : typeof details?.name === "string"
+              ? details.name
+              : null;
+
+    return {
+      ...row,
+      actorName: row.actorName || detailActorName || authUser?.fullName || null,
+      actorEmail: row.actorEmail || detailActorEmail || authUser?.email || null,
+      targetName,
+    };
+  });
+
+  return NextResponse.json({ rows: enrichedRows });
 }

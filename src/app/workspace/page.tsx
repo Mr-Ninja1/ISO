@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, X } from "lucide-react";
+import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -192,6 +192,7 @@ function WorkspacePageInner() {
   const tenantSlug = searchParams.get("tenantSlug") || "";
   const categoryId = searchParams.get("categoryId");
   const forceRefresh = searchParams.get("refresh") === "1";
+  const requestedView = searchParams.get("view");
 
   const accessToken = session?.access_token || "";
   const cacheUserId = user?.id || null;
@@ -226,10 +227,19 @@ function WorkspacePageInner() {
   const [confirmOfflineOpen, setConfirmOfflineOpen] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [openingActivity, setOpeningActivity] = useState(false);
+  const [openingAdminDashboard, setOpeningAdminDashboard] = useState(false);
+  const [openingAudits, setOpeningAudits] = useState(false);
+  const [openingLobby, setOpeningLobby] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const workspaceRetryTimerRef = useRef<number | null>(null);
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
+  const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
+  const canSeeAdminHub = workspaceRole === "ADMIN" || workspaceRole === "MANAGER";
+  const activeView = canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
+  const isAdminView = activeView === "admin";
+  const isFormsView = activeView === "forms";
 
   function rememberRecentTemplate(templateId: string) {
     if (!tenantSlug) return;
@@ -448,6 +458,30 @@ function WorkspacePageInner() {
     setOpeningSettings(true);
     setMenuOpen(false);
     router.push(`/${targetTenantSlug}/settings`);
+  }
+
+  function handleOpenActivity(targetTenantSlug: string) {
+    if (openingActivity) return;
+    setOpeningActivity(true);
+    router.push(`/${targetTenantSlug}/activity`);
+  }
+
+  function handleOpenAdminDashboard(targetTenantSlug: string) {
+    if (openingAdminDashboard) return;
+    setOpeningAdminDashboard(true);
+    router.push(`/${targetTenantSlug}/dashboard`);
+  }
+
+  function handleOpenAudits(targetTenantSlug: string) {
+    if (openingAudits) return;
+    setOpeningAudits(true);
+    router.push(`/${targetTenantSlug}/audits`);
+  }
+
+  function handleOpenLobby() {
+    if (openingLobby) return;
+    setOpeningLobby(true);
+    router.push("/dashboard");
   }
 
   function handleAddFromTemplates(selectedCategoryId: string | null) {
@@ -681,10 +715,12 @@ function WorkspacePageInner() {
           const next = new URLSearchParams(searchParams.toString());
           next.set("tenantSlug", data.tenant.slug);
           next.set("categoryId", data.selectedCategoryId);
+          next.set("view", activeView);
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         } else if (forceRefresh) {
           const next = new URLSearchParams(searchParams.toString());
+          next.set("view", activeView);
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         }
@@ -1037,14 +1073,13 @@ function WorkspacePageInner() {
   if (!workspace) return <WorkspaceSkeleton />;
 
   const { tenant, categories, selectedCategoryId, templates } = workspace;
-  const role = workspace.role || (workspace.isAdmin ? "ADMIN" : "MEMBER");
+  const role = workspaceRole;
   const canManageCategories =
     workspace.capabilities?.canManageCategories ?? (role === "ADMIN" || role === "MANAGER");
   const canCreateForms =
     workspace.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
   const canAccessSettings =
     workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
-  const canSeeAdminHub = role === "ADMIN" || role === "MANAGER";
 
   const hasCategories = categories.length > 0;
 
@@ -1214,7 +1249,7 @@ function WorkspacePageInner() {
           </div>
         </div>
 
-        {hasCategories ? (
+        {isFormsView && hasCategories ? (
           <div className="mx-auto max-w-4xl px-4 pb-3">
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]">
               {categories.map((c) => {
@@ -1246,6 +1281,7 @@ function WorkspacePageInner() {
                       const next = new URLSearchParams(searchParams.toString());
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
+                      next.set("view", activeView);
                       router.push(`/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}
@@ -1292,124 +1328,176 @@ function WorkspacePageInner() {
           </div>
         ) : null}
 
-        <section className="mb-4 rounded-xl border border-foreground/20 bg-background p-3 sm:p-4">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">Quick access</div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Link
-              href={`/${tenant.slug}/audits?status=SUBMITTED`}
-              className="rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
-            >
-              <div className="text-sm font-medium">Submitted forms</div>
-              <div className="text-xs text-foreground/65">View all submitted records across staff</div>
-            </Link>
-            <Link
-              href={`/${tenant.slug}/audits`}
-              className="rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
-            >
-              <div className="text-sm font-medium">All forms</div>
-              <div className="text-xs text-foreground/65">Browse drafts and submitted forms</div>
-            </Link>
-          </div>
-        </section>
+        {isAdminView ? (
+          <section className="mb-4 overflow-hidden rounded-[1.25rem] border border-foreground/20 bg-background shadow-sm">
+            <div className="relative overflow-hidden border-b border-foreground/10 px-4 py-5 sm:px-5 sm:py-6">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(15,23,42,0.05),transparent_45%),linear-gradient(145deg,rgba(15,23,42,0.03),rgba(255,255,255,0))]" />
+              <div className="absolute -right-12 top-0 h-32 w-32 rounded-full bg-amber-300/15 blur-3xl" />
+              <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div className="max-w-2xl space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/55">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Admin console
+                  </div>
+                  <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                    Manage the brand before opening the forms workspace.
+                  </h2>
+                  <p className="max-w-xl text-sm leading-6 text-foreground/65 sm:text-base">
+                    Use the tools first, then open the form workspace only when you need audits, drafts, or submitted records.
+                  </p>
+                </div>
 
-        {canSeeAdminHub ? (
-          <section className="mb-4 rounded-xl border border-foreground/20 bg-background p-3 sm:p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Admin quick actions</div>
-              <span className="text-xs text-foreground/60">Control center</span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <Link
-                href={`/${tenant.slug}/audits`}
-                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
-              >
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`)}
+                  className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition hover:translate-y-[-1px]"
+                >
+                  Open workspace forms
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`)}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
+                >
+                  Go to forms
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
+                >
+                  Stay on admin
+                </button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                {canManageCategories ? (
+                  <button
+                    type="button"
+                    onClick={() => setSeedOpen(true)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create categories
+                  </button>
+                ) : null}
+
+                {canCreateForms ? (
+                  <button
+                    type="button"
+                    onClick={() => setAddFormOpen(true)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
+                  >
                     <FileText className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">View forms</span>
-                    <span className="block text-xs text-foreground/65">Drafts and submitted records</span>
-                  </span>
-                </div>
-              </Link>
-              <Link
-                href={`/${tenant.slug}/activity`}
-                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+                    Create forms
+                  </button>
+                ) : null}
+
+                {canAccessSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenSettings(tenant.slug)}
+                    disabled={openingSettings}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
+                    {openingSettings ? "Opening settings..." : "Settings"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => handleOpenAudits(tenant.slug)}
+                disabled={openingAudits}
+                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
-                    <Activity className="h-4 w-4" />
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                    {openingAudits ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">Activity monitor</span>
-                    <span className="block text-xs text-foreground/65">Track staff and system actions</span>
+                    <span className="block text-sm font-medium">{openingAudits ? "Opening..." : "View forms"}</span>
+                    <span className="mt-1 block text-xs text-foreground/65">Drafts and submitted records</span>
                   </span>
                 </div>
-              </Link>
-              <Link
-                href={`/${tenant.slug}/dashboard`}
-                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenActivity(tenant.slug)}
+                disabled={openingActivity}
+                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
-                    <LayoutDashboard className="h-4 w-4" />
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                    {openingActivity ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">Admin dashboard</span>
-                    <span className="block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
+                    <span className="block text-sm font-medium">{openingActivity ? "Opening..." : "Activity monitor"}</span>
+                    <span className="mt-1 block text-xs text-foreground/65">Track staff and system actions</span>
                   </span>
                 </div>
-              </Link>
-              <Link
-                href="/dashboard"
-                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenAdminDashboard(tenant.slug)}
+                disabled={openingAdminDashboard}
+                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
-                    <LayoutDashboard className="h-4 w-4" />
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                    {openingAdminDashboard ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">Lobby</span>
-                    <span className="block text-xs text-foreground/65">Switch brands and account scope</span>
+                    <span className="block text-sm font-medium">{openingAdminDashboard ? "Opening..." : "Admin dashboard"}</span>
+                    <span className="mt-1 block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
                   </span>
                 </div>
-              </Link>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenLobby}
+                disabled={openingLobby}
+                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                    {openingLobby ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">{openingLobby ? "Opening..." : "Lobby"}</span>
+                    <span className="mt-1 block text-xs text-foreground/65">Switch brands and account scope</span>
+                  </span>
+                </div>
+              </button>
             </div>
           </section>
         ) : null}
 
-        {!hasCategories ? (
-          <div className="rounded-lg border border-foreground/20 bg-background p-6">
-            <h2 className="text-lg font-semibold">Setup Your Workspace</h2>
-            <p className="mt-1 text-sm text-foreground/70">
-              Add categories to organize your audit forms.
-            </p>
-            <button
-              type="button"
-              onClick={() => setSeedOpen(true)}
-              className="mt-4 inline-flex h-11 items-center justify-center rounded-md bg-foreground px-4 text-background"
-            >
-              Setup Workspace
-            </button>
-          </div>
-        ) : templates.length === 0 ? (
-          <div className="rounded-lg border border-foreground/20 bg-background p-6">
-            <h2 className="text-lg font-semibold">No forms in this category yet.</h2>
-            <p className="mt-1 text-sm text-foreground/70">
-              Add a form from the library to get started.
-            </p>
-            <button
-              type="button"
-              onClick={() => setAddFormOpen(true)}
-              className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-background"
-            >
-              <Plus className="h-4 w-4" />
-              Add a form
-            </button>
-          </div>
-        ) : (
-          <div className="grid gap-3">
+        {isFormsView ? (
+          <div id="workspace-forms" className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-foreground/20 bg-background px-4 py-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Forms workspace</div>
+                <div className="text-sm text-foreground/65">Categories and forms stay here, separate from the admin console.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
+                className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
+              >
+                Back to admin
+              </button>
+            </div>
+
             <div className="rounded-lg border border-foreground/20 bg-background p-3 sm:p-4">
               <div className="relative flex items-center justify-between gap-2">
                 <button
@@ -1445,9 +1533,7 @@ function WorkspacePageInner() {
                           onClick={() => setRecentOpen(false)}
                         />
                         <div className="absolute right-0 top-11 z-20 w-72 rounded-md border border-foreground/20 bg-background p-2 shadow-sm">
-                          <div className="mb-1 px-2 py-1 text-xs font-medium text-foreground/70">
-                            Recent forms
-                          </div>
+                          <div className="mb-1 px-2 py-1 text-xs font-medium text-foreground/70">Recent forms</div>
                           <div className="flex max-h-60 flex-col overflow-auto">
                             {recentTemplates.map((t) => (
                               <button
@@ -1512,77 +1598,110 @@ function WorkspacePageInner() {
               ) : null}
             </div>
 
-            {filteredTemplates.length === 0 ? (
+            {!hasCategories ? (
               <div className="rounded-lg border border-foreground/20 bg-background p-6">
-                <h2 className="text-base font-semibold">No matching forms</h2>
-                <p className="mt-1 text-sm text-foreground/70">Try a different search term.</p>
+                <h2 className="text-lg font-semibold">Setup Your Workspace</h2>
+                <p className="mt-1 text-sm text-foreground/70">Add categories to organize your audit forms.</p>
+                <button
+                  type="button"
+                  onClick={() => setSeedOpen(true)}
+                  className="mt-4 inline-flex h-11 items-center justify-center rounded-md bg-foreground px-4 text-background"
+                >
+                  Setup Workspace
+                </button>
+              </div>
+            ) : templates.length === 0 ? (
+              <div className="rounded-lg border border-foreground/20 bg-background p-6">
+                <h2 className="text-lg font-semibold">No forms in this category yet.</h2>
+                <p className="mt-1 text-sm text-foreground/70">Add a form from the library to get started.</p>
+                <button
+                  type="button"
+                  onClick={() => setAddFormOpen(true)}
+                  className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-background"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add a form
+                </button>
               </div>
             ) : (
-              filteredTemplates.map((t) => (
-                <div
-                  key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  onMouseEnter={() => {
-                    prefetchTemplateSchema(t.id).catch(() => {
-                      // best-effort prefetch
-                    });
-                    router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
-                  }}
-                  onFocus={() => {
-                    prefetchTemplateSchema(t.id).catch(() => {
-                      // best-effort prefetch
-                    });
-                    router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
-                  }}
-                  onClick={() => {
-                    setOpeningTemplateId(t.id);
-                    rememberRecentTemplate(t.id);
-                    prefetchTemplateSchema(t.id).catch(() => {
-                      // keep navigation moving even if prefetch fails
-                    });
-                    router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" && e.key !== " ") return;
-                    e.preventDefault();
-                    setOpeningTemplateId(t.id);
-                    rememberRecentTemplate(t.id);
-                    prefetchTemplateSchema(t.id).catch(() => {
-                      // keep navigation moving even if prefetch fails
-                    });
-                    router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
-                  }}
-                  className={
-                    "w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
-                    (openingTemplateId === t.id ? "opacity-80" : "")
-                  }
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="font-semibold">{t.title}</div>
-                      <div className="text-sm text-foreground/70">
+              <div className="grid gap-3">
+                {filteredTemplates.length === 0 ? (
+                  <div className="rounded-lg border border-foreground/20 bg-background p-6">
+                    <h2 className="text-base font-semibold">No matching forms</h2>
+                    <p className="mt-1 text-sm text-foreground/70">Try a different search term.</p>
+                  </div>
+                ) : (
+                  filteredTemplates.map((t) => (
+                    <div
+                      key={t.id}
+                      role="button"
+                      tabIndex={0}
+                      onMouseEnter={() => {
+                        prefetchTemplateSchema(t.id).catch(() => {
+                          // best-effort prefetch
+                        });
+                        router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                      }}
+                      onFocus={() => {
+                        prefetchTemplateSchema(t.id).catch(() => {
+                          // best-effort prefetch
+                        });
+                        router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                      }}
+                      onClick={() => {
+                        setOpeningTemplateId(t.id);
+                        rememberRecentTemplate(t.id);
+                        prefetchTemplateSchema(t.id).catch(() => {
+                          // keep navigation moving even if prefetch fails
+                        });
+                        router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setOpeningTemplateId(t.id);
+                        rememberRecentTemplate(t.id);
+                        prefetchTemplateSchema(t.id).catch(() => {
+                          // keep navigation moving even if prefetch fails
+                        });
+                        router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                      }}
+                      className={
+                        "w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
+                        (openingTemplateId === t.id ? "opacity-80" : "")
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="font-semibold">{t.title}</div>
+                          <div className="text-sm text-foreground/70">
+                            {openingTemplateId === t.id ? (
+                              <span className="inline-flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Opening form...
+                              </span>
+                            ) : (
+                              "Run audit"
+                            )}
+                          </div>
+                        </div>
                         {openingTemplateId === t.id ? (
-                          <span className="inline-flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Opening form...
-                          </span>
+                          <Loader2 className="h-4 w-4 animate-spin text-foreground/60" />
                         ) : (
-                          "Run audit"
+                          <span className="text-sm text-foreground/60">→</span>
                         )}
                       </div>
                     </div>
-                    {openingTemplateId === t.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-foreground/60" />
-                    ) : (
-                      <span className="text-sm text-foreground/60">→</span>
-                    )}
-                  </div>
-                </div>
-              ))
+                  ))
+                )}
+              </div>
             )}
           </div>
-        )}
+        ) : canSeeAdminHub ? (
+          <div className="rounded-xl border border-dashed border-foreground/20 bg-background/80 p-5 text-sm text-foreground/70">
+            Forms workspace is hidden by default for admins so the console stays clean. Open it when you need drafts, submitted records, or category work.
+          </div>
+        ) : null}
       </div>
 
       <WorkspaceSeedModal

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "QHSE Audit Platform",
-  description: "Offline-capable QHSE and food safety audit platform",
+  description: "Offline-capable audit platform for ISO-led service brands and compliance workflows",
   manifest: "/manifest.webmanifest",
 };
 

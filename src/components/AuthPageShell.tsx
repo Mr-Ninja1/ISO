@@ -30,28 +30,33 @@ export function AuthPageShell({
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.95),_rgba(244,246,248,0.96)_32%,_rgba(226,232,240,0.9)_100%)] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-foreground/10 bg-background/80 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur md:grid-cols-[1.05fr_0.95fr]">
-        <section className="relative overflow-hidden border-b border-foreground/10 px-6 py-10 sm:px-10 md:border-b-0 md:border-r md:px-12 md:py-12">
+        <section className="order-2 relative overflow-hidden border-t border-foreground/10 px-5 py-8 sm:px-10 md:order-1 md:border-b-0 md:border-r md:border-t-0 md:px-12 md:py-12">
           <div className="absolute inset-0 bg-[linear-gradient(145deg,rgba(15,23,42,0.04),rgba(255,255,255,0))]" />
           <div className="absolute -right-16 top-10 h-40 w-40 rounded-full bg-amber-300/20 blur-3xl" />
           <div className="absolute -bottom-16 left-0 h-44 w-44 rounded-full bg-slate-400/15 blur-3xl" />
 
-          <div className="relative flex h-full flex-col justify-between gap-10">
-            <div className="space-y-6">
+          <div className="relative flex h-full flex-col justify-between gap-6 md:gap-10">
+            <div className="space-y-4 md:space-y-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
                 <Sparkles className="h-3.5 w-3.5" />
                 {eyebrow}
               </div>
 
-              <div className="max-w-xl space-y-4">
-                <h1 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">{title}</h1>
-                <p className="max-w-lg text-base leading-7 text-foreground/70 sm:text-lg">{subtitle}</p>
+              <div className="max-w-xl space-y-3 md:space-y-4">
+                <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">{title}</h1>
+                <p className="max-w-lg text-sm leading-6 text-foreground/70 sm:text-lg md:text-base md:leading-7">{subtitle}</p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="hidden gap-3 sm:grid sm:grid-cols-2">
                 <FeatureCard icon={<ShieldCheck className="h-4 w-4" />} title="Audit-ready" text="Saved forms, evidence photos, and signatures stay organized." />
                 <FeatureCard icon={<HardDriveDownload className="h-4 w-4" />} title="Offline-first" text="Workspace, schemas, and drafts cache locally for native-feeling use." />
                 <FeatureCard icon={<Layers3 className="h-4 w-4" />} title="Structured" text="Templates, categories, and quick actions stay aligned across devices." />
                 <FeatureCard icon={<Sparkles className="h-4 w-4" />} title="Fast sync" text="Background updates keep cross-device data current when online." />
+              </div>
+
+              <div className="grid gap-3 sm:hidden">
+                <FeatureCard icon={<ShieldCheck className="h-4 w-4" />} title="Audit-ready" text="Saved forms, evidence, and signatures stay organized." />
+                <FeatureCard icon={<HardDriveDownload className="h-4 w-4" />} title="Offline-first" text="Workspace and drafts cache locally for fast use." />
               </div>
             </div>
 
@@ -63,18 +68,18 @@ export function AuthPageShell({
           </div>
         </section>
 
-        <section className="flex items-center justify-center px-6 py-10 sm:px-10 md:px-12 md:py-12">
+        <section className="order-1 flex items-center justify-center px-5 py-8 sm:px-10 md:order-2 md:px-12 md:py-12">
           <div className="w-full max-w-md">
-            <div className="mb-6 space-y-2">
+            <div className="mb-5 space-y-2 md:mb-6">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/55">{formTitle}</div>
-              <h2 className="text-2xl font-semibold tracking-tight">{formSubtitle}</h2>
+              <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{formSubtitle}</h2>
             </div>
 
-            <div className="rounded-2xl border border-foreground/10 bg-background p-5 shadow-sm sm:p-6">
+            <div className="rounded-2xl border border-foreground/10 bg-background p-4 shadow-sm sm:p-6">
               {children}
             </div>
 
-            <p className="mt-5 text-center text-sm text-foreground/65">
+            <p className="mt-4 text-center text-sm text-foreground/65 md:mt-5">
               {footerText} <Link href={footerHref} className="font-medium underline underline-offset-4">{footerLabel}</Link>
             </p>
           </div>
@@ -86,7 +91,7 @@ export function AuthPageShell({
 
 function FeatureCard({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-foreground/10 bg-background/75 p-4 shadow-sm">
+    <div className="rounded-2xl border border-foreground/10 bg-background/75 p-3 shadow-sm sm:p-4">
       <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-foreground/10 bg-foreground/[0.03] text-foreground/70">
         {icon}
       </div>

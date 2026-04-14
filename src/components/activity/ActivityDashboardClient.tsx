@@ -17,6 +17,7 @@ type ActivityRow = {
   createdAt: string;
   actorName: string | null;
   actorEmail: string | null;
+  targetName: string | null;
 };
 
 type ActivityGroup = "ALL" | "AUDIT" | "TEMPLATE" | "STAFF" | "CATEGORY" | "RISK";
@@ -59,13 +60,15 @@ function detailSummary(row: ActivityRow) {
   if (!details) return "";
 
   const parts: string[] = [];
+  if (row.targetName) parts.push(row.targetName);
   if (typeof details.title === "string" && details.title) parts.push(details.title);
   if (typeof details.name === "string" && details.name) parts.push(details.name);
   if (typeof details.email === "string" && details.email) parts.push(details.email);
+  if (typeof details.templateTitle === "string" && details.templateTitle) parts.push(details.templateTitle);
   if (typeof details.role === "string" && details.role) parts.push(`role ${details.role}`);
-  if (typeof details.categoryId === "string" && details.categoryId) parts.push(`category ${details.categoryId.slice(0, 8)}`);
-  if (typeof details.templateId === "string" && details.templateId) parts.push(`template ${details.templateId.slice(0, 8)}`);
-  if (typeof details.previousTemplateId === "string" && details.previousTemplateId) parts.push(`from ${details.previousTemplateId.slice(0, 8)}`);
+  if (typeof details.categoryId === "string" && details.categoryId) parts.push("category updated");
+  if (typeof details.templateId === "string" && details.templateId) parts.push("template updated");
+  if (typeof details.previousTemplateId === "string" && details.previousTemplateId) parts.push("previous template version");
   if (typeof details.hasTemperatureAlerts === "boolean" && details.hasTemperatureAlerts) parts.push("temperature alerts");
   if (typeof details.changedRole === "boolean" && details.changedRole) parts.push("role change");
   if (typeof details.changedEmail === "boolean" && details.changedEmail) parts.push("email change");
@@ -85,7 +88,7 @@ function isRiskRow(row: ActivityRow) {
 }
 
 function actorLabel(row: ActivityRow) {
-  return row.actorName || row.actorEmail || row.userId;
+  return row.actorName || row.actorEmail || "Staff member";
 }
 
 function entityLabel(row: ActivityRow) {
@@ -95,6 +98,10 @@ function entityLabel(row: ActivityRow) {
   if (row.entityType === "TenantMember") return "Staff member";
   if (row.entityType === "Category") return "Category";
   return row.entityType;
+}
+
+function targetLabel(row: ActivityRow) {
+  return row.targetName || entityLabel(row);
 }
 
 export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) {
@@ -226,6 +233,7 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
         row.action,
         row.entityType,
         row.entityId || "",
+        row.targetName || "",
         actorLabel(row),
         row.actorEmail || "",
         detailSummary(row),
@@ -395,7 +403,7 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
                       <div>
                         <div className="font-medium">{humanizeAction(row.action)}</div>
                         <div className="mt-0.5 text-xs text-amber-900/70">
-                          {actorLabel(row)} • {entityLabel(row)}
+                            {actorLabel(row)} • {targetLabel(row)}
                         </div>
                       </div>
                       <div className="text-xs text-amber-900/60">{new Date(row.createdAt).toLocaleString()}</div>
@@ -484,8 +492,8 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
                         <div className="mt-2 min-w-0 text-sm text-foreground/85">
                           <span className="font-medium">{actorLabel(row)}</span>
                           <span className="text-foreground/55"> acted on </span>
-                          <span className="font-medium">{row.entityType}</span>
-                          {row.entityId ? <span className="text-foreground/55"> ({row.entityId.slice(0, 8)})</span> : null}
+                          <span className="font-medium">{targetLabel(row)}</span>
+                          {row.entityId && !row.targetName ? <span className="text-foreground/55"> ({row.entityId.slice(0, 8)})</span> : null}
                         </div>
                         {summary ? <div className="mt-1 text-xs text-foreground/65">{summary}</div> : null}
                         {row.actorEmail ? <div className="mt-1 text-xs text-foreground/55">{row.actorEmail}</div> : null}
