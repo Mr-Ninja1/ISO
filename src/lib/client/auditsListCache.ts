@@ -37,7 +37,8 @@ export function writeAuditsListCache(
   userId: string | null,
   tenantSlug: string,
   rows: CachedAuditRow[],
-  maxUpdatedAt?: string | null
+  maxUpdatedAt?: string | null,
+  options?: { broadcast?: boolean }
 ) {
   if (!tenantSlug) return;
   try {
@@ -53,7 +54,7 @@ export function writeAuditsListCache(
       rows: capped,
     };
     localStorage.setItem(cacheKey(userId, tenantSlug), JSON.stringify(payload));
-    if (typeof window !== "undefined") {
+    if (options?.broadcast !== false && typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("audits-cache-updated", {
           detail: { tenantSlug },

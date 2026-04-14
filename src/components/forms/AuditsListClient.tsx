@@ -13,6 +13,18 @@ import {
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
+function rowSignature(row: CachedAuditRow) {
+  return [row.id, row.status, row.templateId, row.createdAt, row.updatedAt, row.submittedAt || "", row.template.title].join("|");
+}
+
+function rowsAreEqual(left: CachedAuditRow[], right: CachedAuditRow[]) {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (rowSignature(left[index]) !== rowSignature(right[index])) return false;
+  }
+  return true;
+}
+
 export function AuditsListClient({
   tenantSlug,
   initialStatus,
@@ -33,13 +45,18 @@ export function AuditsListClient({
   useEffect(() => {
     const cached = readAuditsListCache(user?.id || null, tenantSlug);
     if (cached?.rows?.length) {
-      setAllRows((current) => (current.length >= cached.rows.length ? current : cached.rows));
+      setAllRows((current) => {
+        const next = current.length >= cached.rows.length ? current : cached.rows;
+        return rowsAreEqual(current, next) ? current : next;
+      });
     }
   }, [tenantSlug, user?.id]);
 
   useEffect(() => {
     if (allRows.length === 0) return;
-    writeAuditsListCache(user?.id || null, tenantSlug, allRows);
+    const cached = readAuditsListCache(user?.id || null, tenantSlug);
+    if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
+    writeAuditsListCache(user?.id || null, tenantSlug, allRows, undefined, { broadcast: false });
   }, [allRows, tenantSlug, user?.id]);
 
   useEffect(() => {
@@ -50,7 +67,7 @@ export function AuditsListClient({
       if (!cached?.rows?.length) return;
       setAllRows((current) => {
         const merged = mergeAuditsRows(current, cached.rows);
-        return merged;
+        return rowsAreEqual(current, merged) ? current : merged;
       });
     };
 
@@ -91,7 +108,7 @@ export function AuditsListClient({
 
         setAllRows((current) => {
           const merged = mergeAuditsRows(current, incoming);
-          writeAuditsListCache(user?.id || null, tenantSlug, merged, data.maxUpdatedAt || null);
+          writeAuditsListCache(user?.id || null, tenantSlug, merged, data.maxUpdatedAt || null, { broadcast: false });
           return merged;
         });
       })

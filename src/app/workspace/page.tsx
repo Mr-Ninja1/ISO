@@ -131,26 +131,38 @@ function writeRecentTemplateIds(tenantSlug: string, ids: string[]) {
 
 function WorkspaceSkeleton() {
   return (
-    <div className="min-h-dvh bg-background">
-      <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3">
+    <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
+      <div className="mx-auto flex min-h-dvh max-w-4xl items-center px-4 py-8 sm:px-6">
+        <div className="w-full overflow-hidden rounded-2xl border border-foreground/20 bg-background p-5 shadow-sm sm:p-6">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 animate-pulse rounded-md border border-foreground/20 bg-foreground/5" />
-            <div className="space-y-2">
-              <div className="h-4 w-40 animate-pulse rounded bg-foreground/5" />
-              <div className="h-3 w-28 animate-pulse rounded bg-foreground/5" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-foreground/15 bg-foreground/[0.03]">
+              <Loader2 className="h-5 w-5 animate-spin text-foreground/70" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold sm:text-xl">Preparing offline cache</h2>
+              <p className="text-sm text-foreground/70">
+                First-time load can take a moment while we download workspace data, categories, form schemas, and saved forms.
+              </p>
             </div>
           </div>
-          <div className="h-6 w-20 animate-pulse rounded bg-foreground/5" />
+
+          <div className="mt-5 overflow-hidden rounded-full bg-foreground/10">
+            <div className="h-2 w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-foreground" />
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm">
+              We are loading what can run offline first, so the app feels native once this finishes.
+            </div>
+            <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm">
+              Leave this page open if you want the full workspace, schemas, and saved forms cached locally.
+            </div>
+          </div>
+
+          <div className="mt-4 text-xs text-foreground/55">
+            You can continue to use the app once the cache is ready. Live sync features will still need internet for fresh updates.
+          </div>
         </div>
-        <div className="mx-auto max-w-4xl px-4 pb-3">
-          <div className="h-9 w-full animate-pulse rounded bg-foreground/5" />
-        </div>
-      </div>
-      <div className="mx-auto max-w-4xl space-y-3 p-4">
-        <div className="h-14 w-full animate-pulse rounded-md border border-foreground/20 bg-foreground/5" />
-        <div className="h-14 w-full animate-pulse rounded-md border border-foreground/20 bg-foreground/5" />
-        <div className="h-14 w-full animate-pulse rounded-md border border-foreground/20 bg-foreground/5" />
       </div>
     </div>
   );
@@ -282,7 +294,7 @@ function WorkspacePageInner() {
     try {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
-      for (const cid of targets) {
+      await Promise.allSettled(targets.map(async (cid) => {
         const url = new URL("/api/workspace", window.location.origin);
         url.searchParams.set("tenantSlug", tenantSlug);
         if (cid) url.searchParams.set("categoryId", cid);
@@ -293,7 +305,7 @@ function WorkspacePageInner() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || `Offline prep failed (${res.status})`);
         writeWorkspaceCache(cacheUserId, tenantSlug, cid, data as WorkspaceData);
-      }
+      }));
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
       templatesUrl.searchParams.set("tenantSlug", tenantSlug);
@@ -357,7 +369,7 @@ function WorkspacePageInner() {
     try {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
-      for (const cid of targets) {
+      await Promise.allSettled(targets.map(async (cid) => {
         const url = new URL("/api/workspace", window.location.origin);
         url.searchParams.set("tenantSlug", tenantSlug);
         if (cid) url.searchParams.set("categoryId", cid);
@@ -365,11 +377,11 @@ function WorkspacePageInner() {
         const res = await fetch(url.toString(), {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        if (!res.ok) continue;
+        if (!res.ok) return;
         const data = (await res.json().catch(() => null)) as WorkspaceData | null;
-        if (!data) continue;
+        if (!data) return;
         writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
-      }
+      }));
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
       templatesUrl.searchParams.set("tenantSlug", tenantSlug);
@@ -460,6 +472,8 @@ function WorkspacePageInner() {
     () => !tenantSlug && tenantChoices.length > 1,
     [tenantSlug, tenantChoices.length]
   );
+
+  const offlineWarmupBlocking = Boolean(workspace && !offlinePreparedAt && (nativeWarmupRunning || offlinePreparing));
 
   const filteredTemplates = useMemo(() => {
     if (!workspace) return [];
@@ -677,9 +691,13 @@ function WorkspacePageInner() {
       })
       .catch((err) => {
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
+        const authOrAccess =
+          err?.status === 401 ||
+          err?.status === 403 ||
+          /Forbidden|Unauthorized/i.test(String(err?.message || ""));
         if (!hasCached) {
-          if (busy) {
-            // Keep skeleton visible and retry shortly instead of flashing an error state.
+          if (busy || authOrAccess) {
+            // Keep the first-time download panel visible and retry shortly instead of flashing an error state.
             keepLoading = true;
             setWorkspace(null);
             setUiActiveCategoryId(null);
@@ -1008,7 +1026,7 @@ function WorkspacePageInner() {
               href="/dashboard"
               className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
             >
-              Back to Dashboard
+              Back to Lobby
             </Link>
           </div>
         </div>
@@ -1206,6 +1224,14 @@ function WorkspacePageInner() {
                     key={c.id}
                     type="button"
                     onClick={() => {
+                      if (offlineWarmupBlocking) {
+                        setNotification({
+                          title: "Preparing offline cache",
+                          message: "Please wait a moment while the app finishes caching your workspace for offline use.",
+                          tone: "warning",
+                        });
+                        return;
+                      }
                       if (c.id === activeCategoryId) return;
                       const cachedCategoryData = readWorkspaceCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {
@@ -1222,10 +1248,11 @@ function WorkspacePageInner() {
                       next.set("categoryId", c.id);
                       router.push(`/workspace?${next.toString()}`);
                     }}
+                    disabled={offlineWarmupBlocking}
                     className={
                       active
                         ? "h-9 shrink-0 rounded-full bg-foreground px-4 text-sm font-medium text-background"
-                        : "h-9 shrink-0 rounded-full border border-foreground/20 bg-background px-4 text-sm font-medium"
+                        : "h-9 shrink-0 rounded-full border border-foreground/20 bg-background px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
                     }
                   >
                     {c.name}
@@ -1242,9 +1269,26 @@ function WorkspacePageInner() {
       </div>
 
       <div className="mx-auto max-w-4xl p-4 pb-8">
+        {workspace && offlineWarmupBlocking ? (
+          <div className="mb-4">
+            <FeatureSyncNotice
+              title="Preparing offline cache"
+              message="Keep this page open while we download your workspace, categories, templates, and saved forms. Category switching will be much faster once this finishes and the app will keep working offline."
+              tone="warning"
+            />
+          </div>
+        ) : null}
+
         {error ? (
           <div className="mb-4 rounded-md border border-foreground/20 bg-background p-3 text-sm">
             {error}
+          </div>
+        ) : null}
+
+        {workspace && switchingCategory ? (
+          <div className="mb-4 rounded-md border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+            Loading this category in the background. Your current workspace stays open so you can keep working while the new
+            category warms from cache.
           </div>
         ) : null}
 
@@ -1304,6 +1348,20 @@ function WorkspacePageInner() {
                 </div>
               </Link>
               <Link
+                href={`/${tenant.slug}/dashboard`}
+                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
+                    <LayoutDashboard className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">Admin dashboard</span>
+                    <span className="block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
+                  </span>
+                </div>
+              </Link>
+              <Link
                 href="/dashboard"
                 className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
               >
@@ -1312,22 +1370,8 @@ function WorkspacePageInner() {
                     <LayoutDashboard className="h-4 w-4" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">Dashboard</span>
+                    <span className="block text-sm font-medium">Lobby</span>
                     <span className="block text-xs text-foreground/65">Switch brands and account scope</span>
-                  </span>
-                </div>
-              </Link>
-              <Link
-                href={`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`}
-                className="group rounded-lg border border-foreground/20 p-3 hover:bg-foreground/5"
-              >
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 bg-foreground/[0.03]">
-                    <LayoutDashboard className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Workspace home</span>
-                    <span className="block text-xs text-foreground/65">Template operations and quick start</span>
                   </span>
                 </div>
               </Link>
@@ -1348,16 +1392,6 @@ function WorkspacePageInner() {
             >
               Setup Workspace
             </button>
-          </div>
-        ) : switchingCategory ? (
-          <div className="space-y-3">
-            <div className="rounded-lg border border-foreground/20 bg-background p-4">
-              <div className="flex items-center gap-2 text-sm text-foreground/70">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading forms and syncing cache...
-              </div>
-            </div>
-            <WorkspaceCardSkeletonGrid />
           </div>
         ) : templates.length === 0 ? (
           <div className="rounded-lg border border-foreground/20 bg-background p-6">

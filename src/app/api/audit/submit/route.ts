@@ -119,10 +119,6 @@ export async function POST(req: Request) {
   }
 
   let payloadRecord = payload as Record<string, unknown>;
-  if (!isDraft) {
-    const targetAuditId = auditId || `pending_${template.id}_${Date.now()}`;
-    payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, targetAuditId);
-  }
   const existingTempMeta =
     payloadRecord.__temperatureMeta && typeof payloadRecord.__temperatureMeta === "object"
       ? (payloadRecord.__temperatureMeta as Record<string, unknown>)
@@ -147,21 +143,6 @@ export async function POST(req: Request) {
   const actorEmail = staffProfile?.email || user.email || "";
 
   if (isDraft) {
-    const draftPayload = {
-      ...payload,
-      __temperatureMeta: temperatureMeta,
-      __draftMeta: {
-        userId: user.id,
-        userName: actorName,
-        userEmail: actorEmail,
-      },
-      __auditMeta: {
-        submittedByUserId: user.id,
-        submittedByName: actorName,
-        submittedByEmail: actorEmail,
-      },
-    };
-
     let targetDraftId: string | null = null;
 
     if (auditId) {
@@ -195,6 +176,24 @@ export async function POST(req: Request) {
       if (mine[0]?.id) targetDraftId = mine[0].id;
     }
 
+    const draftEvidenceAuditId = targetDraftId || auditId || `pending_${template.id}_${Date.now()}`;
+    payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, draftEvidenceAuditId);
+
+    const draftPayload = {
+      ...payloadRecord,
+      __temperatureMeta: temperatureMeta,
+      __draftMeta: {
+        userId: user.id,
+        userName: actorName,
+        userEmail: actorEmail,
+      },
+      __auditMeta: {
+        submittedByUserId: user.id,
+        submittedByName: actorName,
+        submittedByEmail: actorEmail,
+      },
+    };
+
     const audit = targetDraftId
       ? await prisma.auditLog.update({
           where: { id: targetDraftId },
@@ -227,6 +226,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ auditId: audit.id, status: "DRAFT" });
   }
+
+  const targetAuditId = auditId || `pending_${template.id}_${Date.now()}`;
+  payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, targetAuditId);
 
   if (auditId) {
     const existing = await prisma.auditLog.findFirst({

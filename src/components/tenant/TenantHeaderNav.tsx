@@ -14,10 +14,12 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const pathname = usePathname();
   const settingsBase = `/${tenantSlug}/settings`;
   const auditsBase = `/${tenantSlug}/audits`;
+  const dashboardBase = `/${tenantSlug}/dashboard`;
   const activityBase = `/${tenantSlug}/activity`;
   const onAudits = pathname?.startsWith(auditsBase) ?? false;
   const onSettings = pathname?.startsWith(settingsBase) ?? false;
   const onActivity = pathname?.startsWith(activityBase) ?? false;
+  const onDashboard = pathname?.startsWith(dashboardBase) ?? false;
   const onTemplates = pathname?.startsWith(`/${tenantSlug}/templates`) ?? false;
   const onCategories = pathname?.startsWith(`/${tenantSlug}/categories`) ?? false;
   const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
@@ -66,6 +68,19 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
         >
           Forms
         </Link>
+        {caps.canSeeAdminRoutes ? (
+          <Link
+            href={dashboardBase}
+            className={
+              "rounded-md border px-3 py-2 " +
+              (onDashboard
+                ? "border-foreground bg-foreground text-background"
+                : "border-foreground/20")
+            }
+          >
+            Dashboard
+          </Link>
+        ) : null}
         <details className="relative">
           <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-foreground/20">
             <MoreVertical className="h-4 w-4" />
@@ -109,14 +124,9 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             >
               Workspace
             </Link>
-            {caps.canSeeAdminRoutes ? (
-              <Link
-                href="/dashboard"
-                className="block rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-              >
-                Dashboard
-              </Link>
-            ) : null}
+            <Link href="/dashboard" className="block rounded-md px-3 py-2 text-sm hover:bg-foreground/5">
+              Lobby
+            </Link>
           </div>
         </details>
       </nav>
@@ -170,14 +180,9 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           >
             Workspace
           </Link>
-          {caps.canSeeAdminRoutes ? (
-            <Link
-              href="/dashboard"
-              className="block rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-            >
-              Dashboard
-            </Link>
-          ) : null}
+          <Link href="/dashboard" className="block rounded-md px-3 py-2 text-sm hover:bg-foreground/5">
+            Lobby
+          </Link>
         </div>
       </details>
     </>

@@ -17,6 +17,9 @@ export function AppLoadingScreen({
         </div>
         <h2 className="mt-3 text-base font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-foreground/70">{subtitle}</p>
+        <div className="mt-4 overflow-hidden rounded-full bg-foreground/10">
+          <div className="h-2 w-2/5 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-foreground" />
+        </div>
       </div>
     </div>
   );

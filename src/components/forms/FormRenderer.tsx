@@ -172,14 +172,15 @@ function readLocalDraft(
   userId: string | null,
   tenantSlug: string,
   templateId: string
-): { values: FormValues; auditId: string | null } | null {
+): { ts: number; values: FormValues; auditId: string | null } | null {
   try {
     const raw = localStorage.getItem(draftCacheKey(userId, tenantSlug, templateId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { values?: FormValues; auditId?: string | null };
+    const parsed = JSON.parse(raw) as { ts?: number; values?: FormValues; auditId?: string | null };
     if (!parsed || typeof parsed !== "object") return null;
+    if (typeof parsed.ts !== "number" || !Number.isFinite(parsed.ts)) return null;
     if (!parsed.values || typeof parsed.values !== "object") return null;
-    return { values: parsed.values, auditId: parsed.auditId || null };
+    return { ts: parsed.ts, values: parsed.values, auditId: parsed.auditId || null };
   } catch {
     return null;
   }
@@ -215,6 +216,7 @@ function isOfflineQueueableServerError(error: unknown) {
 export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, initialAuditId, schema }: Props) {
   const router = useRouter();
   const { session, user } = useAuth();
+  const currentUserId = user?.id || session?.user?.id || null;
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
@@ -282,20 +284,20 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }, [tenantSlug]);
 
   useEffect(() => {
-    const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
+    const local = readLocalDraft(currentUserId, tenantSlug, templateId);
     if (!local) return;
     if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
     setDraftAuditId(local.auditId || null);
     form.reset({ ...defaultValues, ...local.values });
-  }, [defaultValues, form, templateId, tenantSlug, user?.id, initialAuditId]);
+  }, [defaultValues, form, templateId, tenantSlug, currentUserId, initialAuditId]);
 
   useEffect(() => {
     const accessToken = session?.access_token;
     if (!accessToken || !tenantSlug || !templateId) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
-    const local = readLocalDraft(user?.id || null, tenantSlug, templateId);
-    if (local && shouldSkipDraftFetch(user?.id || null, tenantSlug, templateId, 5 * 60_000)) {
+    const local = readLocalDraft(currentUserId, tenantSlug, templateId);
+    if (local && shouldSkipDraftFetch(currentUserId, tenantSlug, templateId, 5 * 60_000)) {
       return;
     }
 
@@ -325,15 +327,22 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
             draft: null | {
               id: string;
               payload: Record<string, unknown>;
+              updatedAt: string;
             };
           };
         })
         .then((data) => {
           if (!data.draft) return;
-          setDraftAuditId(data.draft.id);
-          form.reset({ ...defaultValues, ...data.draft.payload });
-          writeLocalDraft(user?.id || null, tenantSlug, templateId, data.draft.payload, data.draft.id);
-          markDraftFetch(user?.id || null, tenantSlug, templateId);
+          const serverUpdatedAt = data.draft.updatedAt ? new Date(data.draft.updatedAt).getTime() : 0;
+          const shouldAdoptServerDraft = !local || !Number.isFinite(serverUpdatedAt) || serverUpdatedAt >= local.ts;
+
+          if (shouldAdoptServerDraft) {
+            setDraftAuditId(data.draft.id);
+            form.reset({ ...defaultValues, ...data.draft.payload });
+            writeLocalDraft(currentUserId, tenantSlug, templateId, data.draft.payload, data.draft.id);
+          }
+
+          markDraftFetch(currentUserId, tenantSlug, templateId);
         })
         .catch(() => {
           // Silent fallback: form starts from defaults when no draft is available.
@@ -358,7 +367,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (timeout !== null) window.clearTimeout(timeout);
       controller?.abort();
     };
-  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, user?.id, initialAuditId]);
+  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
 
   async function persistAudit(
     values: FormValues,
@@ -402,7 +411,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
 
     if (mode === "draft") {
-      writeLocalDraft(user?.id || null, tenantSlug, templateId, payloadWithMeta, draftAuditId);
+      writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, draftAuditId);
     }
 
     try {
@@ -438,7 +447,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       setDraftAuditId(json.auditId);
 
       if (mode === "draft") {
-        writeLocalDraft(user?.id || null, tenantSlug, templateId, payloadWithMeta, json.auditId);
+        writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, json.auditId);
         if (!silent) {
           setNotification({
             title: "Draft saved",
@@ -449,7 +458,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return true;
       }
 
-      clearLocalDraft(user?.id || null, tenantSlug, templateId);
+      clearLocalDraft(currentUserId, tenantSlug, templateId);
       setDraftAuditId(null);
       router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=submitted&auditId=${encodeURIComponent(json.auditId)}`);
       return true;
@@ -499,7 +508,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           templateTitle: effectiveSchema.title || "Form",
           payload: payloadWithMeta,
         });
-        clearLocalDraft(user?.id || null, tenantSlug, templateId);
+        clearLocalDraft(currentUserId, tenantSlug, templateId);
         setDraftAuditId(null);
         writeQueuedNotice(tenantSlug, "Submission queued while offline. It will sync once connection is restored.");
         router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=queued-submit`);
@@ -523,7 +532,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     const timeoutId = window.setTimeout(async () => {
       if (autoSaveInFlightRef.current) return;
       const values = form.getValues();
-      writeLocalDraft(user?.id || null, tenantSlug, templateId, values, draftAuditId);
+      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId);
 
       autoSaveInFlightRef.current = true;
       setIsAutoSaving(true);
@@ -541,7 +550,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }, 10_000);
 
     return () => window.clearTimeout(timeoutId);
-  }, [watchedValues, form, isLoadingDraft, isSavingDraft, session?.access_token, tenantSlug, templateId, user?.id, draftAuditId]);
+  }, [watchedValues, form, isLoadingDraft, isSavingDraft, session?.access_token, tenantSlug, templateId, currentUserId, draftAuditId]);
 
   async function onSubmit(values: FormValues) {
     await persistAudit(values, "submit");

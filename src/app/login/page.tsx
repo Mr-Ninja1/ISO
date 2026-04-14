@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
+import { AuthPageShell } from "@/components/AuthPageShell";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -76,17 +77,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 p-6">
-      <div className="w-full space-y-2">
-        <h1 className="text-2xl font-bold">Sign In</h1>
-        <p className="text-sm text-foreground/70">
-          Access your food safety audit system
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="w-full space-y-4">
+    <AuthPageShell
+      eyebrow="Secure access"
+      title="Sign in to your operational workspace."
+      subtitle="Open your brand, continue drafts, review saved forms, and keep the workspace synced across devices."
+      formTitle="Welcome back"
+      formSubtitle="Enter your credentials to continue"
+      footerText="Need an account?"
+      footerHref="/signup"
+      footerLabel="Create one"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium">
+          <label htmlFor="email" className="text-sm font-medium text-foreground/80">
             Email
           </label>
           <input
@@ -96,13 +99,13 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2"
+            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
             placeholder="your@email.com"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium">
+          <label htmlFor="password" className="text-sm font-medium text-foreground/80">
             Password
           </label>
           <input
@@ -112,29 +115,22 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2"
+            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
             placeholder="••••••••"
           />
         </div>
 
-        {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
 
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Signing in..." : "Sign In"}
         </button>
       </form>
-
-      <p className="text-sm text-foreground/70">
-        Don't have an account?{" "}
-        <Link href="/signup" className="underline">
-          Create one
-        </Link>
-      </p>
-    </div>
+    </AuthPageShell>
   );
 }

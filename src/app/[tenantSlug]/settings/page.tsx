@@ -7,34 +7,36 @@ import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
 import { StaffManagementPanel } from "@/components/StaffManagementPanel";
 import { DeferredDetailsSection } from "@/components/DeferredDetailsSection";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 
 export default async function TenantSettingsPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = await params;
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-  });
+  try {
+    const { tenantSlug } = await params;
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: tenantSlug },
+    });
 
-  if (!tenant) notFound();
+    if (!tenant) notFound();
 
-  const [categories, templatesRaw] = await Promise.all([
-    prisma.category.findMany({
-      where: { tenantId: tenant.id },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true },
-    }),
-    prisma.formTemplate.findMany({
-      where: { tenantId: tenant.id },
-      orderBy: [{ updatedAt: "desc" }],
-      select: { id: true, title: true, categoryId: true, updatedAt: true },
-    }),
-  ]);
+    const [categories, templatesRaw] = await Promise.all([
+      prisma.category.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        select: { id: true, name: true },
+      }),
+      prisma.formTemplate.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: [{ updatedAt: "desc" }],
+        select: { id: true, title: true, categoryId: true, updatedAt: true },
+      }),
+    ]);
 
-  const categoryById = new Map(categories.map((c) => [c.id, c.name]));
-  const templates = templatesRaw.map((t) => ({
+    const categoryById = new Map(categories.map((c) => [c.id, c.name]));
+    const templates = templatesRaw.map((t) => ({
       id: t.id,
       title: t.title,
       categoryId: t.categoryId,
@@ -42,12 +44,12 @@ export default async function TenantSettingsPage({
       updatedAt: t.updatedAt.toISOString(),
     }));
 
-  return (
-    <div className="flex flex-col gap-6">
-      <FeatureSyncNotice
-        title="Live database sync"
-        message="Brand settings, staff, categories, and template management are live-sync features. They can show cached data while offline, but changes need internet so they can update the database and stay in sync across devices."
-      />
+    return (
+      <div className="flex flex-col gap-6">
+        <FeatureSyncNotice
+          title="Live database sync"
+          message="Brand settings, staff, categories, and template management are live-sync features. They can show cached data while offline, but changes need internet so they can update the database and stay in sync across devices."
+        />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex flex-col gap-1">
@@ -78,21 +80,32 @@ export default async function TenantSettingsPage({
         </Link>
       </div>
 
-      <DeferredDetailsSection title="Brand profile" defaultOpen>
-        <TenantSettingsForm tenant={tenant} />
-      </DeferredDetailsSection>
+        <DeferredDetailsSection title="Brand profile" defaultOpen>
+          <TenantSettingsForm tenant={tenant} />
+        </DeferredDetailsSection>
 
-      <DeferredDetailsSection title="Form management">
-        <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
-      </DeferredDetailsSection>
+        <DeferredDetailsSection title="Form management">
+          <TemplateManagementPanel tenantSlug={tenant.slug} templates={templates} />
+        </DeferredDetailsSection>
 
-      <DeferredDetailsSection title="Category tools">
-        <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
-      </DeferredDetailsSection>
+        <DeferredDetailsSection title="Category tools">
+          <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
+        </DeferredDetailsSection>
 
-      <DeferredDetailsSection title="Brand staff management">
-        <StaffManagementPanel tenantSlug={tenant.slug} />
-      </DeferredDetailsSection>
-    </div>
-  );
+        <DeferredDetailsSection title="Brand staff management">
+          <StaffManagementPanel tenantSlug={tenant.slug} />
+        </DeferredDetailsSection>
+      </div>
+    );
+  } catch {
+    return (
+      <OfflineRouteBlock
+        title="Settings need internet"
+        message="Brand settings, staff, categories, and templates read from the database. Connect to the internet before opening this page so it can load safely and stay in sync."
+        hint="This page is intentionally blocked offline to avoid slow DB calls and stale brand changes."
+        backHref="/dashboard"
+        backLabel="Back to lobby"
+      />
+    );
+  }
 }

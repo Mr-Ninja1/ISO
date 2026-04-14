@@ -44,6 +44,8 @@ type ActivityResponse = {
   rows?: CachedActivityRow[];
 };
 
+type CategorySummary = { id: string };
+
 function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
   return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
 }
@@ -147,6 +149,28 @@ export function BackgroundSyncManager() {
       return data as T;
     }
 
+    function preloadCategoryViews(workspace: WorkspaceData) {
+      if (!tenantSlug || !active) return;
+      if (!workspace.categories.length) return;
+
+      const categoryIds = workspace.categories.map((category: CategorySummary) => category.id);
+      if (!categoryIds.length) return;
+
+      void Promise.allSettled(
+        categoryIds.map(async (categoryId) => {
+          const categoryUrl = new URL("/api/workspace", window.location.origin);
+          categoryUrl.searchParams.set("tenantSlug", tenantSlug);
+          categoryUrl.searchParams.set("categoryId", categoryId);
+          try {
+            const scoped = await fetchJson<WorkspaceData>(categoryUrl.toString());
+            writeWorkspaceCache(user?.id || null, tenantSlug, categoryId, scoped);
+          } catch {
+            // best-effort background preload
+          }
+        })
+      );
+    }
+
     const runBootstrapWarmup = async () => {
       if (!tenantSlug || !active) return;
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
@@ -166,18 +190,8 @@ export function BackgroundSyncManager() {
           writeWorkspaceCache(user?.id || null, tenantSlug, workspace.selectedCategoryId, workspace);
         }
 
-        setBootstrapStage("Loading category views");
-        for (const category of workspace.categories || []) {
-          const categoryUrl = new URL("/api/workspace", window.location.origin);
-          categoryUrl.searchParams.set("tenantSlug", tenantSlug);
-          categoryUrl.searchParams.set("categoryId", category.id);
-          try {
-            const scoped = await fetchJson<WorkspaceData>(categoryUrl.toString());
-            writeWorkspaceCache(user?.id || null, tenantSlug, category.id, scoped);
-          } catch {
-            // keep going
-          }
-        }
+        setBootstrapStage("Preloading category views");
+        preloadCategoryViews(workspace);
 
         setBootstrapStage("Loading templates and schemas");
         const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
@@ -243,6 +257,8 @@ export function BackgroundSyncManager() {
         if (workspace.selectedCategoryId) {
           writeWorkspaceCache(user?.id || null, tenantSlug, workspace.selectedCategoryId, workspace);
         }
+
+        preloadCategoryViews(workspace);
 
         const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
         templatesUrl.searchParams.set("tenantSlug", tenantSlug);

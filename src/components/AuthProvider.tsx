@@ -22,16 +22,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
+    let cancelled = false;
+    let timeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      setLoading(false);
+    }, 3000);
+
     // Check current session
     const getSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      setSession(session);
-      if (session?.user) {
-        setUser({ id: session.user.id, email: session.user.email || "" });
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (cancelled) return;
+        setSession(session);
+        if (session?.user) {
+          setUser({ id: session.user.id, email: session.user.email || "" });
+        }
+      } catch {
+        if (cancelled) return;
+        setSession(null);
+        setUser(null);
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+        window.clearTimeout(timeoutId);
       }
-      setLoading(false);
     };
 
     getSession();
@@ -40,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return;
       setSession(session);
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email || "" });
@@ -55,7 +73,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, [supabase]);
 
   const signUp = async (email: string, password: string) => {
