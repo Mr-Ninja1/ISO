@@ -50,6 +50,15 @@ jobs:
             echo "standalone server entry not found at .next/standalone/server.js"
             exit 1
           fi
+          # Copy top-level static assets into the standalone .next folder so
+          # the standalone server can serve CSS and other _next/static files.
+          if [ -d ".next/static" ]; then
+            echo "Copying .next/static into .next/standalone/.next/"
+            mkdir -p .next/standalone/.next
+            cp -R .next/static .next/standalone/.next/
+          else
+            echo "Warning: .next/static not found; CSS may be missing in standalone build"
+          fi
           npm run test --if-present
 
       - name: Package artifact for deployment job
@@ -118,10 +127,23 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_06EA98C756DE4B049273EC852D6FABC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E6EF8159DABC44E085A27DA7B62D8A51 }}
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
+      - name: 'Deploy to Azure Web App (staging)'
+        id: deploy-to-staging
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'iso-pro'
-          slot-name: 'Production'
+          slot-name: 'staging'
           package: ./node-app
+
+      - name: 'Swap staging to production'
+        if: always()
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+        run: |
+          # Retry the swap up to 3 times to avoid transient 409/conflict errors
+          for i in 1 2 3; do
+            echo "Attempt $i: swapping staging -> production"
+            az webapp deployment slot swap --resource-group "$AZURE_RESOURCE_GROUP" --name iso-pro --slot staging --target-slot production && break
+            echo "Swap attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
