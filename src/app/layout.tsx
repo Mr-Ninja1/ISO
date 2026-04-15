@@ -33,6 +33,25 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="theme-color" content="#0f172a" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        {/* Inline placeholder PNG icons (data URIs) to ensure a usable icon until real PNGs are added */}
+        <link
+          rel="apple-touch-icon"
+          sizes="180x180"
+          href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+        />
+        <link
+          rel="apple-touch-icon"
+          sizes="152x152"
+          href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+        />
+        <link rel="icon" href="/icon.svg" />
+      </head>
       <body className="min-h-full flex flex-col">
         <AuthProvider>{children}</AuthProvider>
       </body>
