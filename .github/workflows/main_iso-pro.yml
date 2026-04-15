@@ -33,14 +33,29 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           npm install
-          npm run build --if-present
+          npm run build
+          if [ ! -d ".next" ]; then
+            echo ".next directory not found after build."
+            exit 1
+          fi
           npm run test --if-present
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v6
         with:
           name: node-app
-          path: .
+          path: |
+            .next
+            package.json
+            package-lock.json
+            yarn.lock
+            pnpm-lock.yaml
+            next.config.js
+            next.config.mjs
+            next.config.ts
+            next-env.d.ts
+            public
+            .
 
   deploy:
     runs-on: ubuntu-latest
