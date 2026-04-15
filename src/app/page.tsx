@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
@@ -49,12 +50,26 @@ export default function Home() {
     };
   }, []);
 
-  // If user is authenticated, redirect straight to workspace — no need to see the landing page
+  // If user is authenticated, redirect straight to the appropriate area — prefer admin dashboard when allowed
   useEffect(() => {
     if (!loading && isAuthenticated) {
-      router.replace('/workspace');
+      const accessToken = session?.access_token || "";
+      const lastTenant = (typeof window !== "undefined" && localStorage.getItem("lastTenantSlug")) || "";
+
+      if (accessToken && lastTenant) {
+        fetchNavCapabilities(accessToken, lastTenant)
+          .then((caps) => {
+            if (caps.canSeeAdminRoutes) router.replace("/dashboard");
+            else router.replace("/workspace");
+          })
+          .catch(() => {
+            router.replace("/workspace");
+          });
+      } else {
+        router.replace("/workspace");
+      }
     }
-  }, [isAuthenticated, loading, router]);
+  }, [isAuthenticated, loading, router, session]);
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {
