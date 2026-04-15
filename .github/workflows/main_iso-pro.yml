@@ -28,6 +28,9 @@ jobs:
           package-manager-cache: false
 
       - name: npm install, build, and test
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           npm install
           npm run build --if-present

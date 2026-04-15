@@ -1,0 +1,98 @@
+Run npm install
+npm warn deprecated rollup-plugin-terser@7.0.2: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-terser
+npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated workbox-google-analytics@6.6.0: It is not compatible with newer versions of GA starting with v4, as long as you are using GAv3 it should be ok, but the package is not longer being maintained
+npm warn deprecated workbox-cacheable-response@6.6.0: workbox-background-sync@6.6.0
+npm warn deprecated source-map@0.8.0-beta.0: The work that was done in this beta branch won't be included in future versions
+
+added 687 packages, and audited 688 packages in 19s
+
+174 packages are looking for funding
+  run `npm fund` for details
+
+6 high severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> web@0.1.0 build
+> next build --webpack
+
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+▲ Next.js 16.2.2 (webpack)
+
+  Creating an optimized production build ...
+> [PWA] Compile server
+> [PWA] Compile server
+> [PWA] Compile client (static)
+> [PWA] Auto register service worker with: /home/runner/work/ISO/ISO/node_modules/next-pwa/register.js
+> [PWA] Service worker: /home/runner/work/ISO/ISO/public/sw.js
+> [PWA]   url: /sw.js
+> [PWA]   scope: /
+> [PWA] Fallback to precache routes when fetch failed from cache or network:
+> [PWA]   document (page): /offline
+✓ Compiled successfully in 13.3s
+  Running TypeScript ...
+  Finished TypeScript in 7.7s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/37) ...
+  Generating static pages using 3 workers (9/37) 
+Error occurred prerendering page "/_not-found". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: @supabase/ssr: Your project's URL and API key are required to create a Supabase client!
+
+Check your Supabase project's API settings to find these values
+
+https://supabase.com/dashboard/project/_/settings/api
+    at <unknown> (https://supabase.com/dashboard/project/_/settings/api)
+    at c$ (.next/server/chunks/7086.js:37:54880)
+    at e (.next/server/app/_not-found/page.js:2:9896)
+    at <unknown> (.next/server/app/_not-found/page.js:1:1050)
+    at h (.next/server/app/_not-found/page.js:1:1038) {
+  digest: '2405643215'
+}
+Export encountered an error on /_not-found/page: /_not-found, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+Error: Process completed with exit code 1.
+
+ERROR EXPLANATION BY GITHUB COPILOT
+I'll help you find a solution for this failing job. Let me get the logs and details.The job is failing during the Next.js build process because Supabase environment variables are missing. The error occurs when trying to prerender the `/_not-found` page:
+
+```
+Error: @supabase/ssr: Your project's URL and API key are required to create a Supabase client!
+```
+
+This happens because your Supabase client initialization requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` environment variables, which aren't set during the build in your GitHub Actions workflow.
+
+**Solution:**
+
+Add the missing environment variables to your GitHub Actions workflow. Update your `.github/workflows/main_iso-pro.yml` file to include these secrets:
+
+```yaml
+- name: Build
+  run: npm run build
+  env:
+    NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+```
+
+**Steps to implement:**
+
+1. **Add secrets to your GitHub repository:**
+   - Go to your repository settings → Secrets and variables → Actions
+   - Add two new repository secrets:
+     - `SUPABASE_URL`: Your Supabase project URL
+     - `SUPABASE_ANON_KEY`: Your Supabase anonymous key (from Supabase dashboard → Settings → API)
+
+2. **Update your workflow file** to pass these during the build step.
+
+3. **Rebuild** and the error should resolve since Supabase will have the required credentials during the static page generation.
