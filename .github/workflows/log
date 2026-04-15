@@ -1,98 +1,135 @@
-Run npm install
-npm warn deprecated rollup-plugin-terser@7.0.2: This package has been deprecated and is no longer maintained. Please use @rollup/plugin-terser
-npm warn deprecated rimraf@2.7.1: Rimraf versions prior to v4 are no longer supported
-npm warn deprecated sourcemap-codec@1.4.8: Please use @jridgewell/sourcemap-codec instead
-npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
-npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-npm warn deprecated workbox-google-analytics@6.6.0: It is not compatible with newer versions of GA starting with v4, as long as you are using GAv3 it should be ok, but the package is not longer being maintained
-npm warn deprecated workbox-cacheable-response@6.6.0: workbox-background-sync@6.6.0
-npm warn deprecated source-map@0.8.0-beta.0: The work that was done in this beta branch won't be included in future versions
-
-added 687 packages, and audited 688 packages in 19s
-
-174 packages are looking for funding
-  run `npm fund` for details
-
-6 high severity vulnerabilities
-
-To address all issues (including breaking changes), run:
-  npm audit fix --force
-
-Run `npm audit` for details.
-
-> web@0.1.0 build
-> next build --webpack
-
-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
-▲ Next.js 16.2.2 (webpack)
-
-  Creating an optimized production build ...
-> [PWA] Compile server
-> [PWA] Compile server
-> [PWA] Compile client (static)
-> [PWA] Auto register service worker with: /home/runner/work/ISO/ISO/node_modules/next-pwa/register.js
-> [PWA] Service worker: /home/runner/work/ISO/ISO/public/sw.js
-> [PWA]   url: /sw.js
-> [PWA]   scope: /
-> [PWA] Fallback to precache routes when fetch failed from cache or network:
-> [PWA]   document (page): /offline
-✓ Compiled successfully in 13.3s
-  Running TypeScript ...
-  Finished TypeScript in 7.7s ...
-  Collecting page data using 3 workers ...
-  Generating static pages using 3 workers (0/37) ...
-  Generating static pages using 3 workers (9/37) 
-Error occurred prerendering page "/_not-found". Read more: https://nextjs.org/docs/messages/prerender-error
-Error: @supabase/ssr: Your project's URL and API key are required to create a Supabase client!
-
-Check your Supabase project's API settings to find these values
-
-https://supabase.com/dashboard/project/_/settings/api
-    at <unknown> (https://supabase.com/dashboard/project/_/settings/api)
-    at c$ (.next/server/chunks/7086.js:37:54880)
-    at e (.next/server/app/_not-found/page.js:2:9896)
-    at <unknown> (.next/server/app/_not-found/page.js:1:1050)
-    at h (.next/server/app/_not-found/page.js:1:1038) {
-  digest: '2405643215'
-}
-Export encountered an error on /_not-found/page: /_not-found, exiting the build.
-⨯ Next.js build worker exited with code: 1 and signal: null
-Error: Process completed with exit code 1.
-
-ERROR EXPLANATION BY GITHUB COPILOT
-I'll help you find a solution for this failing job. Let me get the logs and details.The job is failing during the Next.js build process because Supabase environment variables are missing. The error occurs when trying to prerender the `/_not-found` page:
-
-```
-Error: @supabase/ssr: Your project's URL and API key are required to create a Supabase client!
-```
-
-This happens because your Supabase client initialization requires `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` environment variables, which aren't set during the build in your GitHub Actions workflow.
-
-**Solution:**
-
-Add the missing environment variables to your GitHub Actions workflow. Update your `.github/workflows/main_iso-pro.yml` file to include these secrets:
-
-```yaml
-- name: Build
-  run: npm run build
-  env:
-    NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-```
-
-**Steps to implement:**
-
-1. **Add secrets to your GitHub repository:**
-   - Go to your repository settings → Secrets and variables → Actions
-   - Add two new repository secrets:
-     - `SUPABASE_URL`: Your Supabase project URL
-     - `SUPABASE_ANON_KEY`: Your Supabase anonymous key (from Supabase dashboard → Settings → API)
-
-2. **Update your workflow file** to pass these during the build step.
-
-3. **Rebuild** and the error should resolve since Supabase will have the required credentials during the static page generation.
+Connected!
+2026-04-15T09:00:27.2721881Z    _____
+2026-04-15T09:00:27.279938Z   /  _  \ __________ _________   ____
+2026-04-15T09:00:27.2799654Z  /  /_\  \\___   /  |  \_  __ \_/ __ \
+2026-04-15T09:00:27.2799689Z /    |    \/    /|  |  /|  | \/\  ___/
+2026-04-15T09:00:27.2799719Z \____|__  /_____ \____/ |__|    \___  >
+2026-04-15T09:00:27.2799748Z         \/      \/                  \/
+2026-04-15T09:00:27.2799844Z A P P   S E R V I C E   O N   L I N U X
+2026-04-15T09:00:27.2799872Z
+2026-04-15T09:00:27.2799906Z Documentation    : http://aka.ms/webapp-linux
+2026-04-15T09:00:27.2799936Z NodeJS quickstart: https://aka.ms/node-qs
+2026-04-15T09:00:27.2799969Z NodeJS Version   : v22.22.0
+2026-04-15T09:00:27.2799997Z Instance Name    : lw1sdlwk000DQ5
+2026-04-15T09:00:27.2800037Z Instance Id      : 62face7ac9876fbe30207df4a41a5b84d91b79ae30cb868099e3f90ef74ee721
+2026-04-15T09:00:27.2800086Z
+2026-04-15T09:00:27.2800116Z Note: Any data outside '/home' is not persisted
+2026-04-15T09:00:34.0568588Z Starting OpenBSD Secure Shell server: sshd.
+2026-04-15T09:00:34.0913191Z WEBSITES_INCLUDE_CLOUD_CERTS is not set to true.
+2026-04-15T09:00:34.2146225Z Updating certificates in /etc/ssl/certs...
+2026-04-15T09:01:04.23951Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_ECC_Root_CA_2022.pem
+2026-04-15T09:01:04.2467571Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_RSA_Root_CA_2022.pem
+2026-04-15T09:01:04.8584302Z rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+2026-04-15T09:01:05.0104095Z 4 added, 0 removed; done.
+2026-04-15T09:01:05.0577185Z Running hooks in /etc/ca-certificates/update.d...
+2026-04-15T09:01:05.0967395Z done.
+2026-04-15T09:01:05.1596158Z CA certificates copied and updated successfully.
+2026-04-15T09:01:05.8609334Z Starting periodic command scheduler: cron.
+2026-04-15T09:01:06.690588Z Found build manifest file at '/home/site/wwwroot/oryx-manifest.toml'. Deserializing it...
+2026-04-15T09:01:06.7187404Z Could not find operation ID in manifest. Generating an operation id...
+2026-04-15T09:01:06.7188116Z Build Operation ID: 222c7446-21cd-4d30-900f-f5f4fed3e4ac
+2026-04-15T09:01:08.0524386Z Environment Variables for Application Insight's IPA Codeless Configuration exists..
+2026-04-15T09:01:08.2534177Z Writing output script to '/opt/startup/startup.sh'
+2026-04-15T09:01:08.5177214Z Running #!/bin/sh
+2026-04-15T09:01:08.5177858Z
+2026-04-15T09:01:08.5177996Z # Enter the source directory to make sure the script runs where the user expects
+2026-04-15T09:01:08.5178036Z cd "/home/site/wwwroot"
+2026-04-15T09:01:08.5178062Z
+2026-04-15T09:01:08.5178091Z export NODE_PATH=/usr/local/lib/node_modules:$NODE_PATH
+2026-04-15T09:01:08.5178119Z if [ -z "$PORT" ]; then
+2026-04-15T09:01:08.5178145Z 		export PORT=8080
+2026-04-15T09:01:08.517817Z fi
+2026-04-15T09:01:08.5178216Z
+2026-04-15T09:01:08.5178244Z echo Found tar.gz based node_modules.
+2026-04-15T09:01:08.5178273Z extractionCommand="tar -xzf node_modules.tar.gz -C /node_modules"
+2026-04-15T09:01:08.5178302Z echo "Removing existing modules directory from root..."
+2026-04-15T09:01:08.5178329Z rm -fr /node_modules
+2026-04-15T09:01:08.5178356Z mkdir -p /node_modules
+2026-04-15T09:01:08.5178382Z echo Extracting modules...
+2026-04-15T09:01:08.5178428Z $extractionCommand
+2026-04-15T09:01:08.5178485Z export NODE_PATH="/node_modules":$NODE_PATH
+2026-04-15T09:01:08.5178513Z export PATH=/node_modules/.bin:$PATH
+2026-04-15T09:01:08.517854Z if [ -d node_modules ]; then
+2026-04-15T09:01:08.5178567Z     mv -f node_modules _del_node_modules || true
+2026-04-15T09:01:08.5178593Z fi
+2026-04-15T09:01:08.5178617Z
+2026-04-15T09:01:08.5178671Z if [ -d /node_modules ]; then
+2026-04-15T09:01:08.5178699Z     ln -sfn /node_modules ./node_modules
+2026-04-15T09:01:08.5178724Z fi
+2026-04-15T09:01:08.5178749Z
+2026-04-15T09:01:08.5178774Z echo "Done."
+2026-04-15T09:01:08.5196746Z PATH="$PATH:/home/site/wwwroot" npm run start
+2026-04-15T09:01:08.5432481Z Found tar.gz based node_modules.
+2026-04-15T09:01:08.5443526Z Removing existing modules directory from root...
+2026-04-15T09:01:08.605163Z Extracting modules...
+2026-04-15T09:02:07.5238636Z Done.
+2026-04-15T09:02:13.9567584Z npm info using npm@10.9.2
+2026-04-15T09:02:13.9758514Z npm info using node@v22.22.0
+2026-04-15T09:02:17.1459828Z
+2026-04-15T09:02:17.1460525Z > web@0.1.0 start
+2026-04-15T09:02:17.146057Z > next start
+2026-04-15T09:02:17.1460599Z
+2026-04-15T09:02:17.3048452Z sh: 1: next: not found
+2026-04-15T09:02:48.9516392Z    _____
+2026-04-15T09:02:48.9516645Z   /  _  \ __________ _________   ____
+2026-04-15T09:02:48.9516709Z  /  /_\  \\___   /  |  \_  __ \_/ __ \
+2026-04-15T09:02:48.951673Z /    |    \/    /|  |  /|  | \/\  ___/
+2026-04-15T09:02:48.9516751Z \____|__  /_____ \____/ |__|    \___  >
+2026-04-15T09:02:48.9516772Z         \/      \/                  \/
+2026-04-15T09:02:48.9516791Z A P P   S E R V I C E   O N   L I N U X
+2026-04-15T09:02:48.951681Z
+2026-04-15T09:02:48.9516832Z Documentation    : http://aka.ms/webapp-linux
+2026-04-15T09:02:48.9516857Z NodeJS quickstart: https://aka.ms/node-qs
+2026-04-15T09:02:48.9516877Z NodeJS Version   : v22.22.0
+2026-04-15T09:02:48.9516897Z Instance Name    : lw1sdlwk000DQ5
+2026-04-15T09:02:48.9516921Z Instance Id      : 62face7ac9876fbe30207df4a41a5b84d91b79ae30cb868099e3f90ef74ee721
+2026-04-15T09:02:48.9516963Z
+2026-04-15T09:02:48.9516985Z Note: Any data outside '/home' is not persisted
+2026-04-15T09:02:51.6499972Z Starting OpenBSD Secure Shell server: sshd.
+2026-04-15T09:02:51.6692385Z WEBSITES_INCLUDE_CLOUD_CERTS is not set to true.
+2026-04-15T09:02:51.7443542Z Updating certificates in /etc/ssl/certs...
+2026-04-15T09:03:24.002478Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_ECC_Root_CA_2022.pem
+2026-04-15T09:03:24.0379213Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_RSA_Root_CA_2022.pem
+2026-04-15T09:03:24.5475002Z rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+2026-04-15T09:03:24.6299924Z 4 added, 0 removed; done.
+2026-04-15T09:03:24.6317353Z Running hooks in /etc/ca-certificates/update.d...
+2026-04-15T09:03:24.6490066Z done.
+2026-04-15T09:03:24.6701671Z CA certificates copied and updated successfully.
+2026-04-15T09:03:25.0735151Z Starting periodic command scheduler: cron.
+2026-04-15T09:03:25.5472485Z Found build manifest file at '/home/site/wwwroot/oryx-manifest.toml'. Deserializing it...
+2026-04-15T09:03:25.5764638Z Could not find operation ID in manifest. Generating an operation id...
+2026-04-15T09:03:25.5779175Z Build Operation ID: 13825eb1-10a6-4d43-943b-baa3caa07745
+2026-04-15T09:03:27.0993485Z Environment Variables for Application Insight's IPA Codeless Configuration exists..
+2026-04-15T09:03:27.4252388Z Writing output script to '/opt/startup/startup.sh'
+2026-04-15T09:03:27.756136Z Running #!/bin/sh
+2026-04-15T09:03:27.7561864Z
+2026-04-15T09:03:27.7561901Z # Enter the source directory to make sure the script runs where the user expects
+2026-04-15T09:03:27.7561932Z cd "/home/site/wwwroot"
+2026-04-15T09:03:27.7561954Z
+2026-04-15T09:03:27.7561978Z export NODE_PATH=/usr/local/lib/node_modules:$NODE_PATH
+2026-04-15T09:03:27.7561999Z if [ -z "$PORT" ]; then
+2026-04-15T09:03:27.756202Z 		export PORT=8080
+2026-04-15T09:03:27.7562227Z fi
+2026-04-15T09:03:27.7562254Z
+2026-04-15T09:03:27.7562277Z echo Found tar.gz based node_modules.
+2026-04-15T09:03:27.7562301Z extractionCommand="tar -xzf node_modules.tar.gz -C /node_modules"
+2026-04-15T09:03:27.7562324Z echo "Removing existing modules directory from root..."
+2026-04-15T09:03:27.7562346Z rm -fr /node_modules
+2026-04-15T09:03:27.7562368Z mkdir -p /node_modules
+2026-04-15T09:03:27.7562389Z echo Extracting modules...
+2026-04-15T09:03:27.7562409Z $extractionCommand
+2026-04-15T09:03:27.7562432Z export NODE_PATH="/node_modules":$NODE_PATH
+2026-04-15T09:03:27.7562455Z export PATH=/node_modules/.bin:$PATH
+2026-04-15T09:03:27.7562708Z if [ -d node_modules ]; then
+2026-04-15T09:03:27.7562738Z     mv -f node_modules _del_node_modules || true
+2026-04-15T09:03:27.7562759Z fi
+2026-04-15T09:03:27.7562778Z
+2026-04-15T09:03:27.7562799Z if [ -d /node_modules ]; then
+2026-04-15T09:03:27.7562822Z     ln -sfn /node_modules ./node_modules
+2026-04-15T09:03:27.7562842Z fi
+2026-04-15T09:03:27.7562862Z
+2026-04-15T09:03:27.7562883Z echo "Done."
+2026-04-15T09:03:27.7582608Z PATH="$PATH:/home/site/wwwroot" npm run start
+2026-04-15T09:03:27.7752124Z Found tar.gz based node_modules.
+2026-04-15T09:03:27.7753128Z Removing existing modules directory from root...
+2026-04-15T09:03:27.8339693Z Extracting modules...
