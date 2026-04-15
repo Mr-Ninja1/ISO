@@ -127,6 +127,20 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_06EA98C756DE4B049273EC852D6FABC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E6EF8159DABC44E085A27DA7B62D8A51 }}
 
+      - name: Ensure staging slot exists
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -e
+          echo "Checking if staging slot exists for app 'iso-pro' in resource group '$AZURE_RESOURCE_GROUP'"
+          if az webapp deployment slot show --resource-group "$AZURE_RESOURCE_GROUP" --name iso-pro --slot staging >/dev/null 2>&1; then
+            echo "Staging slot exists"
+          else
+            echo "Staging slot not found — attempting to create it"
+            az webapp deployment slot create --resource-group "$AZURE_RESOURCE_GROUP" --name iso-pro --slot staging
+            echo "Created staging slot"
+          fi
+
       - name: 'Deploy to Azure Web App (staging)'
         id: deploy-to-staging
         uses: azure/webapps-deploy@v3
@@ -136,7 +150,7 @@ jobs:
           package: ./node-app
 
       - name: 'Swap staging to production'
-        if: always()
+        if: ${{ success() }}
         env:
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
         run: |
