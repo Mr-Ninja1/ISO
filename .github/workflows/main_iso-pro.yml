@@ -28,7 +28,6 @@ jobs:
           package-manager-cache: false
 
       - name: npm install, build, and test
-        working-directory: web
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -46,16 +45,16 @@ jobs:
         with:
           name: node-app
           path: |
-            web/.next
-            web/package.json
-            web/package-lock.json
-            web/yarn.lock
-            web/pnpm-lock.yaml
-            web/next.config.js
-            web/next.config.mjs
-            web/next.config.ts
-            web/next-env.d.ts
-            web/public
+            .next
+            package.json
+            package-lock.json
+            yarn.lock
+            pnpm-lock.yaml
+            next.config.js
+            next.config.mjs
+            next.config.ts
+            next-env.d.ts
+            public
 
   deploy:
     runs-on: ubuntu-latest
