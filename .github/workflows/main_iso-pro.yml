@@ -45,17 +45,15 @@ jobs:
           fi
           npm run test --if-present
 
+      - name: Package artifact for deployment job
+        run: |
+          rm -f node-app.tar.gz
+          tar -czf node-app.tar.gz .next package.json package-lock.json next.config.ts next-env.d.ts public
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v6
         with:
           name: node-app
-          path: |
-            .next
-            package.json
-            package-lock.json
-            next.config.ts
-            next-env.d.ts
-            public
+          path: node-app.tar.gz
 
   deploy:
     runs-on: ubuntu-latest
@@ -75,6 +73,14 @@ jobs:
         run: |
           ls -la node-app
           find node-app -maxdepth 3 -mindepth 1 | sort
+
+      - name: Extract artifact tarball
+        run: |
+          cd node-app
+          tar -xzf node-app.tar.gz
+          rm node-app.tar.gz
+          ls -la
+          find . -maxdepth 2 -mindepth 1 | sort
 
       - name: Set up Node.js for deploy packaging
         uses: actions/setup-node@v5
