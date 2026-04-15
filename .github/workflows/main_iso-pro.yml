@@ -34,7 +34,12 @@ jobs:
         run: |
           npm install
           npm run build
-          if [ ! -d ".next" ]; then
+          pwd
+          ls -la
+          if [ -d ".next" ]; then
+            echo ".next exists"
+            find . -maxdepth 2 | sort
+          else
             echo ".next directory not found after build."
             exit 1
           fi
