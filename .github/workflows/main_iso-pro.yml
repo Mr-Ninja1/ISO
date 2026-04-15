@@ -40,26 +40,17 @@ jobs:
           fi
           npm run test --if-present
 
-      - name: Package artifact for deployment job
-        run: |
-          rm -rf artifact
-          mkdir artifact
-          cp -R .next artifact/
-          cp package.json artifact/
-          cp package-lock.json artifact/ 2>/dev/null || true
-          cp yarn.lock artifact/ 2>/dev/null || true
-          cp pnpm-lock.yaml artifact/ 2>/dev/null || true
-          cp next.config.js artifact/ 2>/dev/null || true
-          cp next.config.mjs artifact/ 2>/dev/null || true
-          cp next.config.ts artifact/ 2>/dev/null || true
-          cp next-env.d.ts artifact/ 2>/dev/null || true
-          cp -R public artifact/ 2>/dev/null || true
-
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v6
         with:
           name: node-app
-          path: artifact
+          path: |
+            .next
+            package.json
+            package-lock.json
+            next.config.ts
+            next-env.d.ts
+            public
 
   deploy:
     runs-on: ubuntu-latest
@@ -87,12 +78,12 @@ jobs:
 
       - name: Install production dependencies for deploy
         run: |
-          cd node-app/artifact
+          cd node-app
           npm ci --omit=dev
 
       - name: Verify Next production build exists
         run: |
-          cd node-app/artifact
+          cd node-app
           if [ ! -d ".next" ]; then
             echo ".next directory not found. Build may have failed or artifact path is wrong."
             exit 1
@@ -111,4 +102,4 @@ jobs:
         with:
           app-name: 'iso-pro'
           slot-name: 'Production'
-          package: ./node-app/artifact
+          package: ./node-app
