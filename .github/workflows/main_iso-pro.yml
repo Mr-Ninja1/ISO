@@ -42,21 +42,20 @@ jobs:
           npm run test --if-present
 
       - name: Upload artifact for deployment job
-        working-directory: web
         uses: actions/upload-artifact@v6
         with:
           name: node-app
           path: |
-            .next
-            package.json
-            package-lock.json
-            yarn.lock
-            pnpm-lock.yaml
-            next.config.js
-            next.config.mjs
-            next.config.ts
-            next-env.d.ts
-            public
+            web/.next
+            web/package.json
+            web/package-lock.json
+            web/yarn.lock
+            web/pnpm-lock.yaml
+            web/next.config.js
+            web/next.config.mjs
+            web/next.config.ts
+            web/next-env.d.ts
+            web/public
 
   deploy:
     runs-on: ubuntu-latest
