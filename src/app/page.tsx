@@ -15,6 +15,7 @@ interface BeforeInstallPromptEvent extends Event {
 export default function Home() {
   const { session, loading } = useAuth();
   const router = useRouter();
+  const isAuthenticated = Boolean(session?.user);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isIos, setIsIos] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -114,7 +115,7 @@ export default function Home() {
                 >
                   Sign In
                 </Link>
-                {session ? (
+                {isAuthenticated ? (
                   <button
                     type="button"
                     onClick={() => router.push("/workspace")}
