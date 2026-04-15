@@ -28,7 +28,6 @@ jobs:
           package-manager-cache: false
 
       - name: npm install, build, and test
-        working-directory: web
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -45,16 +44,16 @@ jobs:
         run: |
           rm -rf artifact
           mkdir artifact
-          cp -R web/.next artifact/
-          cp web/package.json artifact/
-          cp web/package-lock.json artifact/ 2>/dev/null || true
-          cp web/yarn.lock artifact/ 2>/dev/null || true
-          cp web/pnpm-lock.yaml artifact/ 2>/dev/null || true
-          cp web/next.config.js artifact/ 2>/dev/null || true
-          cp web/next.config.mjs artifact/ 2>/dev/null || true
-          cp web/next.config.ts artifact/ 2>/dev/null || true
-          cp web/next-env.d.ts artifact/ 2>/dev/null || true
-          cp -R web/public artifact/ 2>/dev/null || true
+          cp -R .next artifact/
+          cp package.json artifact/
+          cp package-lock.json artifact/ 2>/dev/null || true
+          cp yarn.lock artifact/ 2>/dev/null || true
+          cp pnpm-lock.yaml artifact/ 2>/dev/null || true
+          cp next.config.js artifact/ 2>/dev/null || true
+          cp next.config.mjs artifact/ 2>/dev/null || true
+          cp next.config.ts artifact/ 2>/dev/null || true
+          cp next-env.d.ts artifact/ 2>/dev/null || true
+          cp -R public artifact/ 2>/dev/null || true
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v6
