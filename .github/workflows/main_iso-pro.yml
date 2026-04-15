@@ -24,23 +24,30 @@ jobs:
       - name: Set up Node.js version
         uses: actions/setup-node@v5
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           package-manager-cache: false
 
-      - name: npm install, build, and test
+      - name: npm install, generate Prisma client, build, and test
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           npm install
+          npm run db:generate
           npm run build
           pwd
           ls -la
           if [ -d ".next" ]; then
             echo ".next exists"
-            find . -maxdepth 2 | sort
+            find . -maxdepth 3 | sort
           else
             echo ".next directory not found after build."
+            exit 1
+          fi
+          if [ -f ".next/standalone/server.js" ]; then
+            echo "standalone server entry exists"
+          else
+            echo "standalone server entry not found at .next/standalone/server.js"
             exit 1
           fi
           npm run test --if-present
@@ -85,7 +92,7 @@ jobs:
       - name: Set up Node.js for deploy packaging
         uses: actions/setup-node@v5
         with:
-          node-version: '22.x'
+          node-version: '24.x'
 
       - name: Install production dependencies for deploy
         run: |
@@ -97,6 +104,10 @@ jobs:
           cd node-app
           if [ ! -d ".next" ]; then
             echo ".next directory not found. Build may have failed or artifact path is wrong."
+            exit 1
+          fi
+          if [ ! -f ".next/standalone/server.js" ]; then
+            echo ".next/standalone/server.js not found. Standalone output may be missing."
             exit 1
           fi
 
