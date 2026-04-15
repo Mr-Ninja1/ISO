@@ -32,6 +32,7 @@ const RISK_ACTIONS = new Set([
 ]);
 
 function groupForAction(action: string): Exclude<ActivityGroup, "ALL" | "RISK"> {
+  if (action === "auth.login") return "STAFF";
   if (action.startsWith("audit.")) return "AUDIT";
   if (action.startsWith("template.")) return "TEMPLATE";
   if (action.startsWith("staff.")) return "STAFF";

@@ -25,6 +25,57 @@ function toDayRange(daysBack: number) {
   return range;
 }
 
+function schemaHasTemperatureInputs(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return false;
+  const obj = schema as Record<string, unknown>;
+  const sections = Array.isArray(obj.sections) && obj.sections.length
+    ? (obj.sections as Array<Record<string, unknown>>)
+    : Array.isArray(obj.fields)
+      ? [{ type: "fields", fields: obj.fields } as Record<string, unknown>]
+      : [];
+
+  for (const section of sections) {
+    if (section.type === "fields" && Array.isArray(section.fields)) {
+      if (section.fields.some((field) => field && typeof field === "object" && !Array.isArray(field) && (field as Record<string, unknown>).type === "temp" && (field as Record<string, unknown>).isActive !== false)) {
+        return true;
+      }
+    }
+
+    if (section.type === "grid" && Array.isArray(section.columns)) {
+      if (section.columns.some((col) => col && typeof col === "object" && !Array.isArray(col) && (col as Record<string, unknown>).type === "temp" && (col as Record<string, unknown>).isActive !== false)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function templateSettings(schema: unknown) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return { dueDays: undefined as number | undefined, temperatureAlertBelow: undefined as number | undefined, temperatureAlertAbove: undefined as number | undefined };
+  }
+
+  const meta = (schema as Record<string, unknown>).meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return { dueDays: undefined as number | undefined, temperatureAlertBelow: undefined as number | undefined, temperatureAlertAbove: undefined as number | undefined };
+  }
+
+  const metaRecord = meta as Record<string, unknown>;
+  return {
+    dueDays: typeof metaRecord.dueDays === "number" && Number.isFinite(metaRecord.dueDays) ? metaRecord.dueDays : undefined,
+    temperatureAlertBelow: typeof metaRecord.temperatureAlertBelow === "number" && Number.isFinite(metaRecord.temperatureAlertBelow) ? metaRecord.temperatureAlertBelow : undefined,
+    temperatureAlertAbove: typeof metaRecord.temperatureAlertAbove === "number" && Number.isFinite(metaRecord.temperatureAlertAbove) ? metaRecord.temperatureAlertAbove : undefined,
+  };
+}
+
+function templateIsLive(schema: unknown) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return true;
+  const meta = (schema as Record<string, unknown>).meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return true;
+  return (meta as Record<string, unknown>).isLive !== false;
+}
+
 export async function GET(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -60,7 +111,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [submittedCount, draftCount, staffCount, submittedAudits] = await Promise.all([
+  const [submittedCount, draftCount, staffCount, submittedAudits, liveTemplates, draftAudits] = await Promise.all([
     prisma.auditLog.count({ where: { tenantId: tenant.id, status: "SUBMITTED" } }),
     prisma.auditLog.count({ where: { tenantId: tenant.id, status: "DRAFT" } }),
     prisma.tenantMember.count({ where: { tenantId: tenant.id } }),
@@ -82,7 +133,41 @@ export async function GET(req: Request) {
         },
       },
     }),
+    prisma.formTemplate.findMany({
+      where: { tenantId: tenant.id },
+      select: {
+        id: true,
+        schema: true,
+      },
+    }),
+    prisma.auditLog.findMany({
+      where: { tenantId: tenant.id, status: "DRAFT" },
+      orderBy: [{ updatedAt: "desc" }],
+      select: {
+        id: true,
+        updatedAt: true,
+        template: {
+          select: {
+            id: true,
+            schema: true,
+          },
+        },
+      },
+    }),
   ]);
+
+  const liveOnlyTemplates = liveTemplates.filter((template) => templateIsLive(template.schema));
+  const dueRuleTemplates = liveOnlyTemplates.filter((template) => templateSettings(template.schema).dueDays !== undefined).length;
+  const tempRuleTemplates = liveOnlyTemplates.filter((template) => {
+    const settings = templateSettings(template.schema);
+    return schemaHasTemperatureInputs(template.schema) && (typeof settings.temperatureAlertBelow === "number" || typeof settings.temperatureAlertAbove === "number");
+  }).length;
+  const overdueDrafts = draftAudits.filter((audit) => {
+    const settings = templateSettings(audit.template?.schema);
+    if (typeof settings.dueDays !== "number" || settings.dueDays <= 0) return false;
+    const ageMs = Date.now() - new Date(audit.updatedAt).getTime();
+    return ageMs > settings.dueDays * 24 * 60 * 60 * 1000;
+  }).length;
 
   const days = toDayRange(7);
   const seriesByDay = new Map(days.map((day) => [day, { day, readings: 0, alerts: 0, average: null as number | null }]));
@@ -152,6 +237,9 @@ export async function GET(req: Request) {
         submittedCount,
         draftCount,
         staffCount,
+        dueRuleTemplates,
+        tempRuleTemplates,
+        overdueDrafts,
         complianceRate: submittedCount + draftCount > 0 ? (submittedCount / (submittedCount + draftCount)) * 100 : 0,
       },
       temperature: {

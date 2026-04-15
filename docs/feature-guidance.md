@@ -1,4 +1,4 @@
-# QHSE Product Guidance And To-Do
+# ISO Pro Product Guidance And To-Do
 
 ## Purpose
 This document maps the client requirements to the current product status and defines the next implementation backlog.
@@ -35,6 +35,7 @@ Legend:
   - Temperature fields and alert thresholds in forms
   - Audit capture and persistence
 - Missing:
+  - Central settings layer for threshold defaults and out-of-spec rules
   - Dedicated CCP trend charts/dashboard
   - Corrective-action linkage from out-of-spec events
 
@@ -48,6 +49,7 @@ Legend:
 ### 5) Corrective Action Management
 - Status: Next
 - Missing:
+  - Due-date settings and reminder rules
   - Assigned owner, due date, status lifecycle (Open/In Progress/Closed)
   - Evidence upload and close-out verification
   - Overdue tracking
@@ -59,6 +61,7 @@ Legend:
   - Audit submission and report viewing
   - Template versioning controls for compliance-safe updates
 - Missing:
+  - Findings register and follow-up actions
   - Compliance scoring model surfaced in management dashboards
   - Formal tracking board for audit findings
 
@@ -67,6 +70,7 @@ Legend:
 - Done now:
   - Core audit report page
 - Missing:
+  - Management dashboard widgets for due actions and out-of-spec trends
   - Executive dashboard widgets and trend analytics
   - Export to PDF and Excel for management packs
 
@@ -100,6 +104,12 @@ Legend:
 - OCR-assisted form import MVP
 
 ## Prioritized Backlog (Execution To-Do)
+
+## Fastest High-Impact Next Steps
+- [ ] Add a settings surface for out-of-spec thresholds and due-date defaults
+- [ ] Use those defaults to drive alert/reminder rules in the dashboard and activity feed
+- [ ] Surface overdue corrective actions and threshold exceptions on the management dashboard
+- [ ] Add export-ready report outputs once the metrics and findings views are finalized
 
 ## P0: Commercially Critical
 - [ ] Implement Incident Reporting module (create/read/update/list, photo evidence, severity, category)

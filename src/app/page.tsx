@@ -26,12 +26,12 @@ export default function Home() {
             <div className="max-w-2xl space-y-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
                 <Sparkles className="h-3.5 w-3.5" />
-                ISO-ready compliance PWA
+                ISO Pro compliance PWA
               </div>
 
               <div className="space-y-4">
                 <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-                  A production-grade audit platform for service brands that work to ISO standards.
+                  ISO Pro is a production-grade compliance platform for service brands that work to ISO standards.
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-foreground/70 sm:text-lg">
                   Cache your workspace, forms, drafts, evidence, and audit history locally, then sync cross-device updates when internet is available.

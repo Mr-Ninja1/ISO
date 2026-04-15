@@ -11,11 +11,15 @@ import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 
 export default async function TenantSettingsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tenantSlug: string }>;
+  searchParams?: Promise<{ focus?: string }>;
 }) {
   try {
     const { tenantSlug } = await params;
+    const resolvedSearchParams = searchParams ? await searchParams : {};
+    const focusSection = resolvedSearchParams.focus;
     const tenant = await prisma.tenant.findUnique({
       where: { slug: tenantSlug },
     });
@@ -92,7 +96,7 @@ export default async function TenantSettingsPage({
           <TenantCategoriesSeedSection tenantSlug={tenant.slug} />
         </DeferredDetailsSection>
 
-        <DeferredDetailsSection title="Brand staff management">
+        <DeferredDetailsSection title="Brand staff management" defaultOpen={focusSection === "staff"}>
           <StaffManagementPanel tenantSlug={tenant.slug} />
         </DeferredDetailsSection>
       </div>

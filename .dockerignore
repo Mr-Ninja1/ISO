@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.vscode
+coverage
+dist
+npm-debug.log
+Dockerfile

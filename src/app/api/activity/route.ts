@@ -154,12 +154,16 @@ export async function GET(req: Request) {
         ? details.submittedByName
         : typeof details?.userName === "string"
           ? details.userName
+          : typeof details?.staffName === "string"
+            ? details.staffName
           : null;
     const detailActorEmail =
       typeof details?.submittedByEmail === "string"
         ? details.submittedByEmail
         : typeof details?.userEmail === "string"
           ? details.userEmail
+          : typeof details?.staffEmail === "string"
+            ? details.staffEmail
           : null;
     const authUser = authUserById.get(row.userId) || null;
     const targetName =

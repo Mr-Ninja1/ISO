@@ -21,6 +21,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
   const formsPath = `/${tenantSlug}/audits`;
   const offlinePath = `/${tenantSlug}/audits/local`;
   const activityPath = `/${tenantSlug}/activity`;
+  const correctiveActionsPath = `/${tenantSlug}/corrective-actions`;
   const templatesPath = `/${tenantSlug}/templates`;
   const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
 
@@ -61,6 +62,11 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canSeeAdminRoutes ? (
           <Link href={activityPath} className={tabClass(pathname?.startsWith(activityPath) ?? false)}>
             Activity
+          </Link>
+        ) : null}
+        {caps.canSeeAdminRoutes ? (
+          <Link href={correctiveActionsPath} className={tabClass(pathname?.startsWith(correctiveActionsPath) ?? false)}>
+            Actions
           </Link>
         ) : null}
         {caps.canCreateForms ? (

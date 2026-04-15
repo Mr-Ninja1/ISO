@@ -15,11 +15,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const settingsBase = `/${tenantSlug}/settings`;
   const auditsBase = `/${tenantSlug}/audits`;
   const dashboardBase = `/${tenantSlug}/dashboard`;
+  const correctiveActionsBase = `/${tenantSlug}/corrective-actions`;
   const activityBase = `/${tenantSlug}/activity`;
   const onAudits = pathname?.startsWith(auditsBase) ?? false;
   const onSettings = pathname?.startsWith(settingsBase) ?? false;
   const onActivity = pathname?.startsWith(activityBase) ?? false;
   const onDashboard = pathname?.startsWith(dashboardBase) ?? false;
+  const onCorrectiveActions = pathname?.startsWith(correctiveActionsBase) ?? false;
   const onTemplates = pathname?.startsWith(`/${tenantSlug}/templates`) ?? false;
   const onCategories = pathname?.startsWith(`/${tenantSlug}/categories`) ?? false;
   const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
@@ -81,6 +83,19 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             Dashboard
           </Link>
         ) : null}
+        {caps.canSeeAdminRoutes ? (
+          <Link
+            href={correctiveActionsBase}
+            className={
+              "rounded-md border px-3 py-2 " +
+              (onCorrectiveActions
+                ? "border-foreground bg-foreground text-background"
+                : "border-foreground/20")
+            }
+          >
+            Actions
+          </Link>
+        ) : null}
         <details className="relative">
           <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-foreground/20">
             <MoreVertical className="h-4 w-4" />
@@ -104,6 +119,12 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             ) : null}
             {caps.canSeeAdminRoutes ? (
               <>
+                <Link
+                  href={correctiveActionsBase}
+                  className={"block rounded-md px-3 py-2 text-sm hover:bg-foreground/5 " + (onCorrectiveActions ? "bg-foreground text-background" : "")}
+                >
+                  Corrective actions
+                </Link>
                 <Link
                   href={settingsBase}
                   className={"block rounded-md px-3 py-2 text-sm hover:bg-foreground/5 " + (onSettings ? "bg-foreground text-background" : "")}
@@ -142,6 +163,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           >
             Forms
           </Link>
+          {caps.canSeeAdminRoutes ? (
+            <Link
+              href={correctiveActionsBase}
+              className={"block rounded-md px-3 py-2 text-sm hover:bg-foreground/5 " + (onCorrectiveActions ? "bg-foreground text-background" : "")}
+            >
+              Corrective actions
+            </Link>
+          ) : null}
           {caps.canSeeAdminRoutes ? (
             <Link
               href={`/${tenantSlug}/activity`}

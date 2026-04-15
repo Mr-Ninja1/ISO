@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ISO Pro</title>
+  <desc id="desc">A shield-style logo for the ISO Pro compliance app.</desc>
+  <defs>
+    <linearGradient id="bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f172a" />
+      <stop offset="1" stop-color="#164e63" />
+    </linearGradient>
+    <linearGradient id="accent" x1="160" y1="128" x2="352" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f59e0b" />
+      <stop offset="1" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bg)" />
+  <circle cx="384" cy="124" r="34" fill="#22c55e" opacity="0.18" />
+  <circle cx="132" cy="388" r="46" fill="#38bdf8" opacity="0.12" />
+  <path d="M256 88c52 36 104 48 144 56v104c0 92-60 154-144 176-84-22-144-84-144-176V144c40-8 92-20 144-56Z" fill="#f8fafc" opacity="0.96" />
+  <path d="M256 122c-38 26-78 36-112 42v84c0 64 42 108 112 126 70-18 112-62 112-126v-84c-34-6-74-16-112-42Z" fill="url(#accent)" opacity="0.18" />
+  <path d="M208 248l34 34 64-74" fill="none" stroke="url(#accent)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M170 310h172" fill="none" stroke="#0f172a" stroke-width="20" stroke-linecap="round" opacity="0.18" />
+  <path d="M214 344h84" fill="none" stroke="#0f172a" stroke-width="20" stroke-linecap="round" opacity="0.14" />
+</svg>

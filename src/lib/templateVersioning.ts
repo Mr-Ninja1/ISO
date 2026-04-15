@@ -5,6 +5,7 @@ export type TemplateSchemaMeta = {
   templateVersion?: number;
   isLive?: boolean;
   previousTemplateId?: string;
+  [key: string]: unknown;
 };
 
 export function normalizeTemplateSchema(raw: unknown, title: string): JsonObject {
@@ -14,12 +15,14 @@ export function normalizeTemplateSchema(raw: unknown, title: string): JsonObject
 
   const obj = raw as JsonObject;
   const next: JsonObject = { ...obj };
+  const existingMeta = obj.meta && typeof obj.meta === "object" && !Array.isArray(obj.meta) ? (obj.meta as JsonObject) : {};
 
   if (typeof next.version !== "number") next.version = 1;
   next.title = title;
 
   const prevMeta = getTemplateSchemaMeta(next);
   next.meta = {
+    ...existingMeta,
     lineageId: prevMeta.lineageId,
     templateVersion: typeof prevMeta.templateVersion === "number" ? prevMeta.templateVersion : 1,
     isLive: prevMeta.isLive !== false,
@@ -46,11 +49,13 @@ export function getTemplateSchemaMeta(schema: unknown): TemplateSchemaMeta {
 export function withTemplateSchemaMeta(schema: unknown, patch: TemplateSchemaMeta, title?: string): JsonObject {
   const base = normalizeTemplateSchema(schema, title || ((schema as any)?.title ?? "Form"));
   const prev = getTemplateSchemaMeta(base);
+  const existingMeta = base.meta && typeof base.meta === "object" && !Array.isArray(base.meta) ? (base.meta as JsonObject) : {};
 
   return {
     ...base,
     ...(title ? { title } : {}),
     meta: {
+      ...existingMeta,
       lineageId: patch.lineageId ?? prev.lineageId,
       templateVersion:
         typeof patch.templateVersion === "number"

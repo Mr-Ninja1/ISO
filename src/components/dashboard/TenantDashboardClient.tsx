@@ -13,7 +13,19 @@ type WorkspaceResponse = {
   tenant: { id: string; name: string; slug: string; logoUrl: string | null };
   categories: Array<{ id: string; name: string; sortOrder: number }>;
   selectedCategoryId: string | null;
-  templates: Array<{ id: string; title: string; updatedAt: string; categoryId: string | null }>;
+  templates: Array<{
+    id: string;
+    title: string;
+    updatedAt: string;
+    categoryId: string | null;
+    hasTemperatureInputs?: boolean;
+    settings?: {
+      dueDays?: number;
+      temperatureAlertBelow?: number;
+      temperatureAlertAbove?: number;
+      temperatureUnit?: "C" | "F";
+    };
+  }>;
   isAdmin: boolean;
   role: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
   capabilities: {
@@ -50,6 +62,9 @@ type DashboardMetricsResponse = {
     submittedCount: number;
     draftCount: number;
     staffCount: number;
+    dueRuleTemplates: number;
+    tempRuleTemplates: number;
+    overdueDrafts: number;
     complianceRate: number;
   };
   temperature: {
@@ -319,12 +334,16 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     const staffCoverage = staff.length > 0 ? (activeActors / staff.length) * 100 : 0;
     const categories = workspace?.categories.length || 0;
     const templates = workspace?.templates.length || 0;
+    const dueRules = dashboardMetrics?.summary.dueRuleTemplates ?? (workspace?.templates.filter((template) => typeof template.settings?.dueDays === "number").length || 0);
+    const tempRuleTemplates = dashboardMetrics?.summary.tempRuleTemplates ?? (workspace?.templates.filter((template) => template.hasTemperatureInputs && (typeof template.settings?.temperatureAlertBelow === "number" || typeof template.settings?.temperatureAlertAbove === "number")).length || 0);
+    const overdueDrafts = dashboardMetrics?.summary.overdueDrafts ?? staleDrafts.length;
     const dashboardTemp = dashboardMetrics?.temperature;
 
     return {
       submitted: submitted.length,
       drafts: drafts.length,
       staleDrafts: staleDrafts.length,
+      overdueDrafts,
       riskRows: riskRows.length,
       tempAlerts,
       realTempReadings: dashboardTemp?.totalReadings || 0,
@@ -337,6 +356,8 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
       staffCoverage,
       categories,
       templates,
+      dueRules,
+      tempRuleTemplates,
       complianceRate: dashboardMetrics?.summary.complianceRate || 0,
     };
   }, [activity, audits, dashboardMetrics, staff.length, workspace?.categories.length, workspace?.templates.length]);
@@ -428,9 +449,12 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard title="Submission rate" value={percent(metrics.submissionRate)} helper={`${metrics.submitted} submitted / ${audits.length} forms`} icon={<BarChart3 className="h-4 w-4" />} />
         <MetricCard title="Drafts" value={String(metrics.drafts)} helper={`${metrics.staleDrafts} stale drafts over 72h`} icon={<FileText className="h-4 w-4" />} />
+        <MetricCard title="Overdue drafts" value={String(metrics.overdueDrafts)} helper="Past the template due-date window" icon={<Clock3 className="h-4 w-4" />} />
         <MetricCard title="Temperature alerts" value={String(metrics.realTempAlerts || metrics.tempAlerts)} helper="Captured from saved audit payloads" icon={<AlertTriangle className="h-4 w-4" />} />
         <MetricCard title="Staff coverage" value={percent(metrics.staffCoverage)} helper={`${metrics.activeActors} active actors / ${staff.length || 1} staff`} icon={<Users className="h-4 w-4" />} />
         <MetricCard title="Templates" value={String(metrics.templates)} helper={`${metrics.categories} categories configured`} icon={<Settings2 className="h-4 w-4" />} />
+        <MetricCard title="Due rules" value={String(metrics.dueRules)} helper="Templates with due-date defaults" icon={<Clock3 className="h-4 w-4" />} />
+        <MetricCard title="Temp rules" value={String(metrics.tempRuleTemplates)} helper="Templates with temperature boundaries" icon={<AlertTriangle className="h-4 w-4" />} />
         <MetricCard title="Recent risk" value={String(metrics.riskRows)} helper="High-impact changes and alerts" icon={<ShieldAlert className="h-4 w-4" />} />
       </div>
 

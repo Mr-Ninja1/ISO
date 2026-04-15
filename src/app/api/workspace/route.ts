@@ -9,7 +9,19 @@ type WorkspaceResponse = {
   tenant: { id: string; name: string; slug: string; logoUrl: string | null };
   categories: Array<{ id: string; name: string; sortOrder: number }>;
   selectedCategoryId: string | null;
-  templates: Array<{ id: string; title: string; updatedAt: Date; categoryId: string | null }>;
+  templates: Array<{
+    id: string;
+    title: string;
+    updatedAt: Date;
+    categoryId: string | null;
+    hasTemperatureInputs?: boolean;
+    settings?: {
+      dueDays?: number;
+      temperatureAlertBelow?: number;
+      temperatureAlertAbove?: number;
+      temperatureUnit?: "C" | "F";
+    };
+  }>;
   isAdmin: boolean;
   role: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
   capabilities: {
@@ -51,6 +63,32 @@ function isPoolTimeoutError(error: unknown) {
   if (!err) return false;
   if (err.code === "P2024") return true;
   return /P2024|connection pool timeout|timed out fetching a new connection/i.test(err.message || "");
+}
+
+function schemaHasTemperatureInputs(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return false;
+  const obj = schema as Record<string, unknown>;
+  const sections = Array.isArray(obj.sections) && obj.sections.length
+    ? (obj.sections as Array<Record<string, unknown>>)
+    : Array.isArray(obj.fields)
+      ? [{ type: "fields", fields: obj.fields } as Record<string, unknown>]
+      : [];
+
+  for (const section of sections) {
+    if (section.type === "fields" && Array.isArray(section.fields)) {
+      if (section.fields.some((field) => field && typeof field === "object" && !Array.isArray(field) && (field as Record<string, unknown>).type === "temp" && (field as Record<string, unknown>).isActive !== false)) {
+        return true;
+      }
+    }
+
+    if (section.type === "grid" && Array.isArray(section.columns)) {
+      if (section.columns.some((col) => col && typeof col === "object" && !Array.isArray(col) && (col as Record<string, unknown>).type === "temp" && (col as Record<string, unknown>).isActive !== false)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function getBearerToken(req: Request) {
@@ -180,6 +218,26 @@ export async function GET(req: Request) {
                   title: t.title,
                   updatedAt: t.updatedAt,
                   categoryId: t.categoryId,
+                    hasTemperatureInputs: schemaHasTemperatureInputs(t.schema),
+                    settings:
+                      t.schema && typeof t.schema === "object" && !Array.isArray(t.schema) && (t.schema as any).meta
+                        ? {
+                            dueDays:
+                              typeof (t.schema as any).meta?.dueDays === "number" ? (t.schema as any).meta.dueDays : undefined,
+                            temperatureAlertBelow:
+                              typeof (t.schema as any).meta?.temperatureAlertBelow === "number"
+                                ? (t.schema as any).meta.temperatureAlertBelow
+                                : undefined,
+                            temperatureAlertAbove:
+                              typeof (t.schema as any).meta?.temperatureAlertAbove === "number"
+                                ? (t.schema as any).meta.temperatureAlertAbove
+                                : undefined,
+                            temperatureUnit:
+                              (t.schema as any).meta?.temperatureUnit === "F" || (t.schema as any).meta?.temperatureUnit === "C"
+                                ? (t.schema as any).meta.temperatureUnit
+                                : undefined,
+                          }
+                        : undefined,
                 }))
             ),
           2500,

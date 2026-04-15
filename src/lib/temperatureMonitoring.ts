@@ -16,6 +16,10 @@ function getSections(schema: FormSchemaV1): FormSection[] {
 
 export function collectTemperatureAlerts(schema: FormSchemaV1, payload: Record<string, unknown>) {
   const alerts: TemperatureAlert[] = [];
+  const schemaMeta = (schema as unknown as { meta?: Record<string, unknown> })?.meta || {};
+  const defaultAlertBelow = typeof schemaMeta.temperatureAlertBelow === "number" ? schemaMeta.temperatureAlertBelow : undefined;
+  const defaultAlertAbove = typeof schemaMeta.temperatureAlertAbove === "number" ? schemaMeta.temperatureAlertAbove : undefined;
+  const defaultUnit = schemaMeta.temperatureUnit === "F" ? "F" : schemaMeta.temperatureUnit === "C" ? "C" : undefined;
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
@@ -25,17 +29,19 @@ export function collectTemperatureAlerts(schema: FormSchemaV1, payload: Record<s
         const value = typeof raw === "number" ? raw : Number(raw);
         if (!Number.isFinite(value)) continue;
 
-        const below = typeof field.alertBelow === "number" && value < field.alertBelow;
-        const above = typeof field.alertAbove === "number" && value > field.alertAbove;
+        const alertBelow = typeof field.alertBelow === "number" ? field.alertBelow : defaultAlertBelow;
+        const alertAbove = typeof field.alertAbove === "number" ? field.alertAbove : defaultAlertAbove;
+        const below = typeof alertBelow === "number" && value < alertBelow;
+        const above = typeof alertAbove === "number" && value > alertAbove;
         if (!below && !above) continue;
 
         alerts.push({
           key: field.id,
           label: field.label,
           value,
-          alertBelow: field.alertBelow,
-          alertAbove: field.alertAbove,
-          unit: field.unit,
+          alertBelow,
+          alertAbove,
+          unit: field.unit || defaultUnit,
         });
       }
       continue;
@@ -56,8 +62,8 @@ export function collectTemperatureAlerts(schema: FormSchemaV1, payload: Record<s
         const value = typeof raw === "number" ? raw : Number(raw);
         if (!Number.isFinite(value)) continue;
 
-        const alertBelow = (col as any).alertBelow;
-        const alertAbove = (col as any).alertAbove;
+        const alertBelow = typeof (col as any).alertBelow === "number" ? (col as any).alertBelow : defaultAlertBelow;
+        const alertAbove = typeof (col as any).alertAbove === "number" ? (col as any).alertAbove : defaultAlertAbove;
         const below = typeof alertBelow === "number" && value < alertBelow;
         const above = typeof alertAbove === "number" && value > alertAbove;
         if (!below && !above) continue;
@@ -68,7 +74,7 @@ export function collectTemperatureAlerts(schema: FormSchemaV1, payload: Record<s
           value,
           alertBelow: typeof alertBelow === "number" ? alertBelow : undefined,
           alertAbove: typeof alertAbove === "number" ? alertAbove : undefined,
-          unit: (col as any).unit,
+          unit: (col as any).unit || defaultUnit,
         });
       }
     }

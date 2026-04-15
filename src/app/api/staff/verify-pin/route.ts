@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { recordActivity } from "@/lib/activityTracker";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -37,6 +38,19 @@ export async function POST(req: Request) {
 
     const adminMembership = memberships.find((m) => m.role === "ADMIN");
     if (adminMembership) {
+      await recordActivity({
+        tenantId: adminMembership.tenantId,
+        userId: user.id,
+        action: "auth.login",
+        entityType: "TenantMember",
+        entityId: user.id,
+        details: {
+          staffName: (user.user_metadata as any)?.full_name || user.email || "Admin",
+          staffEmail: user.email || null,
+          loginSource: "pin",
+        },
+      });
+
       return NextResponse.json({
         ok: true,
         required: false,
@@ -65,6 +79,19 @@ export async function POST(req: Request) {
 
     const matched = rows[0];
     const membership = memberships.find((m) => m.tenantId === matched.tenantId) || memberships[0];
+
+    await recordActivity({
+      tenantId: membership.tenantId,
+      userId: user.id,
+      action: "auth.login",
+      entityType: "TenantMember",
+      entityId: user.id,
+      details: {
+        staffName: matched.fullName || matched.email || user.email || "Staff",
+        staffEmail: matched.email || user.email || null,
+        loginSource: "pin",
+      },
+    });
 
     return NextResponse.json({
       ok: true,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, X } from "lucide-react";
+import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -35,6 +35,13 @@ type TemplateSummary = {
   title: string;
   updatedAt: string;
   categoryId: string | null;
+  hasTemperatureInputs?: boolean;
+  settings?: {
+    dueDays?: number;
+    temperatureAlertBelow?: number;
+    temperatureAlertAbove?: number;
+    temperatureUnit?: "C" | "F";
+  };
 };
 
 type WorkspaceData = {
@@ -184,6 +191,139 @@ function WorkspaceCardSkeletonGrid() {
   );
 }
 
+type QuickTemplateSettings = {
+  dueDays: string;
+  temperatureAlertBelow: string;
+  temperatureAlertAbove: string;
+  temperatureUnit: "C" | "F";
+};
+
+function TemplateQuickSettingsModal({
+  open,
+  template,
+  saving,
+  error,
+  showTemperatureSettings,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  template: TemplateSummary | null;
+  saving: boolean;
+  error: string;
+  showTemperatureSettings: boolean;
+  onClose: () => void;
+  onSave: (settings: QuickTemplateSettings) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<QuickTemplateSettings>({
+    dueDays: "",
+    temperatureAlertBelow: "",
+    temperatureAlertAbove: "",
+    temperatureUnit: "C",
+  });
+
+  useEffect(() => {
+    if (!open || !template) return;
+    setDraft({
+      dueDays: typeof template.settings?.dueDays === "number" ? String(template.settings.dueDays) : "",
+      temperatureAlertBelow:
+        typeof template.settings?.temperatureAlertBelow === "number" ? String(template.settings.temperatureAlertBelow) : "",
+      temperatureAlertAbove:
+        typeof template.settings?.temperatureAlertAbove === "number" ? String(template.settings.temperatureAlertAbove) : "",
+      temperatureUnit: template.settings?.temperatureUnit === "F" ? "F" : "C",
+    });
+  }, [open, template]);
+
+  if (!open || !template) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 bg-black/45" aria-label="Close quick settings" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg rounded-2xl border border-foreground/20 bg-background p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/55">Quick settings</div>
+            <h3 className="mt-1 text-lg font-semibold">{template.title}</h3>
+            <p className="mt-1 text-sm text-foreground/65">
+              Set due-date defaults{showTemperatureSettings ? " and template-level temperature thresholds." : "."}
+            </p>
+          </div>
+          <button type="button" className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 px-3 text-sm" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className={showTemperatureSettings ? "mt-4 grid gap-3 sm:grid-cols-2" : "mt-4 grid gap-3"}>
+          <label className="grid gap-1 text-sm">
+            <span className="text-foreground/70">Due in days</span>
+            <input
+              type="number"
+              min={0}
+              className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+              value={draft.dueDays}
+              onChange={(e) => setDraft((prev) => ({ ...prev, dueDays: e.target.value }))}
+              placeholder="Optional"
+            />
+          </label>
+          {showTemperatureSettings ? (
+            <>
+              <label className="grid gap-1 text-sm">
+                <span className="text-foreground/70">Temperature unit</span>
+                <select
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+                  value={draft.temperatureUnit}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, temperatureUnit: e.target.value === "F" ? "F" : "C" }))}
+                >
+                  <option value="C">Celsius (C)</option>
+                  <option value="F">Fahrenheit (F)</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="text-foreground/70">Alert below</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+                  value={draft.temperatureAlertBelow}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, temperatureAlertBelow: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span className="text-foreground/70">Alert above</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+                  value={draft.temperatureAlertAbove}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, temperatureAlertAbove: e.target.value }))}
+                  placeholder="Optional"
+                />
+              </label>
+            </>
+          ) : null}
+        </div>
+
+        {error ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className="h-11 rounded-full border border-foreground/15 px-4 text-sm" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
+            disabled={saving}
+            onClick={() => onSave(draft)}
+          >
+            {saving ? "Saving..." : "Save settings"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WorkspacePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -214,6 +354,11 @@ function WorkspacePageInner() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
+  const [cardMenuTemplateId, setCardMenuTemplateId] = useState<string | null>(null);
+  const [quickSettingsTemplate, setQuickSettingsTemplate] = useState<TemplateSummary | null>(null);
+  const [quickSettingsLoading, setQuickSettingsLoading] = useState(false);
+  const [quickSettingsSaving, setQuickSettingsSaving] = useState(false);
+  const [quickSettingsError, setQuickSettingsError] = useState("");
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [nativeWarmupRunning, setNativeWarmupRunning] = useState(false);
   const [offlinePreparedAt, setOfflinePreparedAt] = useState<string | null>(null);
@@ -460,6 +605,13 @@ function WorkspacePageInner() {
     router.push(`/${targetTenantSlug}/settings`);
   }
 
+  function handleOpenStaffManagement(targetTenantSlug: string) {
+    if (openingSettings) return;
+    setOpeningSettings(true);
+    setMenuOpen(false);
+    router.push(`/${targetTenantSlug}/settings?focus=staff`);
+  }
+
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
     setOpeningActivity(true);
@@ -500,6 +652,133 @@ function WorkspacePageInner() {
     if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
     const suffix = qs.toString();
     router.push(`/${workspace.tenant.slug}/templates/new${suffix ? `?${suffix}` : ""}`);
+  }
+
+  async function openQuickSettings(template: TemplateSummary) {
+    if (!accessToken || !tenantSlug) return;
+    setQuickSettingsError("");
+    setQuickSettingsLoading(true);
+    setCardMenuTemplateId(null);
+
+    try {
+      const url = new URL("/api/templates/edit-info", window.location.origin);
+      url.searchParams.set("tenantSlug", tenantSlug);
+      url.searchParams.set("templateId", template.id);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Failed to load template settings (${res.status})`);
+
+      const meta = data?.template?.schema?.meta || {};
+      setQuickSettingsTemplate({
+        ...template,
+        hasTemperatureInputs: Boolean(
+          Array.isArray(data?.template?.schema?.sections)
+            ? data.template.schema.sections.some(
+                (section: any) =>
+                  (section?.type === "fields" && Array.isArray(section.fields) && section.fields.some((field: any) => field?.type === "temp" && field?.isActive !== false)) ||
+                  (section?.type === "grid" && Array.isArray(section.columns) && section.columns.some((col: any) => col?.type === "temp" && col?.isActive !== false))
+              )
+            : Array.isArray(data?.template?.schema?.fields) && data.template.schema.fields.some((field: any) => field?.type === "temp" && field?.isActive !== false)
+        ),
+        settings: {
+          dueDays: typeof meta.dueDays === "number" ? meta.dueDays : template.settings?.dueDays,
+          temperatureAlertBelow:
+            typeof meta.temperatureAlertBelow === "number"
+              ? meta.temperatureAlertBelow
+              : template.settings?.temperatureAlertBelow,
+          temperatureAlertAbove:
+            typeof meta.temperatureAlertAbove === "number"
+              ? meta.temperatureAlertAbove
+              : template.settings?.temperatureAlertAbove,
+          temperatureUnit:
+            meta.temperatureUnit === "F" || meta.temperatureUnit === "C"
+              ? meta.temperatureUnit
+              : template.settings?.temperatureUnit,
+        },
+      });
+    } catch (err: any) {
+      setQuickSettingsError(err?.message || "Failed to open quick settings");
+      setQuickSettingsTemplate(template);
+    } finally {
+      setQuickSettingsLoading(false);
+    }
+  }
+
+  async function saveQuickSettings(settings: QuickTemplateSettings) {
+    if (!accessToken || !tenantSlug || !quickSettingsTemplate) return;
+    setQuickSettingsSaving(true);
+    setQuickSettingsError("");
+
+    try {
+      const infoUrl = new URL("/api/templates/edit-info", window.location.origin);
+      infoUrl.searchParams.set("tenantSlug", tenantSlug);
+      infoUrl.searchParams.set("templateId", quickSettingsTemplate.id);
+
+      const infoRes = await fetch(infoUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const infoJson = await infoRes.json().catch(() => ({}));
+      if (!infoRes.ok) throw new Error(infoJson?.error || `Failed to load template (${infoRes.status})`);
+
+      const schema = infoJson?.template?.schema || {};
+      const meta = schema && typeof schema === "object" && !Array.isArray(schema) && schema.meta && typeof schema.meta === "object" && !Array.isArray(schema.meta)
+        ? schema.meta
+        : {};
+
+      const nextSettings = {
+        dueDays: settings.dueDays.trim() === "" ? undefined : Number(settings.dueDays),
+        temperatureAlertBelow: settings.temperatureAlertBelow.trim() === "" ? undefined : Number(settings.temperatureAlertBelow),
+        temperatureAlertAbove: settings.temperatureAlertAbove.trim() === "" ? undefined : Number(settings.temperatureAlertAbove),
+        temperatureUnit: settings.temperatureUnit,
+      };
+
+      const nextSchema = {
+        ...schema,
+        meta: {
+          ...meta,
+          ...nextSettings,
+        },
+      };
+
+      const saveRes = await fetch("/api/templates/save-changes", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tenantSlug,
+          templateId: quickSettingsTemplate.id,
+          title: infoJson?.template?.title || quickSettingsTemplate.title,
+          categoryId: infoJson?.template?.categoryId ?? quickSettingsTemplate.categoryId,
+          schema: nextSchema,
+        }),
+      });
+
+      const saveJson = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) throw new Error(saveJson?.error || `Failed to save settings (${saveRes.status})`);
+
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              templates: prev.templates.map((t) =>
+                t.id === quickSettingsTemplate.id ? { ...t, settings: nextSettings } : t
+              ),
+            }
+          : prev
+      );
+
+      setQuickSettingsTemplate((prev) => (prev ? { ...prev, settings: nextSettings } : prev));
+      setQuickSettingsTemplate(null);
+    } catch (err: any) {
+      setQuickSettingsError(err?.message || "Failed to save quick settings");
+    } finally {
+      setQuickSettingsSaving(false);
+    }
   }
 
   const showTenantPicker = useMemo(
@@ -1080,6 +1359,7 @@ function WorkspacePageInner() {
     workspace.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
   const canAccessSettings =
     workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
+  const canStaffManage = workspace.capabilities?.canManageStaff ?? (role === "ADMIN" || role === "MANAGER");
 
   const hasCategories = categories.length > 0;
 
@@ -1229,6 +1509,19 @@ function WorkspacePageInner() {
                       >
                         {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
                         {openingSettings ? "Opening settings..." : "Settings"}
+                      </button>
+                    ) : null}
+
+                    {canStaffManage ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => handleOpenStaffManagement(tenant.slug)}
+                        disabled={openingSettings || loggingOut}
+                      >
+                        {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                        {openingSettings ? "Opening staff..." : "Staff management"}
                       </button>
                     ) : null}
 
@@ -1407,6 +1700,18 @@ function WorkspacePageInner() {
                     {openingSettings ? "Opening settings..." : "Settings"}
                   </button>
                 ) : null}
+
+                {canStaffManage ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenStaffManagement(tenant.slug)}
+                    disabled={openingSettings}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                    {openingSettings ? "Opening..." : "Staff management"}
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -1461,6 +1766,25 @@ function WorkspacePageInner() {
                   </span>
                 </div>
               </button>
+
+              {canStaffManage ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenStaffManagement(tenant.slug)}
+                  disabled={openingSettings}
+                  className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                      {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{openingSettings ? "Opening..." : "Staff management"}</span>
+                      <span className="mt-1 block text-xs text-foreground/65">Invite, update, and remove brand staff</span>
+                    </span>
+                  </div>
+                </button>
+              ) : null}
 
               <button
                 type="button"
@@ -1667,12 +1991,12 @@ function WorkspacePageInner() {
                         router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
                       }}
                       className={
-                        "w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
+                        "relative w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
                         (openingTemplateId === t.id ? "opacity-80" : "")
                       }
                     >
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
+                      <div className="flex items-start justify-between gap-4 pr-8">
+                        <div className="min-w-0">
                           <div className="font-semibold">{t.title}</div>
                           <div className="text-sm text-foreground/70">
                             {openingTemplateId === t.id ? (
@@ -1684,12 +2008,99 @@ function WorkspacePageInner() {
                               "Run audit"
                             )}
                           </div>
+                          {t.settings?.dueDays ? (
+                            <div className="mt-2 inline-flex rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 py-0.5 text-[11px] font-medium text-foreground/60">
+                              Due in {t.settings.dueDays} days
+                            </div>
+                          ) : null}
                         </div>
-                        {openingTemplateId === t.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-foreground/60" />
-                        ) : (
-                          <span className="text-sm text-foreground/60">→</span>
-                        )}
+
+                        <div className="flex items-center gap-2">
+                          {canStaffManage ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCardMenuTemplateId((current) => (current === t.id ? null : t.id));
+                                }}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-foreground/15 bg-background text-foreground/70 hover:bg-foreground/5"
+                                aria-label={`Open quick settings for ${t.title}`}
+                                aria-expanded={cardMenuTemplateId === t.id}
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+
+                              {cardMenuTemplateId === t.id ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="fixed inset-0 z-20 cursor-default"
+                                    aria-label="Close template actions"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCardMenuTemplateId(null);
+                                    }}
+                                  />
+                                  <div className="absolute right-0 top-11 z-30 w-56 rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl">
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        setCardMenuTemplateId(null);
+                                        await openQuickSettings(t);
+                                      }}
+                                    >
+                                      Quick settings
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCardMenuTemplateId(null);
+                                        router.push(`/${tenant.slug}/templates/new?editTemplateId=${encodeURIComponent(t.id)}${t.categoryId ? `&categoryId=${encodeURIComponent(t.categoryId)}` : ""}`);
+                                      }}
+                                    >
+                                      Edit form structure
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCardMenuTemplateId(null);
+                                        const editLink = `${window.location.origin}/${tenant.slug}/templates/new?editTemplateId=${encodeURIComponent(t.id)}${t.categoryId ? `&categoryId=${encodeURIComponent(t.categoryId)}` : ""}`;
+                                        navigator.clipboard.writeText(editLink).then(() => {
+                                          setNotification({
+                                            title: "Link copied",
+                                            message: "The edit link is ready to share.",
+                                            tone: "success",
+                                          });
+                                        }).catch(() => {
+                                          setNotification({
+                                            title: "Copy failed",
+                                            message: "Your browser blocked clipboard access, so copy the form link manually.",
+                                            tone: "warning",
+                                          });
+                                        });
+                                      }}
+                                    >
+                                      Copy edit link
+                                    </button>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+
+                          {openingTemplateId === t.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-foreground/60" />
+                          ) : (
+                            <span className="text-sm text-foreground/60">→</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1743,6 +2154,20 @@ function WorkspacePageInner() {
         message={notification?.message || ""}
         tone={notification?.tone || "default"}
         onClose={() => setNotification(null)}
+      />
+
+      <TemplateQuickSettingsModal
+        open={Boolean(quickSettingsTemplate)}
+        template={quickSettingsTemplate}
+        saving={quickSettingsSaving || quickSettingsLoading}
+        error={quickSettingsError}
+        showTemperatureSettings={Boolean(quickSettingsTemplate?.hasTemperatureInputs)}
+        onClose={() => {
+          if (quickSettingsSaving || quickSettingsLoading) return;
+          setQuickSettingsTemplate(null);
+          setQuickSettingsError("");
+        }}
+        onSave={saveQuickSettings}
       />
     </div>
   );

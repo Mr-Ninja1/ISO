@@ -14,9 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "QHSE Audit Platform",
-  description: "Offline-capable audit platform for ISO-led service brands and compliance workflows",
+  title: "ISO Pro",
+  description: "Offline-capable compliance platform for ISO-led service brands and compliance workflows",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({

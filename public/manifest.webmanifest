@@ -1,10 +1,19 @@
 {
-  "name": "QHSE Audit Platform",
-  "short_name": "QHSE",
-  "description": "Offline-capable QHSE and food safety audits.",
+  "name": "ISO Pro",
+  "short_name": "ISO Pro",
+  "description": "Offline-capable compliance platform for ISO-led operations.",
+  "id": "/workspace",
   "start_url": "/workspace",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#111111"
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
