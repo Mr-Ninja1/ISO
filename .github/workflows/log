@@ -1,135 +1,55 @@
-Connected!
-2026-04-15T09:00:27.2721881Z    _____
-2026-04-15T09:00:27.279938Z   /  _  \ __________ _________   ____
-2026-04-15T09:00:27.2799654Z  /  /_\  \\___   /  |  \_  __ \_/ __ \
-2026-04-15T09:00:27.2799689Z /    |    \/    /|  |  /|  | \/\  ___/
-2026-04-15T09:00:27.2799719Z \____|__  /_____ \____/ |__|    \___  >
-2026-04-15T09:00:27.2799748Z         \/      \/                  \/
-2026-04-15T09:00:27.2799844Z A P P   S E R V I C E   O N   L I N U X
-2026-04-15T09:00:27.2799872Z
-2026-04-15T09:00:27.2799906Z Documentation    : http://aka.ms/webapp-linux
-2026-04-15T09:00:27.2799936Z NodeJS quickstart: https://aka.ms/node-qs
-2026-04-15T09:00:27.2799969Z NodeJS Version   : v22.22.0
-2026-04-15T09:00:27.2799997Z Instance Name    : lw1sdlwk000DQ5
-2026-04-15T09:00:27.2800037Z Instance Id      : 62face7ac9876fbe30207df4a41a5b84d91b79ae30cb868099e3f90ef74ee721
-2026-04-15T09:00:27.2800086Z
-2026-04-15T09:00:27.2800116Z Note: Any data outside '/home' is not persisted
-2026-04-15T09:00:34.0568588Z Starting OpenBSD Secure Shell server: sshd.
-2026-04-15T09:00:34.0913191Z WEBSITES_INCLUDE_CLOUD_CERTS is not set to true.
-2026-04-15T09:00:34.2146225Z Updating certificates in /etc/ssl/certs...
-2026-04-15T09:01:04.23951Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_ECC_Root_CA_2022.pem
-2026-04-15T09:01:04.2467571Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_RSA_Root_CA_2022.pem
-2026-04-15T09:01:04.8584302Z rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
-2026-04-15T09:01:05.0104095Z 4 added, 0 removed; done.
-2026-04-15T09:01:05.0577185Z Running hooks in /etc/ca-certificates/update.d...
-2026-04-15T09:01:05.0967395Z done.
-2026-04-15T09:01:05.1596158Z CA certificates copied and updated successfully.
-2026-04-15T09:01:05.8609334Z Starting periodic command scheduler: cron.
-2026-04-15T09:01:06.690588Z Found build manifest file at '/home/site/wwwroot/oryx-manifest.toml'. Deserializing it...
-2026-04-15T09:01:06.7187404Z Could not find operation ID in manifest. Generating an operation id...
-2026-04-15T09:01:06.7188116Z Build Operation ID: 222c7446-21cd-4d30-900f-f5f4fed3e4ac
-2026-04-15T09:01:08.0524386Z Environment Variables for Application Insight's IPA Codeless Configuration exists..
-2026-04-15T09:01:08.2534177Z Writing output script to '/opt/startup/startup.sh'
-2026-04-15T09:01:08.5177214Z Running #!/bin/sh
-2026-04-15T09:01:08.5177858Z
-2026-04-15T09:01:08.5177996Z # Enter the source directory to make sure the script runs where the user expects
-2026-04-15T09:01:08.5178036Z cd "/home/site/wwwroot"
-2026-04-15T09:01:08.5178062Z
-2026-04-15T09:01:08.5178091Z export NODE_PATH=/usr/local/lib/node_modules:$NODE_PATH
-2026-04-15T09:01:08.5178119Z if [ -z "$PORT" ]; then
-2026-04-15T09:01:08.5178145Z 		export PORT=8080
-2026-04-15T09:01:08.517817Z fi
-2026-04-15T09:01:08.5178216Z
-2026-04-15T09:01:08.5178244Z echo Found tar.gz based node_modules.
-2026-04-15T09:01:08.5178273Z extractionCommand="tar -xzf node_modules.tar.gz -C /node_modules"
-2026-04-15T09:01:08.5178302Z echo "Removing existing modules directory from root..."
-2026-04-15T09:01:08.5178329Z rm -fr /node_modules
-2026-04-15T09:01:08.5178356Z mkdir -p /node_modules
-2026-04-15T09:01:08.5178382Z echo Extracting modules...
-2026-04-15T09:01:08.5178428Z $extractionCommand
-2026-04-15T09:01:08.5178485Z export NODE_PATH="/node_modules":$NODE_PATH
-2026-04-15T09:01:08.5178513Z export PATH=/node_modules/.bin:$PATH
-2026-04-15T09:01:08.517854Z if [ -d node_modules ]; then
-2026-04-15T09:01:08.5178567Z     mv -f node_modules _del_node_modules || true
-2026-04-15T09:01:08.5178593Z fi
-2026-04-15T09:01:08.5178617Z
-2026-04-15T09:01:08.5178671Z if [ -d /node_modules ]; then
-2026-04-15T09:01:08.5178699Z     ln -sfn /node_modules ./node_modules
-2026-04-15T09:01:08.5178724Z fi
-2026-04-15T09:01:08.5178749Z
-2026-04-15T09:01:08.5178774Z echo "Done."
-2026-04-15T09:01:08.5196746Z PATH="$PATH:/home/site/wwwroot" npm run start
-2026-04-15T09:01:08.5432481Z Found tar.gz based node_modules.
-2026-04-15T09:01:08.5443526Z Removing existing modules directory from root...
-2026-04-15T09:01:08.605163Z Extracting modules...
-2026-04-15T09:02:07.5238636Z Done.
-2026-04-15T09:02:13.9567584Z npm info using npm@10.9.2
-2026-04-15T09:02:13.9758514Z npm info using node@v22.22.0
-2026-04-15T09:02:17.1459828Z
-2026-04-15T09:02:17.1460525Z > web@0.1.0 start
-2026-04-15T09:02:17.146057Z > next start
-2026-04-15T09:02:17.1460599Z
-2026-04-15T09:02:17.3048452Z sh: 1: next: not found
-2026-04-15T09:02:48.9516392Z    _____
-2026-04-15T09:02:48.9516645Z   /  _  \ __________ _________   ____
-2026-04-15T09:02:48.9516709Z  /  /_\  \\___   /  |  \_  __ \_/ __ \
-2026-04-15T09:02:48.951673Z /    |    \/    /|  |  /|  | \/\  ___/
-2026-04-15T09:02:48.9516751Z \____|__  /_____ \____/ |__|    \___  >
-2026-04-15T09:02:48.9516772Z         \/      \/                  \/
-2026-04-15T09:02:48.9516791Z A P P   S E R V I C E   O N   L I N U X
-2026-04-15T09:02:48.951681Z
-2026-04-15T09:02:48.9516832Z Documentation    : http://aka.ms/webapp-linux
-2026-04-15T09:02:48.9516857Z NodeJS quickstart: https://aka.ms/node-qs
-2026-04-15T09:02:48.9516877Z NodeJS Version   : v22.22.0
-2026-04-15T09:02:48.9516897Z Instance Name    : lw1sdlwk000DQ5
-2026-04-15T09:02:48.9516921Z Instance Id      : 62face7ac9876fbe30207df4a41a5b84d91b79ae30cb868099e3f90ef74ee721
-2026-04-15T09:02:48.9516963Z
-2026-04-15T09:02:48.9516985Z Note: Any data outside '/home' is not persisted
-2026-04-15T09:02:51.6499972Z Starting OpenBSD Secure Shell server: sshd.
-2026-04-15T09:02:51.6692385Z WEBSITES_INCLUDE_CLOUD_CERTS is not set to true.
-2026-04-15T09:02:51.7443542Z Updating certificates in /etc/ssl/certs...
-2026-04-15T09:03:24.002478Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_ECC_Root_CA_2022.pem
-2026-04-15T09:03:24.0379213Z rehash: warning: skipping duplicate certificate in azl_SSL.com_TLS_RSA_Root_CA_2022.pem
-2026-04-15T09:03:24.5475002Z rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
-2026-04-15T09:03:24.6299924Z 4 added, 0 removed; done.
-2026-04-15T09:03:24.6317353Z Running hooks in /etc/ca-certificates/update.d...
-2026-04-15T09:03:24.6490066Z done.
-2026-04-15T09:03:24.6701671Z CA certificates copied and updated successfully.
-2026-04-15T09:03:25.0735151Z Starting periodic command scheduler: cron.
-2026-04-15T09:03:25.5472485Z Found build manifest file at '/home/site/wwwroot/oryx-manifest.toml'. Deserializing it...
-2026-04-15T09:03:25.5764638Z Could not find operation ID in manifest. Generating an operation id...
-2026-04-15T09:03:25.5779175Z Build Operation ID: 13825eb1-10a6-4d43-943b-baa3caa07745
-2026-04-15T09:03:27.0993485Z Environment Variables for Application Insight's IPA Codeless Configuration exists..
-2026-04-15T09:03:27.4252388Z Writing output script to '/opt/startup/startup.sh'
-2026-04-15T09:03:27.756136Z Running #!/bin/sh
-2026-04-15T09:03:27.7561864Z
-2026-04-15T09:03:27.7561901Z # Enter the source directory to make sure the script runs where the user expects
-2026-04-15T09:03:27.7561932Z cd "/home/site/wwwroot"
-2026-04-15T09:03:27.7561954Z
-2026-04-15T09:03:27.7561978Z export NODE_PATH=/usr/local/lib/node_modules:$NODE_PATH
-2026-04-15T09:03:27.7561999Z if [ -z "$PORT" ]; then
-2026-04-15T09:03:27.756202Z 		export PORT=8080
-2026-04-15T09:03:27.7562227Z fi
-2026-04-15T09:03:27.7562254Z
-2026-04-15T09:03:27.7562277Z echo Found tar.gz based node_modules.
-2026-04-15T09:03:27.7562301Z extractionCommand="tar -xzf node_modules.tar.gz -C /node_modules"
-2026-04-15T09:03:27.7562324Z echo "Removing existing modules directory from root..."
-2026-04-15T09:03:27.7562346Z rm -fr /node_modules
-2026-04-15T09:03:27.7562368Z mkdir -p /node_modules
-2026-04-15T09:03:27.7562389Z echo Extracting modules...
-2026-04-15T09:03:27.7562409Z $extractionCommand
-2026-04-15T09:03:27.7562432Z export NODE_PATH="/node_modules":$NODE_PATH
-2026-04-15T09:03:27.7562455Z export PATH=/node_modules/.bin:$PATH
-2026-04-15T09:03:27.7562708Z if [ -d node_modules ]; then
-2026-04-15T09:03:27.7562738Z     mv -f node_modules _del_node_modules || true
-2026-04-15T09:03:27.7562759Z fi
-2026-04-15T09:03:27.7562778Z
-2026-04-15T09:03:27.7562799Z if [ -d /node_modules ]; then
-2026-04-15T09:03:27.7562822Z     ln -sfn /node_modules ./node_modules
-2026-04-15T09:03:27.7562842Z fi
-2026-04-15T09:03:27.7562862Z
-2026-04-15T09:03:27.7562883Z echo "Done."
-2026-04-15T09:03:27.7582608Z PATH="$PATH:/home/site/wwwroot" npm run start
-2026-04-15T09:03:27.7752124Z Found tar.gz based node_modules.
-2026-04-15T09:03:27.7753128Z Removing existing modules directory from root...
-2026-04-15T09:03:27.8339693Z Extracting modules...
+2026-04-15T09:27:49.7936649Z Could not find operation ID in manifest. Generating an operation id...
+2026-04-15T09:27:49.9275905Z Build Operation ID: 1384f331-9ac4-4967-91b7-9d0fbf290107
+2026-04-15T09:27:51.7778067Z Environment Variables for Application Insight's IPA Codeless Configuration exists..
+2026-04-15T09:27:51.9637454Z Writing output script to '/opt/startup/startup.sh'
+2026-04-15T09:27:52.3300704Z Running #!/bin/sh
+2026-04-15T09:27:52.3301338Z
+2026-04-15T09:27:52.3301474Z # Enter the source directory to make sure the script runs where the user expects
+2026-04-15T09:27:52.3301515Z cd "/home/site/wwwroot"
+2026-04-15T09:27:52.3301538Z
+2026-04-15T09:27:52.3301566Z export NODE_PATH=/usr/local/lib/node_modules:$NODE_PATH
+2026-04-15T09:27:52.3301593Z if [ -z "$PORT" ]; then
+2026-04-15T09:27:52.3301618Z 		export PORT=8080
+2026-04-15T09:27:52.3301643Z fi
+2026-04-15T09:27:52.3301689Z
+2026-04-15T09:27:52.3301716Z echo Found tar.gz based node_modules.
+2026-04-15T09:27:52.3301744Z extractionCommand="tar -xzf node_modules.tar.gz -C /node_modules"
+2026-04-15T09:27:52.3301772Z echo "Removing existing modules directory from root..."
+2026-04-15T09:27:52.3301798Z rm -fr /node_modules
+2026-04-15T09:27:52.3301824Z mkdir -p /node_modules
+2026-04-15T09:27:52.3301849Z echo Extracting modules...
+2026-04-15T09:27:52.3302066Z $extractionCommand
+2026-04-15T09:27:52.3302123Z export NODE_PATH="/node_modules":$NODE_PATH
+2026-04-15T09:27:52.3302151Z export PATH=/node_modules/.bin:$PATH
+2026-04-15T09:27:52.3302179Z if [ -d node_modules ]; then
+2026-04-15T09:27:52.3302206Z     mv -f node_modules _del_node_modules || true
+2026-04-15T09:27:52.3302231Z fi
+2026-04-15T09:27:52.3302256Z
+2026-04-15T09:27:52.33023Z if [ -d /node_modules ]; then
+2026-04-15T09:27:52.3302328Z     ln -sfn /node_modules ./node_modules
+2026-04-15T09:27:52.3302352Z fi
+2026-04-15T09:27:52.3302376Z
+2026-04-15T09:27:52.3302401Z echo "Done."
+2026-04-15T09:27:52.3481712Z PATH="$PATH:/home/site/wwwroot" npm run start
+2026-04-15T09:27:52.3817248Z Found tar.gz based node_modules.
+2026-04-15T09:27:52.3817716Z Removing existing modules directory from root...
+2026-04-15T09:27:52.4243979Z Extracting modules...
+2026-04-15T09:28:56.0068032Z Done.
+2026-04-15T09:28:59.2520689Z npm info using npm@10.9.2
+2026-04-15T09:28:59.3052916Z npm info using node@v22.22.0
+2026-04-15T09:29:01.4368225Z
+2026-04-15T09:29:01.4368902Z > web@0.1.0 start
+2026-04-15T09:29:01.4368944Z > next start
+2026-04-15T09:29:01.4368977Z
+2026-04-15T09:29:06.5326266Z ▲ Next.js 16.2.2
+2026-04-15T09:29:06.5341516Z - Local:         http://localhost:8080
+2026-04-15T09:29:06.5345317Z - Network:       http://169.254.132.4:8080
+2026-04-15T09:29:06.5424031Z ✓ Ready in 1034ms
+2026-04-15T09:29:13.1439568Z Error: Could not find a production build in the '.next' directory. Try building your app with 'next build' before starting the production server. https://nextjs.org/docs/messages/production-start-no-build-id
+2026-04-15T09:29:13.1440274Z     at ignore-listed frames
+2026-04-15T09:29:13.2135418Z npm http fetch GET 200 https://registry.npmjs.org/npm 1021ms
+2026-04-15T09:29:13.2338562Z npm notice
+2026-04-15T09:29:13.2339545Z npm notice New major version of npm available! 10.9.2 -> 11.12.1
+2026-04-15T09:29:13.2339602Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+2026-04-15T09:29:13.2339636Z npm notice To update run: npm install -g npm@11.12.1
+2026-04-15T09:29:13.2339664Z npm notice

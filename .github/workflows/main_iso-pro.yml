@@ -54,6 +54,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
+          path: node-app
 
       - name: Set up Node.js for deploy packaging
         uses: actions/setup-node@v5
@@ -62,7 +63,16 @@ jobs:
 
       - name: Install production dependencies for deploy
         run: |
+          cd node-app
           npm ci --omit=dev
+
+      - name: Verify Next production build exists
+        run: |
+          cd node-app
+          if [ ! -d ".next" ]; then
+            echo ".next directory not found. Build may have failed or artifact path is wrong."
+            exit 1
+          fi
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -77,5 +87,5 @@ jobs:
         with:
           app-name: 'iso-pro'
           slot-name: 'Production'
-          package: .
+          package: ./node-app
           
