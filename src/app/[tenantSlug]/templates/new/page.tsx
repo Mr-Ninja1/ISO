@@ -135,14 +135,29 @@ function buildChangeLog(oldSections: FormSection[], nextSections: FormSection[])
   return changes;
 }
 
-function workspaceCacheKey(tenantSlug: string, categoryId: string | null) {
+function workspaceV1Key(tenantSlug: string, categoryId: string | null) {
   return `workspace-cache:v1:${tenantSlug}:${categoryId || "all"}`;
 }
 
 function readWorkspaceCache(tenantSlug: string, categoryId: string | null): WorkspaceData | null {
   if (!tenantSlug) return null;
   try {
-    const raw = localStorage.getItem(workspaceCacheKey(tenantSlug, categoryId));
+    // Prefer v2 caches if present (they include user-scoped keys). Look for any matching v2 key.
+    const suffix = `:${tenantSlug}:${categoryId || "all"}`;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith("workspace-cache:v2:") && key.endsWith(suffix)) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
+        if (!parsed?.data || typeof parsed.ts !== "number") continue;
+        return parsed.data;
+      }
+    }
+
+    // Fallback to legacy v1 key
+    const raw = localStorage.getItem(workspaceV1Key(tenantSlug, categoryId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
     if (!parsed?.data || typeof parsed.ts !== "number") return null;
@@ -156,7 +171,23 @@ function writeWorkspaceCache(tenantSlug: string, categoryId: string | null, data
   if (!tenantSlug) return;
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
-    localStorage.setItem(workspaceCacheKey(tenantSlug, categoryId), JSON.stringify(payload));
+    // write legacy v1 key for backward compatibility
+    localStorage.setItem(workspaceV1Key(tenantSlug, categoryId), JSON.stringify(payload));
+
+    // Also update any v2 workspace caches for this tenant so other components see the change
+    const v2Prefix = `workspace-cache:v2:`;
+    const suffix = `:${tenantSlug}:${categoryId || "all"}`;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(v2Prefix) && key.endsWith(suffix)) {
+        try {
+          localStorage.setItem(key, JSON.stringify(payload));
+        } catch {
+          // ignore individual write failures
+        }
+      }
+    }
   } catch {
     // ignore localStorage failures
   }
@@ -168,12 +199,13 @@ function patchWorkspaceTemplateCaches(
 ) {
   if (!tenantSlug) return;
 
-  const prefix = `workspace-cache:v1:${tenantSlug}:`;
+  const prefixV1 = `workspace-cache:v1:${tenantSlug}:`;
+  const prefixV2 = `workspace-cache:v2:`;
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
     if (!key) continue;
-    if (key.startsWith(prefix)) keys.push(key);
+    if (key.startsWith(prefixV1) || (key.startsWith(prefixV2) && key.includes(`:${tenantSlug}:`))) keys.push(key);
   }
 
   for (const key of keys) {
@@ -198,6 +230,7 @@ function patchWorkspaceTemplateCaches(
           )
         : withoutOld;
 
+      // write updated templates into v1 and any matching v2 caches
       writeWorkspaceCache(tenantSlug, selected, {
         ...envelope.data,
         templates: nextTemplates,

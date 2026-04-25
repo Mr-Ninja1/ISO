@@ -1,0 +1,10 @@
+{
+  "appId": "com.isopro.app",
+  "appName": "ISO Pro",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/",
+    "cleartext": false
+  }
+}

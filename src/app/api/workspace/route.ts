@@ -122,12 +122,30 @@ async function getUserFromToken(token: string) {
     { auth: { persistSession: false } }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(token);
+  // Retry once for transient network/connectivity issues (short backoff)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser(token);
+      return user;
+    } catch (err) {
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      throw err;
+    }
+  }
 
-  return user;
+  return null as any;
 }
+
+// Configurable timeouts (ms) for workspace DB lookups - increase on slow networks
+const TENANT_LOOKUP_TIMEOUT = parseInt(process.env.TENANT_LOOKUP_TIMEOUT_MS || "3000", 10);
+const MEMBERSHIP_LOOKUP_TIMEOUT = parseInt(process.env.MEMBERSHIP_LOOKUP_TIMEOUT_MS || "3000", 10);
+const CATEGORIES_LOOKUP_TIMEOUT = parseInt(process.env.CATEGORIES_LOOKUP_TIMEOUT_MS || "5000", 10);
+const TEMPLATES_LOOKUP_TIMEOUT = parseInt(process.env.TEMPLATES_LOOKUP_TIMEOUT_MS || "8000", 10);
 
 export async function GET(req: Request) {
   try {
@@ -152,7 +170,7 @@ export async function GET(req: Request) {
         where: { slug: tenantSlug },
         select: { id: true, name: true, slug: true, logoUrl: true },
       }),
-      1500,
+      TENANT_LOOKUP_TIMEOUT,
       "Tenant lookup"
     );
 
@@ -163,7 +181,7 @@ export async function GET(req: Request) {
         where: { tenantId: tenant.id, userId: user.id },
         select: { id: true, role: true },
       }),
-      1500,
+      MEMBERSHIP_LOOKUP_TIMEOUT,
       "Membership lookup"
     );
 
@@ -186,7 +204,7 @@ export async function GET(req: Request) {
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         select: { id: true, name: true, sortOrder: true },
       }),
-      2000,
+      CATEGORIES_LOOKUP_TIMEOUT,
       "Categories lookup"
     );
 
@@ -240,8 +258,8 @@ export async function GET(req: Request) {
                         : undefined,
                 }))
             ),
-          2500,
-          "Templates lookup"
+            TEMPLATES_LOOKUP_TIMEOUT,
+            "Templates lookup"
         )
       : [];
 

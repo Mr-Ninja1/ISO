@@ -16,10 +16,11 @@ export default async function TenantSettingsPage({
   params: Promise<{ tenantSlug: string }>;
   searchParams?: Promise<{ focus?: string }>;
 }) {
+  const { tenantSlug } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const focusSection = resolvedSearchParams.focus;
+
   try {
-    const { tenantSlug } = await params;
-    const resolvedSearchParams = searchParams ? await searchParams : {};
-    const focusSection = resolvedSearchParams.focus;
     const tenant = await prisma.tenant.findUnique({
       where: { slug: tenantSlug },
     });
@@ -85,7 +86,7 @@ export default async function TenantSettingsPage({
       </div>
 
         <DeferredDetailsSection title="Brand profile" defaultOpen>
-          <TenantSettingsForm tenant={tenant} />
+          <TenantSettingsForm tenant={tenant} tenantSlug={tenant.slug} />
         </DeferredDetailsSection>
 
         <DeferredDetailsSection title="Form management">
@@ -101,15 +102,53 @@ export default async function TenantSettingsPage({
         </DeferredDetailsSection>
       </div>
     );
-  } catch {
+  } catch (err) {
+    // Fall back to client-side rendering: allow the page to open quickly and
+    // let client components hydrate from local cache or attempt live fetches.
     return (
-      <OfflineRouteBlock
-        title="Settings need internet"
-        message="Brand settings, staff, categories, and templates read from the database. Connect to the internet before opening this page so it can load safely and stay in sync."
-        hint="This page is intentionally blocked offline to avoid slow DB calls and stale brand changes."
-        backHref="/dashboard"
-        backLabel="Back to lobby"
-      />
+      <div className="flex flex-col gap-6">
+        <FeatureSyncNotice
+          title="Live database sync"
+          message="Brand settings, staff, categories, and template management are live-sync features. They can show cached data while offline, but changes need internet so they can update the database and stay in sync across devices."
+        />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-semibold">Brand Settings</h2>
+            <p className="text-sm text-foreground/70">Manage your brand details</p>
+          </div>
+
+          <Link className="text-sm underline sm:text-right" href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}>
+            Back to workspace
+          </Link>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-md border border-foreground/20 bg-background p-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <Link href={`/${tenantSlug}/templates/new`} className="inline-flex h-9 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5 sm:w-auto">
+            Create custom form
+          </Link>
+          <Link href={`/${tenantSlug}/templates/library`} className="inline-flex h-9 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5 sm:w-auto">
+            Import from library
+          </Link>
+        </div>
+
+        <DeferredDetailsSection title="Brand profile" defaultOpen>
+          {/* Client will hydrate tenant info from local cache using tenantSlug */}
+          <TenantSettingsForm tenant={undefined as any} tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Form management">
+          <TemplateManagementPanel tenantSlug={tenantSlug} templates={[]} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Category tools">
+          <TenantCategoriesSeedSection tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Brand staff management" defaultOpen={focusSection === "staff"}>
+          <StaffManagementPanel tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+      </div>
     );
   }
 }

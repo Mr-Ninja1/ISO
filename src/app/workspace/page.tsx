@@ -826,6 +826,25 @@ function WorkspacePageInner() {
       const currentCategoryId = categoryId || null;
       const cached = readWorkspaceCache(cacheUserId, tenantSlug, currentCategoryId) || readWorkspaceCache(cacheUserId, tenantSlug, null);
       if (!cached) return;
+      // Avoid updating state if the cached value matches current workspace
+      const sameTenant = workspace?.tenant.slug === cached.tenant.slug && workspace?.tenant.name === cached.tenant.name && workspace?.tenant.logoUrl === cached.tenant.logoUrl;
+      const sameCategory = workspace?.selectedCategoryId === cached.selectedCategoryId;
+      const sameTemplates =
+        Array.isArray(workspace?.templates) &&
+        workspace.templates.length === cached.templates.length &&
+        workspace.templates.every((t, idx) => {
+          const n = cached.templates[idx];
+          return (
+            n &&
+            t.id === n.id &&
+            t.updatedAt === n.updatedAt &&
+            t.categoryId === n.categoryId &&
+            t.title === n.title
+          );
+        });
+
+      if (sameTenant && sameCategory && sameTemplates) return;
+
       setWorkspace(cached);
       setUiActiveCategoryId(null);
       setWorkspaceLoading(false);

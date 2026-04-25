@@ -8,6 +8,12 @@
     "build": "next build --webpack",
     "start": "node .next/standalone/server.js",
     "generate:icons": "node tools/generate-icons.js",
+    "cap:init": "npx cap init",
+    "cap:add-android": "npx cap add android",
+    "cap:copy": "npx cap copy",
+    "cap:open-android": "npx cap open android",
+    "cap:sync-android": "npx cap sync android",
+    "cap:build-native": "npx cap copy android && npx cap open android",
     "lint": "eslint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -19,6 +25,9 @@
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "@dnd-kit/core": "^6.3.1",
     "@hookform/resolvers": "^5.2.2",
     "@prisma/client": "^6.19.3",

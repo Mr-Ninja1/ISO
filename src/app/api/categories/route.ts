@@ -73,6 +73,25 @@ export async function POST(req: Request) {
       details: { name: category.name },
     });
 
+    // Invalidate any cached workspace responses for this tenant so new
+    // categories appear immediately for subsequent workspace requests.
+    try {
+      const tenantRec = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+      if (tenantRec && tenantRec.slug) {
+        const globalForWorkspaceCache = globalThis as unknown as { workspaceResponseCache?: Map<string, unknown> };
+        const cache = globalForWorkspaceCache.workspaceResponseCache;
+        if (cache instanceof Map) {
+          for (const k of Array.from(cache.keys())) {
+            if (typeof k === "string" && k.startsWith(`${tenantRec.slug}:`)) {
+              cache.delete(k);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // don't block category creation on cache invalidation failures
+    }
+
     return NextResponse.json(category);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Tenant, Category } from "@prisma/client";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
@@ -16,6 +17,7 @@ type CategoryItem = Pick<Category, "id" | "name" | "sortOrder">;
 
 export function CategoriesManager({ tenant }: Props) {
   const { session } = useAuth();
+  const router = useRouter();
   const [categories, setCategories] = useState<CategoryItem[]>(tenant.categories);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,6 +42,22 @@ export function CategoriesManager({ tenant }: Props) {
           sortOrder: 0,
         };
         setCategories((prev) => [...prev, optimistic]);
+        // Update local workspace cache so other parts of the app see the new category immediately
+        try {
+          const userId = session?.user?.id ?? null;
+          const tenantSlug = tenant.slug;
+          const cacheKey = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:all`;
+          const existingRaw = localStorage.getItem(cacheKey);
+          let existing = null as any;
+          if (existingRaw) {
+            try { existing = JSON.parse(existingRaw); } catch { existing = null; }
+          }
+          const nextWorkspace = existing?.data || { tenant: { slug: tenantSlug }, categories: tenant.categories.map(c => ({ id: c.id })), selectedCategoryId: null };
+          nextWorkspace.categories = [...(nextWorkspace.categories || []).map((c: any) => ({ id: c.id })), { id: optimistic.id, name: optimistic.name, sortOrder: optimistic.sortOrder }];
+          const envelope = { ts: Date.now(), data: nextWorkspace };
+          localStorage.setItem(cacheKey, JSON.stringify(envelope));
+          window.dispatchEvent(new CustomEvent("workspace-cache-updated", { detail: { tenantSlug, categoryId: null } }));
+        } catch {}
         enqueueBackgroundMutation({
           url: "/api/categories",
           method: "POST",
@@ -74,6 +92,13 @@ export function CategoriesManager({ tenant }: Props) {
       setCategories([...categories, newCategory]);
       setNewCategoryName("");
       setMessage("Category created!");
+      // Force a server-side refresh so `workspace` server data is re-fetched
+      // and the new category is visible in server-rendered components.
+      try { 
+        router.refresh();
+      } catch (e) {
+        // ignore refresh failures in dev
+      }
       setTimeout(() => setMessage(""), 2000);
     } catch (error: any) {
       const msg = String(error?.message || "");
@@ -85,6 +110,22 @@ export function CategoriesManager({ tenant }: Props) {
           sortOrder: 0,
         };
         setCategories((prev) => [...prev, optimistic]);
+        // write to local workspace cache so the change is visible immediately
+        try {
+          const userId = session?.user?.id ?? null;
+          const tenantSlug = tenant.slug;
+          const cacheKey = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:all`;
+          const existingRaw = localStorage.getItem(cacheKey);
+          let existing = null as any;
+          if (existingRaw) {
+            try { existing = JSON.parse(existingRaw); } catch { existing = null; }
+          }
+          const nextWorkspace = existing?.data || { tenant: { slug: tenantSlug }, categories: tenant.categories.map(c => ({ id: c.id })), selectedCategoryId: null };
+          nextWorkspace.categories = [...(nextWorkspace.categories || []).map((c: any) => ({ id: c.id })), { id: optimistic.id, name: optimistic.name, sortOrder: optimistic.sortOrder }];
+          const envelope = { ts: Date.now(), data: nextWorkspace };
+          localStorage.setItem(cacheKey, JSON.stringify(envelope));
+          window.dispatchEvent(new CustomEvent("workspace-cache-updated", { detail: { tenantSlug, categoryId: null } }));
+        } catch {}
         enqueueBackgroundMutation({
           url: "/api/categories",
           method: "POST",

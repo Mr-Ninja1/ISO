@@ -1,28 +1,89 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/auth";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
 
 type Props = {
-  tenant: {
+  tenant?: {
     id: string;
     name: string;
     logoUrl: string | null;
     slug?: string;
   };
+  tenantSlug?: string;
 };
 
-export function TenantSettingsForm({ tenant }: Props) {
+export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
   const router = useRouter();
-  const [name, setName] = useState(tenant.name);
-  const [logoUrl, setLogoUrl] = useState(tenant.logoUrl || "");
+  const [resolvedTenant, setResolvedTenant] = useState<{ id: string; name: string; logoUrl: string | null } | null>(
+    tenant ? { id: tenant.id, name: tenant.name, logoUrl: tenant.logoUrl ?? null } : null
+  );
+
+  const [name, setName] = useState(resolvedTenant?.name || "");
+  const [logoUrl, setLogoUrl] = useState(resolvedTenant?.logoUrl || "");
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmRemoveLogoOpen, setConfirmRemoveLogoOpen] = useState(false);
+
+  // If server didn't provide `tenant`, try to resolve tenant from local workspace cache v2
+  // so the Settings page can open even when the server DB is temporarily unreachable.
+  // tenantSlug is provided by the page fallback.
+  async function resolveTenantFromCache(tenantSlugProp?: string) {
+    if (!tenantSlugProp) return null;
+    try {
+      // look for any workspace-cache:v2:*:tenantSlug:all
+      const suffix = `:${tenantSlugProp}:all`;
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith("workspace-cache:v2:") && key.endsWith(suffix)) {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (!parsed?.data?.tenant) continue;
+          const t = parsed.data.tenant;
+          if (t?.id && t?.slug === tenantSlugProp) {
+            return { id: t.id, name: t.name || "", logoUrl: t.logoUrl ?? null };
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  // If caller passed tenant prop later, seed resolvedTenant
+  // Also try to resolve from cache when mounted.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (tenant && tenant.id) {
+        if (!mounted) return;
+        setResolvedTenant({ id: tenant.id, name: tenant.name, logoUrl: tenant.logoUrl ?? null });
+        setName(tenant.name);
+        setLogoUrl(tenant.logoUrl || "");
+        return;
+      }
+
+      // tenant may be missing; attempt cache lookup using tenantSlug prop
+      const slugToTry = tenantSlug || (tenant as any)?.slug || (window as any)?.CURRENT_TENANT_SLUG || undefined;
+      if (!slugToTry) return;
+      const fromCache = await resolveTenantFromCache(slugToTry);
+      if (!fromCache) return;
+      if (!mounted) return;
+      setResolvedTenant(fromCache);
+      setName(fromCache.name || "");
+      setLogoUrl(fromCache.logoUrl || "");
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [tenant]);
 
   async function getAccessToken() {
     const supabase = createClient();
@@ -46,7 +107,14 @@ export function TenantSettingsForm({ tenant }: Props) {
     try {
       const supabase = createClient();
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "png";
-      const objectName = `${tenant.id}/${crypto.randomUUID()}.${fileExt}`;
+      const tenantId = resolvedTenant?.id || tenant?.id;
+      if (!tenantId) {
+        setMessage("Tenant information not available yet. Try again when online.");
+        setUploadingLogo(false);
+        e.target.value = "";
+        return;
+      }
+      const objectName = `${tenantId}/${crypto.randomUUID()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("logos")
@@ -67,7 +135,9 @@ export function TenantSettingsForm({ tenant }: Props) {
       setLogoUrl(data.publicUrl);
 
       const accessToken = await getAccessToken();
-      const response = await fetch(`/api/tenants/${tenant.id}/update`, {
+      const tenantId2 = resolvedTenant?.id || tenant?.id;
+      if (!tenantId2) throw new Error("Tenant information not available");
+      const response = await fetch(`/api/tenants/${tenantId2}/update`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -107,19 +177,33 @@ export function TenantSettingsForm({ tenant }: Props) {
 
     try {
       const accessToken = await getAccessToken();
+      const tenantId = resolvedTenant?.id || tenant?.id;
+      if (!tenantId) {
+        // No tenant id yet - queue a pending update keyed by slug so background sync
+        // can attempt to resolve the tenant later.
+        enqueueBackgroundMutation({
+          url: `/api/tenants/update-pending`,
+          method: "POST",
+          body: { tenantSlug: tenantSlug || (tenant as any)?.slug, logoUrl: null, name },
+        });
+        setLogoUrl("");
+        setMessage("Offline: change queued and will sync automatically when tenant info is available.");
+        return;
+      }
+
       if (!navigator.onLine) {
         enqueueBackgroundMutation({
-          url: `/api/tenants/${tenant.id}/update`,
+          url: `/api/tenants/${tenantId}/update`,
           method: "POST",
           body: { logoUrl: null, name },
-          dedupeKey: `tenant-update:${tenant.id}`,
+          dedupeKey: `tenant-update:${tenantId}`,
         });
         setLogoUrl("");
         setMessage("Offline: change queued and will sync automatically.");
         return;
       }
 
-      const response = await fetch(`/api/tenants/${tenant.id}/update`, {
+      const response = await fetch(`/api/tenants/${tenantId}/update`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -148,12 +232,21 @@ export function TenantSettingsForm({ tenant }: Props) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
-        enqueueBackgroundMutation({
-          url: `/api/tenants/${tenant.id}/update`,
-          method: "POST",
-          body: { logoUrl: null, name },
-          dedupeKey: `tenant-update:${tenant.id}`,
-        });
+        const tenantId = resolvedTenant?.id || tenant?.id;
+        if (tenantId) {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/${tenantId}/update`,
+            method: "POST",
+            body: { logoUrl: null, name },
+            dedupeKey: `tenant-update:${tenantId}`,
+          });
+        } else {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/update-pending`,
+            method: "POST",
+            body: { tenantSlug: tenantSlug || (tenant as any)?.slug, logoUrl: null, name },
+          });
+        }
         setLogoUrl("");
         setMessage("Offline: change queued and will sync automatically.");
       } else {
@@ -171,18 +264,29 @@ export function TenantSettingsForm({ tenant }: Props) {
 
     try {
       const accessToken = await getAccessToken();
+      const tenantId = resolvedTenant?.id || tenant?.id;
       if (!navigator.onLine) {
-        enqueueBackgroundMutation({
-          url: `/api/tenants/${tenant.id}/update`,
-          method: "POST",
-          body: { name, logoUrl },
-          dedupeKey: `tenant-update:${tenant.id}`,
-        });
+        if (tenantId) {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/${tenantId}/update`,
+            method: "POST",
+            body: { name, logoUrl },
+            dedupeKey: `tenant-update:${tenantId}`,
+          });
+        } else {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/update-pending`,
+            method: "POST",
+            body: { tenantSlug: tenantSlug || (tenant as any)?.slug, name, logoUrl },
+          });
+        }
         setMessage("Offline: settings queued and will sync automatically.");
         return;
       }
 
-      const response = await fetch(`/api/tenants/${tenant.id}/update`, {
+      if (!tenantId) throw new Error("Tenant information not available");
+
+      const response = await fetch(`/api/tenants/${tenantId}/update`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -211,12 +315,21 @@ export function TenantSettingsForm({ tenant }: Props) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
-        enqueueBackgroundMutation({
-          url: `/api/tenants/${tenant.id}/update`,
-          method: "POST",
-          body: { name, logoUrl },
-          dedupeKey: `tenant-update:${tenant.id}`,
-        });
+        const tenantId = resolvedTenant?.id || tenant?.id;
+        if (tenantId) {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/${tenantId}/update`,
+            method: "POST",
+            body: { name, logoUrl },
+            dedupeKey: `tenant-update:${tenantId}`,
+          });
+        } else {
+          enqueueBackgroundMutation({
+            url: `/api/tenants/update-pending`,
+            method: "POST",
+            body: { tenantSlug: tenantSlug || (tenant as any)?.slug, name, logoUrl },
+          });
+        }
         setMessage("Offline: settings queued and will sync automatically.");
       } else {
         setMessage(error.message || "Update failed");
