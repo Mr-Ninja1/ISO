@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FieldDef, FormSchemaV1, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
+import { buildGridRowDefaults, getGridFieldMap } from "@/lib/gridLayout";
 
 function emptyStringToUndefined(value: unknown) {
   if (value === "") return undefined;
@@ -122,32 +123,20 @@ function isActiveField(field: { isActive?: boolean }) {
   return field.isActive !== false;
 }
 
-function gridRowDefaults(grid: GridSection, rowIndex: number) {
-  const row: Record<string, unknown> = {};
-  for (const col of grid.columns) {
-    if (col.type === "checkbox") {
-      row[col.id] = false;
-      continue;
-    }
-
-    // Common ISO log pattern: read-only day column.
-    if (col.readOnly && col.id === "day") {
-      row[col.id] = String(rowIndex + 1);
-      continue;
-    }
-
-    row[col.id] = "";
-  }
-  return row;
-}
-
 function gridToZod(grid: GridSection) {
+  const rowCount = typeof grid.rows === "number" && Number.isFinite(grid.rows) ? Math.max(1, grid.rows) : 1;
   const rowShape: Record<string, z.ZodTypeAny> = {};
-  for (const col of grid.columns) {
-    rowShape[col.id] = fieldToZod(col);
+  const fieldMap = getGridFieldMap({ ...grid, columns: grid.columns.filter(isActiveField) }, rowCount);
+
+  for (const field of fieldMap.values()) {
+    rowShape[field.id] = fieldToZod(field);
   }
 
-  const rowObj = z.object(rowShape);
+  let rowObj = z.object(rowShape);
+  if (grid.mergedCells && grid.mergedCells.length > 0) {
+    rowObj = rowObj.partial();
+  }
+
   const arr = z.array(rowObj);
   if (grid.rows === "dynamic") return arr.min(1, "Add at least one row");
   if (typeof grid.rows === "number" && Number.isFinite(grid.rows) && grid.rows >= 0) {
@@ -194,7 +183,7 @@ export function buildDefaultValues(schema: FormSchemaV1) {
       const activeColumns = section.columns.filter(isActiveField);
       const count = section.rows === "dynamic" ? 1 : Math.max(0, section.rows);
       defaults[key] = Array.from({ length: count }, (_, rowIndex) =>
-        gridRowDefaults({ ...section, columns: activeColumns }, rowIndex)
+        buildGridRowDefaults({ ...section, columns: activeColumns }, rowIndex, count)
       );
     }
   }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -13,26 +13,21 @@ function normalizeName(name: string) {
   return name.trim().replace(/\s+/g, " ");
 }
 
-async function getUserFromToken(token: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(token);
-
-  return user;
-}
-
 export async function POST(req: Request) {
   try {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const user = await getUserFromToken(token);
+    const supabaseAuth = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser(token);
+
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json().catch(() => null);
@@ -53,19 +48,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "At least one category is required" }, { status: 400 });
     }
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
+    const sb = createSupabaseWithBearer(token);
 
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true, role: true },
-    });
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    if (!membership) {
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (me || !membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -73,14 +69,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
-    const result = await prisma.category.createMany({
-      data: names.map((name, idx) => ({ tenantId: tenant.id, name, sortOrder: idx })),
-      skipDuplicates: true,
-    });
+    const { data: existingRows } = await sb.from("categories").select("name").eq("tenant_id", tenant.id);
 
-    return NextResponse.json({ createdCount: result.count });
-  } catch (error: any) {
+    const existingNames = new Set((existingRows || []).map((r) => r.name as string));
+    const toAdd = names.filter((n) => !existingNames.has(n));
+
+    if (toAdd.length === 0) {
+      return NextResponse.json({ createdCount: 0 });
+    }
+
+    const { data: maxSort } = await sb
+      .from("categories")
+      .select("sort_order")
+      .eq("tenant_id", tenant.id)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let baseOrder = typeof maxSort?.sort_order === "number" ? maxSort.sort_order + 1 : 0;
+
+    const rows = toAdd.map((name, idx) => ({
+      tenant_id: tenant.id,
+      name,
+      sort_order: baseOrder + idx,
+    }));
+
+    const { error: insErr } = await sb.from("categories").insert(rows);
+
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ createdCount: toAdd.length });
+  } catch (error: unknown) {
     console.error("/api/workspace/seed POST error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

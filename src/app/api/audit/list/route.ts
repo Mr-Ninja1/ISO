@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { prisma } from "@/lib/prisma";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -44,51 +44,56 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
   }
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true },
-  });
+  const sb = createSupabaseWithBearer(token);
 
-  if (!tenant) {
+  const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+
+  if (te || !tenant) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-  if (!membership || !hasPermission(membership.role, "audit.view")) {
+  if (me || !membership || !hasPermission(membership.role, "audit.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rows = await prisma.auditLog.findMany({
-    where: {
-      tenantId: tenant.id,
-      ...(since ? { updatedAt: { gt: since } } : {}),
-    },
-    orderBy: [{ updatedAt: "desc" }],
-    take: since ? 1000 : 2000,
-    select: {
-      id: true,
-      status: true,
-      templateId: true,
-      createdAt: true,
-      updatedAt: true,
-      submittedAt: true,
-      template: { select: { title: true } },
-    },
-  });
+  let q = sb
+    .from("audit_logs")
+    .select("id, status, template_id, created_at, updated_at, submitted_at, form_templates(title)")
+    .eq("tenant_id", tenant.id)
+    .order("updated_at", { ascending: false });
 
-  const serialized = rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    templateId: row.templateId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
-    template: { title: row.template.title },
-  }));
+  if (since) {
+    q = q.gt("updated_at", since.toISOString());
+    q = q.limit(1000);
+  } else {
+    q = q.limit(2000);
+  }
+
+  const { data: rows, error: listErr } = await q;
+
+  if (listErr) {
+    return NextResponse.json({ error: listErr.message }, { status: 500 });
+  }
+
+  const serialized = (rows || []).map((row: Record<string, unknown>) => {
+    const tpl = row.form_templates as { title?: string } | null | undefined;
+    return {
+      id: row.id as string,
+      status: row.status as string,
+      templateId: row.template_id as string,
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
+      submittedAt: row.submitted_at ? new Date(row.submitted_at as string).toISOString() : null,
+      template: { title: tpl?.title ?? "Form" },
+    };
+  });
 
   const maxUpdatedAt = serialized[0]?.updatedAt || since?.toISOString() || null;
 

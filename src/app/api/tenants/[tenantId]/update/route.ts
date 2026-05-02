@@ -1,6 +1,6 @@
 ﻿import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -8,10 +8,7 @@ function getBearerToken(req: Request) {
   return match?.[1] || null;
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ tenantId: string }> }
-) {
+export async function POST(req: Request, { params }: { params: Promise<{ tenantId: string }> }) {
   try {
     const { tenantId } = await params;
     if (!tenantId) {
@@ -23,7 +20,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -32,7 +29,7 @@ export async function POST(
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (userError) {
       console.warn("/api/tenants/:id/update: supabase getUser error", userError.message);
@@ -42,31 +39,59 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: {
-        tenantId,
-        userId: user.id,
-        role: "ADMIN",
-      },
-      select: { id: true },
-    });
+    const sb = createSupabaseWithBearer(token);
 
-    if (!membership) {
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", user.id)
+      .eq("role", "ADMIN")
+      .maybeSingle();
+
+    if (me || !membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { name, logoUrl } = await req.json();
 
-    const tenant = await prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        ...(name && { name }),
-        ...(logoUrl !== undefined && { logoUrl: logoUrl || null }),
+    const patch: Record<string, unknown> = {};
+    if (typeof name === "string" && name.trim()) patch.name = name.trim();
+    if (logoUrl !== undefined) patch.logo_url = logoUrl || null;
+
+    if (Object.keys(patch).length === 0) {
+      const { data: t } = await sb.from("tenants").select("*").eq("id", tenantId).single();
+      return NextResponse.json({
+        success: true,
+        tenant: t
+          ? {
+              ...t,
+              logoUrl: (t as Record<string, unknown>).logo_url,
+            }
+          : null,
+      });
+    }
+
+    const { data: tenant, error: upErr } = await sb.from("tenants").update(patch).eq("id", tenantId).select("*").single();
+
+    if (upErr || !tenant) {
+      return NextResponse.json({ error: upErr?.message || "Update failed" }, { status: 500 });
+    }
+
+    const row = tenant as Record<string, unknown>;
+    return NextResponse.json({
+      success: true,
+      tenant: {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        logoUrl: row.logo_url,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
       },
     });
-
-    return NextResponse.json({ success: true, tenant });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

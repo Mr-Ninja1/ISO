@@ -1,6 +1,7 @@
 "use client";
 
 type QueueMode = "draft" | "submit";
+import { dbDeleteOutbox, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
 
 export type AuditSyncItem = {
   id: string;
@@ -102,11 +103,51 @@ export function getPendingAuditSyncCount() {
 export async function flushAuditSyncQueue(accessToken: string) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 
+  // First flush durable IndexedDB outbox (survives reloads, localStorage wipes).
+  let processed = 0;
+  try {
+    const outbox = await dbListOutboxAll();
+    for (const item of outbox) {
+      try {
+        const res = await fetch("/api/audit/submit", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            tenantSlug: item.tenantSlug,
+            templateId: item.templateId,
+            payload: item.payload,
+            mode: item.mode,
+            auditId: item.auditId,
+          }),
+        });
+
+        if (!res.ok) {
+          await dbMarkOutboxFailed(item.id, `HTTP ${res.status}`);
+          continue;
+        }
+
+        // If the legacy offline-submitted list used the same id, remove it.
+        if (item.mode === "submit") {
+          removeOfflineSubmittedByQueueId(item.id);
+        }
+
+        await dbDeleteOutbox(item.id);
+        processed += 1;
+      } catch (e: any) {
+        await dbMarkOutboxFailed(item.id, String(e?.message || "sync failed"));
+      }
+    }
+  } catch {
+    // ignore IndexedDB issues; fall back to legacy queue below
+  }
+
   const queue = readQueue();
   if (queue.length === 0) return { processed: 0, remaining: 0 };
 
   const remaining: AuditSyncItem[] = [];
-  let processed = 0;
 
   for (const item of queue) {
     try {

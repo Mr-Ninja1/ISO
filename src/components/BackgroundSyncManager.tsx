@@ -13,6 +13,7 @@ import {
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
+import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 
 function readPendingCount() {
   return (
@@ -116,7 +117,7 @@ export function BackgroundSyncManager() {
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    const updateOnline = () => setOnline(!isAppOffline());
     const refreshPending = () => setPendingCount(readPendingCount());
 
     updateOnline();
@@ -124,12 +125,14 @@ export function BackgroundSyncManager() {
 
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOnline);
+    window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, updateOnline);
 
     const poll = window.setInterval(refreshPending, 2500);
 
     return () => {
       window.removeEventListener("online", updateOnline);
       window.removeEventListener("offline", updateOnline);
+      window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, updateOnline);
       window.clearInterval(poll);
     };
   }, []);
@@ -156,8 +159,9 @@ export function BackgroundSyncManager() {
       const categoryIds = workspace.categories.map((category: CategorySummary) => category.id);
       if (!categoryIds.length) return;
 
-      void Promise.allSettled(
-        categoryIds.map(async (categoryId) => {
+      void (async () => {
+        for (const categoryId of categoryIds) {
+          if (!active) return;
           const categoryUrl = new URL("/api/workspace", window.location.origin);
           categoryUrl.searchParams.set("tenantSlug", tenantSlug);
           categoryUrl.searchParams.set("categoryId", categoryId);
@@ -167,13 +171,13 @@ export function BackgroundSyncManager() {
           } catch {
             // best-effort background preload
           }
-        })
-      );
+        }
+      })();
     }
 
     const runBootstrapWarmup = async () => {
       if (!tenantSlug || !active) return;
-      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (isAppOffline()) return;
 
       const lastBootstrap = readBootstrapTs(user?.id || null, tenantSlug);
       const shouldBootstrap = Date.now() - lastBootstrap > 24 * 60 * 60 * 1000;
@@ -246,7 +250,7 @@ export function BackgroundSyncManager() {
 
     const runPullSync = async () => {
       if (!tenantSlug || pullRunning || !active) return;
-      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (isAppOffline()) return;
 
       pullRunning = true;
       try {

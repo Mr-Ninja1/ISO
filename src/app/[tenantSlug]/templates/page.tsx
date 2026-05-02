@@ -1,7 +1,16 @@
 ﻿import Link from "next/link";
-import type { Category } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { ssrTenantBySlug } from "@/lib/data/ssrQueries";
+import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
+
+type CategoryRow = { id: string; name: string; sortOrder: number };
+type TemplateRow = {
+  id: string;
+  title: string;
+  categoryId: string | null;
+  schema: unknown;
+  updatedAt: string;
+};
 
 export default async function TemplatesPage({
   params,
@@ -9,37 +18,56 @@ export default async function TemplatesPage({
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
+  const tenant = await ssrTenantBySlug(tenantSlug);
   if (!tenant) {
     return <div>Tenant not found</div>;
   }
 
-  const categories: Category[] = await prisma.category.findMany({
-    where: { tenantId: tenant.id },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  });
+  const svc = createServiceRoleSupabase();
+  if (!svc) {
+    return <div className="p-4 text-sm text-foreground/70">Server configuration incomplete (SUPABASE_SERVICE_ROLE_KEY).</div>;
+  }
 
-  const templates = (await prisma.formTemplate.findMany({
-    where: { tenantId: tenant.id },
-    orderBy: [{ updatedAt: "desc" }],
-  })).filter((t) => isLiveTemplateSchema(t.schema));
+  const { data: catRows } = await svc
+    .from("categories")
+    .select("id, name, sort_order")
+    .eq("tenant_id", tenant.id)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  const categories: CategoryRow[] = (catRows || []).map((c) => ({
+    id: c.id as string,
+    name: c.name as string,
+    sortOrder: Number(c.sort_order ?? 0),
+  }));
+
+  const { data: tplRows } = await svc
+    .from("form_templates")
+    .select("id, title, category_id, schema, updated_at")
+    .eq("tenant_id", tenant.id)
+    .order("updated_at", { ascending: false });
+
+  const templates: TemplateRow[] = (tplRows || [])
+    .filter((t) => isLiveTemplateSchema(t.schema))
+    .map((t) => ({
+      id: t.id as string,
+      title: t.title as string,
+      categoryId: (t.category_id as string | null) ?? null,
+      schema: t.schema,
+      updatedAt: t.updated_at as string,
+    }));
 
   const templatesByCategoryId = new Map<string, typeof templates>();
   for (const template of templates) {
     const key = template.categoryId ?? "uncategorized";
-    templatesByCategoryId.set(key, [
-      ...(templatesByCategoryId.get(key) ?? []),
-      template,
-    ]);
+    templatesByCategoryId.set(key, [...(templatesByCategoryId.get(key) ?? []), template]);
   }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h2 className="text-xl font-semibold">Templates</h2>
-        <span className="text-sm text-foreground/70 sm:text-right">
-          Seeded demo templates are ready
-        </span>
+        <span className="text-sm text-foreground/70 sm:text-right">Seeded demo templates are ready</span>
       </div>
 
       <div className="flex flex-col gap-6">
@@ -65,9 +93,7 @@ export default async function TemplatesPage({
 
         {(templatesByCategoryId.get("uncategorized") ?? []).length ? (
           <section className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold text-foreground/80">
-              Uncategorized
-            </h3>
+            <h3 className="text-sm font-semibold text-foreground/80">Uncategorized</h3>
             <div className="grid gap-2">
               {(templatesByCategoryId.get("uncategorized") ?? []).map((t) => (
                 <Link
@@ -88,4 +114,3 @@ export default async function TemplatesPage({
     </div>
   );
 }
-

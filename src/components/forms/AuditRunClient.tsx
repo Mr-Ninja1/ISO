@@ -8,8 +8,11 @@ import { FormRenderer } from "@/components/forms/FormRenderer";
 import {
   type AuditTemplatePayload,
   readAuditTemplateCache,
+  readAuditTemplateCacheAsync,
   writeAuditTemplateCache,
 } from "@/lib/client/auditTemplateCache";
+import { isAppOffline } from "@/lib/client/appOffline";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
   return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
@@ -66,28 +69,41 @@ export function AuditRunClient({
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
 
-  const [data, setData] = useState<AuditTemplatePayload | null>(() => {
-    if (typeof window === "undefined") return null;
-    if (!tenantSlug || !templateId) return null;
-    return readAuditTemplateCache(tenantSlug, templateId);
-  });
-  const [loading, setLoading] = useState(() => {
-    if (typeof window === "undefined") return true;
-    if (!tenantSlug || !templateId) return true;
-    return !Boolean(readAuditTemplateCache(tenantSlug, templateId));
-  });
+  // Important: avoid reading localStorage during initial render.
+  // Otherwise SSR renders "loading" but the client immediately renders the cached form,
+  // triggering a hydration mismatch warning.
+  const [data, setData] = useState<AuditTemplatePayload | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revalidateTick, setRevalidateTick] = useState(0);
-  const [online, setOnline] = useState(true);
+  /** Named distinctly from `isAppOffline()` to avoid TDZ/minifier/HMR edge cases. */
+  const offlineFromHook = useAppOffline();
 
   // Fast path: show cached form schema immediately, even before auth/network settles.
   useEffect(() => {
     if (!tenantSlug || !templateId) return;
+    let alive = true;
+
     const cached = readAuditTemplateCache(tenantSlug, templateId);
     if (cached) {
       setData(cached);
       setLoading(false);
+      return () => {
+        alive = false;
+      };
     }
+
+    // Durable cache path (IndexedDB) – async after mount.
+    (async () => {
+      const fromDb = await readAuditTemplateCacheAsync(tenantSlug, templateId);
+      if (!alive || !fromDb) return;
+      setData(fromDb);
+      setLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [tenantSlug, templateId]);
 
   useEffect(() => {
@@ -97,25 +113,20 @@ export function AuditRunClient({
   }, [authLoading, user, router, data]);
 
   useEffect(() => {
-    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
-    updateOnline();
-
     const onOnline = () => setRevalidateTick((x) => x + 1);
-    const onFocus = () => setRevalidateTick((x) => x + 1);
+    const onFocus = () => {
+      if (!isAppOffline()) setRevalidateTick((x) => x + 1);
+    };
     const onVisible = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !isAppOffline()) {
         setRevalidateTick((x) => x + 1);
       }
     };
 
-    window.addEventListener("online", updateOnline);
-    window.addEventListener("offline", updateOnline);
     window.addEventListener("online", onOnline);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("online", updateOnline);
-      window.removeEventListener("offline", updateOnline);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
@@ -136,8 +147,8 @@ export function AuditRunClient({
       setLoading(true);
     }
 
-    // Offline-first: never call the API while offline.
-    if (!online) {
+    // Offline-first: never call the API while offline (browser or shell-forced).
+    if (offlineFromHook) {
       if (!cached) {
         setLoading(false);
         setError("This form is not cached on this device yet. Open it once while online to use it offline.");
@@ -191,7 +202,7 @@ export function AuditRunClient({
     }
 
     runRevalidate();
-  }, [authLoading, user, accessToken, tenantSlug, templateId, revalidateTick, online]);
+  }, [authLoading, user, accessToken, tenantSlug, templateId, revalidateTick, offlineFromHook]);
 
   const content = useMemo(() => {
     if (loading) {

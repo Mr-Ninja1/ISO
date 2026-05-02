@@ -1,22 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Wifi, WifiOff } from "lucide-react";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 export function ConnectivityIndicator() {
-  const [online, setOnline] = useState(true);
-
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    update();
-
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
+  const offline = useAppOffline();
+  const online = !offline;
 
   const Icon = online ? Wifi : WifiOff;
 

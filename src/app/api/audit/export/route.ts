@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { prisma } from "@/lib/prisma";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -31,11 +31,13 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const sb = createSupabaseWithBearer(token);
 
   const { searchParams } = new URL(req.url);
   const tenantSlug = searchParams.get("tenantSlug") || "";
@@ -48,50 +50,45 @@ export async function GET(req: Request) {
 
   const normalizedStatus = statusRaw === "DRAFT" || statusRaw === "SUBMITTED" ? statusRaw : undefined;
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true, slug: true },
-  });
+  const { data: tenant, error: te } = await sb.from("tenants").select("id, slug").eq("slug", tenantSlug).maybeSingle();
 
-  if (!tenant) {
+  if (te || !tenant) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-  if (!membership || !hasPermission(membership.role, "audit.view")) {
+  if (me || !membership || !hasPermission(membership.role, "audit.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rows = await prisma.auditLog.findMany({
-    where: {
-      tenantId: tenant.id,
-      ...(normalizedStatus ? { status: normalizedStatus } : {}),
-      ...(q
-        ? {
-            template: {
-              title: { contains: q, mode: "insensitive" },
-            },
-          }
-        : {}),
-    },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 5000,
-    select: {
-      id: true,
-      status: true,
-      templateId: true,
-      createdAt: true,
-      updatedAt: true,
-      submittedAt: true,
-      payload: true,
-      template: {
-        select: { title: true },
-      },
-    },
+  let listQuery = sb
+    .from("audit_logs")
+    .select("id, status, template_id, created_at, updated_at, submitted_at, payload, form_templates(title)")
+    .eq("tenant_id", tenant.id)
+    .order("updated_at", { ascending: false })
+    .limit(5000);
+
+  if (normalizedStatus) {
+    listQuery = listQuery.eq("status", normalizedStatus);
+  }
+
+  const { data: rawRows, error: listErr } = await listQuery;
+
+  if (listErr) {
+    return NextResponse.json({ error: listErr.message }, { status: 500 });
+  }
+
+  const qLower = q.toLowerCase();
+  const rows = (rawRows || []).filter((row: Record<string, unknown>) => {
+    if (!qLower) return true;
+    const tpl = row.form_templates as { title?: string } | null | undefined;
+    return (tpl?.title || "").toLowerCase().includes(qLower);
   });
 
   const header = [
@@ -107,22 +104,25 @@ export async function GET(req: Request) {
     "payloadJson",
   ];
 
-  const csvRows = rows.map((row) => {
-    const payloadRecord = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
-      ? (row.payload as Record<string, unknown>)
-      : {};
-    const auditMeta = payloadRecord.__auditMeta && typeof payloadRecord.__auditMeta === "object" && !Array.isArray(payloadRecord.__auditMeta)
-      ? (payloadRecord.__auditMeta as Record<string, unknown>)
-      : {};
+  const csvRows = rows.map((row: Record<string, unknown>) => {
+    const tpl = row.form_templates as { title?: string } | null | undefined;
+    const payloadRecord =
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? (row.payload as Record<string, unknown>)
+        : {};
+    const auditMeta =
+      payloadRecord.__auditMeta && typeof payloadRecord.__auditMeta === "object" && !Array.isArray(payloadRecord.__auditMeta)
+        ? (payloadRecord.__auditMeta as Record<string, unknown>)
+        : {};
 
     return [
       row.id,
       row.status,
-      row.templateId,
-      row.template.title,
-      row.createdAt.toISOString(),
-      row.updatedAt.toISOString(),
-      row.submittedAt ? row.submittedAt.toISOString() : "",
+      row.template_id,
+      tpl?.title ?? "",
+      new Date(row.created_at as string).toISOString(),
+      new Date(row.updated_at as string).toISOString(),
+      row.submitted_at ? new Date(row.submitted_at as string).toISOString() : "",
       typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "",
       typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "",
       JSON.stringify(payloadRecord),

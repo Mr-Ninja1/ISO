@@ -10,6 +10,9 @@ export type FieldType =
   | "time"
   | "dynamic-table";
 
+export type FormType = "custom" | "questionnaire" | "answer-sheet" | "inspection" | "handwritten";
+export type FormStyle = "default" | "compact" | "report";
+
 export type FormSchemaV1 = {
   version: 1;
   title?: string;
@@ -17,6 +20,11 @@ export type FormSchemaV1 = {
   fields?: FieldDef[];
   // New: section-based schemas (supports complex grids/log sheets).
   sections?: FormSection[];
+  meta?: {
+    formType?: FormType;
+    formStyle?: FormStyle;
+    [key: string]: unknown;
+  };
 };
 
 export type BaseField = {
@@ -27,6 +35,10 @@ export type BaseField = {
   required?: boolean;
   helpText?: string;
   readOnly?: boolean;
+  textAlign?: "left" | "center" | "right";
+  fontSize?: "sm" | "md" | "lg";
+  fontWeight?: "normal" | "medium" | "semibold" | "bold";
+  fontStyle?: "normal" | "italic";
 };
 
 export type TextField = BaseField & {
@@ -105,6 +117,7 @@ export type SimpleFieldDef = Exclude<FieldDef, DynamicTableField>;
 export type FieldsSection = {
   type: "fields";
   title?: string;
+  columns?: 1 | 2 | 3 | 4;
   fields: FieldDef[];
 };
 
@@ -115,6 +128,16 @@ export type GridSection = {
   title?: string;
   rows: number | "dynamic";
   columns: Array<SimpleFieldDef>;
+  mergedCells?: Array<GridMergedCell>;
+};
+
+export type GridMergedCell = {
+  id: string;
+  row: number;
+  col: number;
+  rowSpan?: number;
+  colSpan?: number;
+  field?: SimpleFieldDef;
 };
 
 export type FormSection = FieldsSection | GridSection;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { getTemplateSchemaMeta, getTemplateSchemaVersion } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -42,27 +42,40 @@ export async function GET(req: Request) {
     if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
     const { tenantSlug, templateId } = parsed.data;
+    const sb = createSupabaseWithBearer(token);
 
-    const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true, role: true },
-    });
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (!hasPermission(membership.role, "forms.edit")) {
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
-    const template = await prisma.formTemplate.findFirst({
-      where: { id: templateId, tenantId: tenant.id },
-      select: { id: true, title: true, categoryId: true, schema: true },
-    });
-    if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    const { data: template, error: tplErr } = await sb
+      .from("form_templates")
+      .select("id, title, category_id, schema")
+      .eq("id", templateId)
+      .eq("tenant_id", tenant.id)
+      .maybeSingle();
 
-    const auditCount = await prisma.auditLog.count({ where: { templateId: template.id, tenantId: tenant.id } });
-    const hasAudits = auditCount > 0;
+    if (tplErr || !template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+
+    const { count: auditCount } = await sb
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("template_id", template.id)
+      .eq("tenant_id", tenant.id);
+
+    const hasAudits = (auditCount ?? 0) > 0;
 
     const meta = getTemplateSchemaMeta(template.schema);
 
@@ -70,18 +83,19 @@ export async function GET(req: Request) {
       template: {
         id: template.id,
         title: template.title,
-        categoryId: template.categoryId,
+        categoryId: template.category_id,
         schema: template.schema,
         lineageId: meta.lineageId || template.id,
         version: getTemplateSchemaVersion(template.schema),
       },
       lock: {
         hasAudits,
-        auditCount,
+        auditCount: auditCount ?? 0,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("/api/templates/edit-info GET error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

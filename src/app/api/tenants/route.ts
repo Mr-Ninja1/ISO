@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -15,8 +15,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user from Supabase auth
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -25,7 +24,7 @@ export async function GET(req: Request) {
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (userError) {
       console.warn("/api/tenants: supabase getUser error", userError.message);
@@ -35,19 +34,33 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get all tenants for this user
-    const memberships = await prisma.tenantMember.findMany({
-      where: { userId: user.id },
-      include: {
-        tenant: true,
-      },
-    });
+    const sb = createSupabaseWithBearer(token);
+    const { data: rows, error } = await sb
+      .from("tenant_members")
+      .select("tenants(id, name, slug, logo_url)")
+      .eq("user_id", user.id);
 
-    const tenants = memberships.map((m) => m.tenant);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const tenants = (rows || [])
+      .map((r) => {
+        const embedded = r.tenants as { id: string; name: string; slug: string; logo_url: string | null } | null | undefined | Array<{ id: string; name: string; slug: string; logo_url: string | null }>;
+        if (Array.isArray(embedded)) return embedded[0] ?? null;
+        return embedded ?? null;
+      })
+      .filter((t): t is { id: string; name: string; slug: string; logo_url: string | null } => Boolean(t))
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        logoUrl: t.logo_url,
+      }));
 
     return NextResponse.json({ tenants });
-  } catch (error: any) {
-    console.error("Error fetching tenants:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

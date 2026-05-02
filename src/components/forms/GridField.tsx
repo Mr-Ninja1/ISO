@@ -11,19 +11,10 @@ import {
   useFieldArray,
 } from "react-hook-form";
 import { Loader2, Plus, Trash2 } from "lucide-react";
-import type { GridSection, SimpleFieldDef } from "@/types/forms";
+import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
+import { buildGridLayout, buildGridRowDefaults } from "@/lib/gridLayout";
 
 type FormValues = Record<string, unknown>;
-
-function buildRowDefaults(columns: Array<SimpleFieldDef>, rowIndex: number) {
-  const row: Record<string, unknown> = {};
-  for (const col of columns) {
-    if (col.type === "checkbox") row[col.id] = false;
-    else if (col.readOnly && col.id === "day") row[col.id] = String(rowIndex + 1);
-    else row[col.id] = "";
-  }
-  return row;
-}
 
 function SignatureModal({
   open,
@@ -109,6 +100,7 @@ function SignatureModal({
 
 export function GridField({
   grid,
+  formStyle = "default",
   name,
   control,
   register,
@@ -118,6 +110,7 @@ export function GridField({
   watch,
 }: {
   grid: GridSection;
+  formStyle?: FormStyle;
   name: string;
   control: Control<FormValues>;
   register: UseFormRegister<FormValues>;
@@ -132,7 +125,9 @@ export function GridField({
   });
 
   const fixedRows = typeof grid.rows === "number" ? Math.max(0, grid.rows) : null;
-  const emptyRow = useMemo(() => buildRowDefaults(grid.columns, 0), [grid.columns]);
+  const layoutRowCount = Math.max(fields.length, fixedRows ?? 0, 1);
+  const layout = useMemo(() => buildGridLayout(grid, layoutRowCount), [grid, layoutRowCount]);
+  const emptyRow = useMemo(() => buildGridRowDefaults(grid, 0, layoutRowCount), [grid, layoutRowCount]);
 
   useEffect(() => {
     if (grid.rows === "dynamic") {
@@ -143,7 +138,7 @@ export function GridField({
     if (fixedRows == null) return;
     if (fields.length === fixedRows) return;
 
-    replace(Array.from({ length: fixedRows }, (_, idx) => buildRowDefaults(grid.columns, idx)));
+    replace(Array.from({ length: fixedRows }, (_, idx) => buildGridRowDefaults(grid, idx, fixedRows)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid.rows, fixedRows, fields.length]);
 
@@ -154,13 +149,17 @@ export function GridField({
     const errorMessage =
       (errors as any)?.[name]?.[rowIndex]?.[col.id]?.message as string | undefined;
 
+    const cellHeight = formStyle === "compact" ? "h-9" : "h-10";
+    const cellInputClass = `${cellHeight} w-full bg-transparent px-2 text-sm outline-none`;
+    const cellSelectClass = `${cellHeight} w-full bg-transparent px-2 text-sm outline-none`;
+
     if (col.readOnly) {
       return (
         <input
           type="text"
           readOnly
           tabIndex={-1}
-          className="h-10 w-full rounded-md border border-foreground/20 bg-foreground/5 px-3 text-sm text-center"
+          className={`${cellHeight} w-full bg-foreground/5 px-2 text-sm text-center outline-none`}
           {...register(cellName as any)}
         />
       );
@@ -182,8 +181,8 @@ export function GridField({
             inputMode="decimal"
             step="0.1"
             className={
-              "h-10 w-full rounded-md border bg-background px-3 pr-10 text-sm " +
-              (hasAlert ? "border-red-700" : "border-foreground/20")
+              cellInputClass +
+              (hasAlert ? " border border-red-700 bg-red-50" : " border border-transparent")
             }
             {...register(cellName as any)}
           />
@@ -216,7 +215,7 @@ export function GridField({
       return (
         <div>
           <select
-            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            className={cellSelectClass + " border border-transparent"}
             {...register(cellName as any)}
           >
             <option value="">Select</option>
@@ -235,7 +234,7 @@ export function GridField({
         <div>
           <input
             type="time"
-            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            className={cellInputClass + " border border-transparent"}
             {...register(cellName as any)}
           />
           {errorMessage ? (
@@ -250,7 +249,7 @@ export function GridField({
         <div>
           <input
             type="date"
-            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            className={cellInputClass + " border border-transparent"}
             {...register(cellName as any)}
           />
           {errorMessage ? (
@@ -267,7 +266,7 @@ export function GridField({
             type="number"
             inputMode="decimal"
             step="any"
-            className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            className={cellInputClass + " border border-transparent"}
             {...register(cellName as any)}
           />
           {errorMessage ? (
@@ -283,9 +282,8 @@ export function GridField({
         <button
           type="button"
           className={
-            current
-              ? "h-10 w-full rounded-md border border-foreground/20 bg-foreground/5 px-3 text-left text-sm"
-              : "h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-left text-sm text-foreground/70"
+            "h-10 w-full rounded-md border border-foreground/20 px-3 text-left text-sm " +
+            (current ? "bg-foreground/5" : "bg-background text-foreground/70")
           }
           onClick={() => setSig({ rowIndex, colId: col.id })}
         >
@@ -299,7 +297,7 @@ export function GridField({
       <div>
         <input
           type="text"
-          className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+          className={cellInputClass + " border border-transparent"}
           {...register(cellName as any)}
         />
         {errorMessage ? (
@@ -309,11 +307,15 @@ export function GridField({
     );
   }
 
+  const tableHeaderClass = formStyle === "report" ? "bg-foreground/[0.06]" : "bg-foreground/[0.03]";
+  const tableWrapClass = formStyle === "compact" ? "mt-3" : "mt-4";
+  const sectionPadClass = formStyle === "compact" ? "p-3" : "p-4";
+
   return (
-    <section className="rounded-lg border border-foreground/20 bg-background p-4">
+    <section className={`rounded-lg border border-foreground/20 bg-background ${sectionPadClass}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold">{grid.title || "Log Sheet"}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground/70">{grid.title || "Log Sheet"}</h3>
           <p className="mt-1 text-sm text-foreground/70">
             Fill in the log. The layout is designed for audit printing.
           </p>
@@ -327,18 +329,18 @@ export function GridField({
         ) : null}
       </div>
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
+      <div className={`${tableWrapClass} overflow-x-auto rounded-md border border-foreground/20`}>
+        <table className="w-full min-w-max border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky top-0 z-10 w-14 border-b border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70">
+              <th className={`sticky top-0 z-10 w-14 border-b border-foreground/20 px-3 py-2 text-left text-xs font-semibold text-foreground/70 ${tableHeaderClass}`}>
                 #
               </th>
-              {grid.columns.map((col) => (
+              {layout.columns.map((col) => (
                 <th
                   key={col.id}
                   className={
-                    "sticky top-0 z-10 border-b border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    `sticky top-0 z-10 border-b border-r border-foreground/20 px-3 py-2 text-left text-xs font-semibold text-foreground/70 ${tableHeaderClass} ` +
                     (col.type === "checkbox" ? "w-16 text-center" : "")
                   }
                   style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
@@ -347,30 +349,45 @@ export function GridField({
                 </th>
               ))}
               {grid.rows === "dynamic" ? (
-                <th className="sticky top-0 z-10 w-12 border-b border-foreground/20 bg-background px-2 py-2" />
+                <th className={`sticky top-0 z-10 w-12 border-b border-foreground/20 px-2 py-2 ${tableHeaderClass}`} />
               ) : null}
             </tr>
           </thead>
           <tbody>
             {fields.map((row, rowIndex) => (
-              <tr key={row.id} className="border-b border-foreground/10">
-                <td className="border-b border-foreground/10 bg-background px-3 py-2 text-xs text-foreground/70">
+              <tr
+                key={row.id}
+                className={
+                  formStyle === "compact"
+                    ? "bg-background"
+                    : rowIndex % 2 === 0
+                      ? "bg-background"
+                      : "bg-foreground/[0.015]"
+                }
+              >
+                <td className="border-b border-foreground/10 px-3 py-2 text-xs text-foreground/70">
                   {rowIndex + 1}
                 </td>
-                {grid.columns.map((col) => (
-                  <td
-                    key={col.id}
-                    className={
-                      "border-b border-foreground/10 bg-background px-2 py-2 align-top " +
-                      (col.type === "checkbox" ? "w-16" : "")
-                    }
-                    style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
-                  >
-                    {renderCell(col, rowIndex)}
-                  </td>
-                ))}
+                {layout.rows[rowIndex]?.map((cell, colIndex) => {
+                  if (!cell || cell.kind === "covered") return null;
+                  const col = cell.field;
+                  return (
+                    <td
+                      key={`${rowIndex}-${colIndex}-${cell.mergeId || col.id}`}
+                      rowSpan={cell.rowSpan}
+                      colSpan={cell.colSpan}
+                      className={
+                        "border-b border-r border-foreground/10 px-1 py-1 align-middle " +
+                        (col.type === "checkbox" ? "w-16" : "")
+                      }
+                      style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                    >
+                      {renderCell(col, rowIndex)}
+                    </td>
+                  );
+                })}
                 {grid.rows === "dynamic" ? (
-                  <td className="border-b border-foreground/10 bg-background px-2 py-2 align-top">
+                  <td className="border-b border-foreground/10 px-2 py-2 align-top">
                     <button
                       type="button"
                       className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20"
@@ -394,7 +411,7 @@ export function GridField({
           <button
             type="button"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 text-sm"
-            onClick={() => append(buildRowDefaults(grid.columns, fields.length))}
+            onClick={() => append(buildGridRowDefaults(grid, fields.length, fields.length + 1))}
           >
             <Plus className="h-4 w-4" />
             Add row

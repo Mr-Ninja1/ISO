@@ -54,7 +54,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-foreground/15 bg-background/95 p-2 backdrop-blur md:hidden">
       <div className="mx-auto flex max-w-[760px] items-center gap-1">
         <Link href={formsPath} className={tabClass(pathname?.startsWith(formsPath) ?? false)}>
-          Forms
+          Saved forms
         </Link>
         <Link href={offlinePath} className={tabClass(pathname?.startsWith(offlinePath) ?? false)}>
           Offline

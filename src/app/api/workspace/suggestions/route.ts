@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -8,43 +8,46 @@ function getBearerToken(req: Request) {
   return match?.[1] || null;
 }
 
-async function getUserFromToken(token: string) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(token);
-
-  return user;
-}
-
 export async function GET(req: Request) {
   try {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const user = await getUserFromToken(token);
+    const supabaseAuth = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser(token);
+
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const suggestions = await prisma.categorySuggestion.findMany({
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { name: true },
-    });
+    const sb = createSupabaseWithBearer(token);
+
+    const { data: suggestions, error } = await sb
+      .from("category_suggestions")
+      .select("name")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json(
-      { suggestions: suggestions.map((s) => s.name) },
+      { suggestions: (suggestions || []).map((s) => s.name) },
       {
         headers: {
           "Cache-Control": "private, max-age=120, stale-while-revalidate=300",
         },
       }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("/api/workspace/suggestions GET error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

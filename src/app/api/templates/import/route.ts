@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
-import { Prisma } from "@prisma/client";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
 
@@ -23,7 +22,7 @@ export async function POST(req: Request) {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -31,7 +30,7 @@ export async function POST(req: Request) {
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -48,40 +47,44 @@ export async function POST(req: Request) {
     }
 
     const { tenantSlug, libraryTemplateId, categoryId } = parsed.data;
+    const sb = createSupabaseWithBearer(token);
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true, slug: true },
-    });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id, slug").eq("slug", tenantSlug).maybeSingle();
 
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true, role: true },
-    });
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (!hasPermission(membership.role, "forms.import")) {
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
     if (categoryId) {
-      const category = await prisma.category.findFirst({
-        where: { id: categoryId, tenantId: tenant.id },
-        select: { id: true },
-      });
+      const { data: category } = await sb
+        .from("categories")
+        .select("id")
+        .eq("id", categoryId)
+        .eq("tenant_id", tenant.id)
+        .maybeSingle();
+
       if (!category) {
         return NextResponse.json({ error: "Category not found" }, { status: 404 });
       }
     }
 
-    const libraryTemplate = await prisma.templateLibrary.findUnique({
-      where: { id: libraryTemplateId },
-      select: { id: true, title: true, schema: true },
-    });
+    const { data: libraryTemplate, error: le } = await sb
+      .from("template_library")
+      .select("id, title, schema")
+      .eq("id", libraryTemplateId)
+      .maybeSingle();
 
-    if (!libraryTemplate) {
+    if (le || !libraryTemplate) {
       return NextResponse.json({ error: "Library template not found" }, { status: 404 });
     }
 
@@ -89,23 +92,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Library template schema is missing" }, { status: 500 });
     }
 
-    const created = await prisma.formTemplate.create({
-      data: {
-        tenantId: tenant.id,
-        categoryId: categoryId ?? null,
-        title: libraryTemplate.title,
-        isStandard: true,
-        schema: libraryTemplate.schema as Prisma.InputJsonValue,
-      },
-      select: { id: true },
-    });
+    const { data: created, error: crErr } = await sb
+      .from("form_templates")
+      .insert({
+        tenant_id: tenant.id,
+        category_id: categoryId ?? null,
+        title: libraryTemplate.title as string,
+        is_standard: true,
+        schema: libraryTemplate.schema,
+      })
+      .select("id")
+      .single();
 
-    await recordActivity({
+    if (crErr || !created) {
+      return NextResponse.json({ error: crErr?.message || "Import failed" }, { status: 500 });
+    }
+
+    await recordActivity(sb, {
       tenantId: tenant.id,
       userId: user.id,
       action: "template.import",
       entityType: "FormTemplate",
-      entityId: created.id,
+      entityId: created.id as string,
       details: {
         libraryTemplateId,
         title: libraryTemplate.title,
@@ -114,8 +122,9 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ templateId: created.id });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("/api/templates/import POST error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

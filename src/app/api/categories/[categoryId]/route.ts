@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
 
@@ -10,17 +10,14 @@ function getBearerToken(req: Request) {
   return match?.[1] || null;
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ categoryId: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ categoryId: string }> }) {
   try {
     const token = getBearerToken(request);
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -28,7 +25,7 @@ export async function DELETE(
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,21 +36,26 @@ export async function DELETE(
       return NextResponse.json({ error: "Missing category id" }, { status: 400 });
     }
 
-    const category = await prisma.category.findUnique({
-      where: { id: categoryId },
-      select: { id: true, tenantId: true },
-    });
+    const sb = createSupabaseWithBearer(token);
 
-    if (!category) {
+    const { data: category, error: ce } = await sb
+      .from("categories")
+      .select("id, tenant_id")
+      .eq("id", categoryId)
+      .maybeSingle();
+
+    if (ce || !category) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: category.tenantId, userId: user.id },
-      select: { role: true },
-    });
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", category.tenant_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (!membership) {
+    if (me || !membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -61,12 +63,14 @@ export async function DELETE(
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
-    await prisma.category.delete({
-      where: { id: categoryId },
-    });
+    const { error: delErr } = await sb.from("categories").delete().eq("id", categoryId);
 
-    await recordActivity({
-      tenantId: category.tenantId,
+    if (delErr) {
+      return NextResponse.json({ error: delErr.message }, { status: 500 });
+    }
+
+    await recordActivity(sb, {
+      tenantId: category.tenant_id as string,
       userId: user.id,
       action: "category.delete",
       entityType: "Category",
@@ -74,7 +78,8 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { recordActivity } from "@/lib/activityTracker";
@@ -23,30 +23,29 @@ const bodySchema = z.object({
 
 function draftUserIdFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const meta = (payload as Record<string, any>).__draftMeta;
+  const meta = (payload as Record<string, unknown>).__draftMeta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
-  const userId = (meta as Record<string, any>).userId;
+  const userId = (meta as Record<string, unknown>).userId;
   return typeof userId === "string" && userId ? userId : null;
 }
 
-async function clearOtherUserDrafts(params: {
-  tenantId: string;
-  templateId: string;
-  userId: string;
-  keepAuditId: string;
-}) {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM "AuditLog"
-     WHERE "tenantId" = $1::uuid
-       AND "templateId" = $2::uuid
-       AND status = 'DRAFT'
-       AND id <> $4::uuid
-       AND COALESCE(payload->'__draftMeta'->>'userId', '') = $3`,
-    params.tenantId,
-    params.templateId,
-    params.userId,
-    params.keepAuditId
-  );
+async function clearOtherUserDrafts(
+  sb: ReturnType<typeof createSupabaseWithBearer>,
+  params: { tenantId: string; templateId: string; userId: string; keepAuditId: string }
+) {
+  const { data: rows } = await sb
+    .from("audit_logs")
+    .select("id,payload")
+    .eq("tenant_id", params.tenantId)
+    .eq("template_id", params.templateId)
+    .eq("status", "DRAFT")
+    .neq("id", params.keepAuditId);
+
+  for (const row of rows || []) {
+    if (draftUserIdFromPayload(row.payload) === params.userId) {
+      await sb.from("audit_logs").delete().eq("id", row.id as string);
+    }
+  }
 }
 
 export async function POST(req: Request) {
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -65,7 +64,7 @@ export async function POST(req: Request) {
   try {
     const {
       data: { user: authUser },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
     user = authUser;
   } catch {
     return NextResponse.json(
@@ -89,104 +88,166 @@ export async function POST(req: Request) {
 
   const { tenantSlug, templateId, payload, mode, auditId } = parsed.data;
   const isDraft = mode === "draft";
+  const sb = createSupabaseWithBearer(token);
 
   try {
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
-  if (!tenant) {
-    return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-  }
+    if (te || !tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { id: true, role: true },
-  });
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+    if (me || !membership) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  if (!hasPermission(membership.role, "audit.submit")) {
-    return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
-  }
+    if (!hasPermission(membership.role, "audit.submit")) {
+      return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
+    }
 
-  const template = await prisma.formTemplate.findFirst({
-    where: { id: templateId, tenantId: tenant.id },
-    select: { id: true, ...(isDraft ? {} : { schema: true }) },
-  });
-  if (!template) {
-    return NextResponse.json({ error: "Template not found" }, { status: 404 });
-  }
+    const { data: template, error: tplErr } = await sb
+      .from("form_templates")
+      .select("id, schema")
+      .eq("id", templateId)
+      .eq("tenant_id", tenant.id)
+      .maybeSingle();
 
-  let payloadRecord = payload as Record<string, unknown>;
-  const existingTempMeta =
-    payloadRecord.__temperatureMeta && typeof payloadRecord.__temperatureMeta === "object"
-      ? (payloadRecord.__temperatureMeta as Record<string, unknown>)
-      : {};
-  const temperatureAlerts = !isDraft
-    ? collectTemperatureAlerts(template.schema as any, payloadRecord)
-    : [];
-  const temperatureMeta = {
-    ...existingTempMeta,
-    alerts: temperatureAlerts,
-    capturedAt: new Date().toISOString(),
-  };
+    if (tplErr || !template) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
 
-  const staffRows = (await prisma.$queryRawUnsafe(
-    `SELECT full_name, email FROM tenant_staff_pin WHERE tenant_id = $1::uuid AND user_id = $2::uuid LIMIT 1`,
-    tenant.id,
-    user.id
-  )) as Array<{ full_name: string; email: string }>;
-  const staffProfile = staffRows[0] || null;
+    let payloadRecord = payload as Record<string, unknown>;
+    const existingTempMeta =
+      payloadRecord.__temperatureMeta && typeof payloadRecord.__temperatureMeta === "object"
+        ? (payloadRecord.__temperatureMeta as Record<string, unknown>)
+        : {};
+    const temperatureAlerts = !isDraft ? collectTemperatureAlerts((template as { schema?: unknown }).schema as any, payloadRecord) : [];
+    const temperatureMeta = {
+      ...existingTempMeta,
+      alerts: temperatureAlerts,
+      capturedAt: new Date().toISOString(),
+    };
 
-  const actorName = staffProfile?.full_name || (user.user_metadata as any)?.full_name || user.email || "Staff";
-  const actorEmail = staffProfile?.email || user.email || "";
+    const { data: staffProfile } = await sb
+      .from("tenant_staff_pins")
+      .select("full_name, email")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-  if (isDraft) {
-    let targetDraftId: string | null = null;
+    const actorName =
+      (staffProfile as { full_name?: string } | null)?.full_name ||
+      (user.user_metadata as any)?.full_name ||
+      user.email ||
+      "Staff";
+    const actorEmail = (staffProfile as { email?: string } | null)?.email || user.email || "";
 
-    if (auditId) {
-      const existing = await prisma.auditLog.findFirst({
-        where: {
-          id: auditId,
-          tenantId: tenant.id,
-          templateId: template.id,
-          status: "DRAFT",
+    if (isDraft) {
+      let targetDraftId: string | null = null;
+
+      if (auditId) {
+        const { data: existing } = await sb
+          .from("audit_logs")
+          .select("id")
+          .eq("id", auditId)
+          .eq("tenant_id", tenant.id)
+          .eq("template_id", template.id)
+          .eq("status", "DRAFT")
+          .maybeSingle();
+        if (existing) targetDraftId = existing.id as string;
+      }
+
+      if (!targetDraftId) {
+        const { data: candidates } = await sb
+          .from("audit_logs")
+          .select("id, payload")
+          .eq("tenant_id", tenant.id)
+          .eq("template_id", template.id)
+          .eq("status", "DRAFT")
+          .order("updated_at", { ascending: false })
+          .limit(50);
+
+        const mine = (candidates || []).find((d) => draftUserIdFromPayload(d.payload) === user.id);
+        if (mine?.id) targetDraftId = mine.id as string;
+      }
+
+      const draftEvidenceAuditId = targetDraftId || auditId || `pending_${template.id}_${Date.now()}`;
+      payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, draftEvidenceAuditId);
+
+      const draftPayload = {
+        ...payloadRecord,
+        __temperatureMeta: temperatureMeta,
+        __draftMeta: {
+          userId: user.id,
+          userName: actorName,
+          userEmail: actorEmail,
         },
-        select: { id: true },
-      });
-      if (existing) targetDraftId = existing.id;
-    }
+        __auditMeta: {
+          submittedByUserId: user.id,
+          submittedByName: actorName,
+          submittedByEmail: actorEmail,
+        },
+      };
 
-    if (!targetDraftId) {
-      const mine = (await prisma.$queryRawUnsafe(
-        `SELECT id
-         FROM "AuditLog"
-         WHERE "tenantId" = $1::uuid
-           AND "templateId" = $2::uuid
-           AND status = 'DRAFT'
-           AND COALESCE(payload->'__draftMeta'->>'userId', '') = $3
-         ORDER BY "updatedAt" DESC
-         LIMIT 1`,
-        tenant.id,
-        template.id,
-        user.id
-      )) as Array<{ id: string }>;
+      let auditRow: { id: string };
+      if (targetDraftId) {
+        const { data: updated, error: upErr } = await sb
+          .from("audit_logs")
+          .update({
+            payload: draftPayload,
+            status: "DRAFT",
+            submitted_at: null,
+          })
+          .eq("id", targetDraftId)
+          .select("id")
+          .single();
+        if (upErr || !updated) {
+          return NextResponse.json({ error: upErr?.message || "Draft update failed" }, { status: 500 });
+        }
+        auditRow = updated as { id: string };
+      } else {
+        const { data: created, error: crErr } = await sb
+          .from("audit_logs")
+          .insert({
+            tenant_id: tenant.id,
+            template_id: template.id,
+            status: "DRAFT",
+            payload: draftPayload,
+            submitted_at: null,
+          })
+          .select("id")
+          .single();
+        if (crErr || !created) {
+          return NextResponse.json({ error: crErr?.message || "Draft create failed" }, { status: 500 });
+        }
+        auditRow = created as { id: string };
+      }
 
-      if (mine[0]?.id) targetDraftId = mine[0].id;
-    }
-
-    const draftEvidenceAuditId = targetDraftId || auditId || `pending_${template.id}_${Date.now()}`;
-    payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, draftEvidenceAuditId);
-
-    const draftPayload = {
-      ...payloadRecord,
-      __temperatureMeta: temperatureMeta,
-      __draftMeta: {
+      await recordActivity(sb, {
+        tenantId: tenant.id,
         userId: user.id,
-        userName: actorName,
-        userEmail: actorEmail,
-      },
+        action: "audit.saveDraft",
+        entityType: "AuditLog",
+        entityId: auditRow.id,
+        details: { templateId: template.id, hasTemperatureAlerts: temperatureAlerts.length > 0 },
+      });
+
+      return NextResponse.json({ auditId: auditRow.id, status: "DRAFT" });
+    }
+
+    const targetAuditId = auditId || `pending_${template.id}_${Date.now()}`;
+    payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, targetAuditId);
+
+    const submitPayload = {
+      ...payload,
+      __temperatureMeta: temperatureMeta,
       __auditMeta: {
         submittedByUserId: user.id,
         submittedByName: actorName,
@@ -194,138 +255,85 @@ export async function POST(req: Request) {
       },
     };
 
-    const audit = targetDraftId
-      ? await prisma.auditLog.update({
-          where: { id: targetDraftId },
-          data: {
-            payload: draftPayload,
-            status: "DRAFT",
-            submittedAt: null,
-          },
-          select: { id: true },
-        })
-      : await prisma.auditLog.create({
-          data: {
-            tenantId: tenant.id,
-            templateId: template.id,
-            status: "DRAFT",
-            payload: draftPayload,
-            submittedAt: null,
-          },
-          select: { id: true },
+    if (auditId) {
+      const { data: existing } = await sb
+        .from("audit_logs")
+        .select("id")
+        .eq("id", auditId)
+        .eq("tenant_id", tenant.id)
+        .eq("template_id", template.id)
+        .maybeSingle();
+
+      if (existing) {
+        const { data: audit, error: upErr } = await sb
+          .from("audit_logs")
+          .update({
+            payload: submitPayload,
+            status: "SUBMITTED",
+            submitted_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id as string)
+          .select("id")
+          .single();
+
+        if (upErr || !audit) {
+          return NextResponse.json({ error: upErr?.message || "Submit failed" }, { status: 500 });
+        }
+
+        await recordActivity(sb, {
+          tenantId: tenant.id,
+          userId: user.id,
+          action: "audit.submit",
+          entityType: "AuditLog",
+          entityId: audit.id as string,
+          details: { templateId: template.id, mode: "update", hasTemperatureAlerts: temperatureAlerts.length > 0 },
         });
 
-    await recordActivity({
+        await clearOtherUserDrafts(sb, {
+          tenantId: tenant.id as string,
+          templateId: template.id as string,
+          userId: user.id,
+          keepAuditId: audit.id as string,
+        });
+
+        return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
+      }
+    }
+
+    const { data: audit, error: crErr } = await sb
+      .from("audit_logs")
+      .insert({
+        tenant_id: tenant.id,
+        template_id: template.id,
+        status: "SUBMITTED",
+        payload: submitPayload,
+        submitted_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (crErr || !audit) {
+      return NextResponse.json({ error: crErr?.message || "Submit failed" }, { status: 500 });
+    }
+
+    await recordActivity(sb, {
       tenantId: tenant.id,
       userId: user.id,
-      action: "audit.saveDraft",
+      action: "audit.submit",
       entityType: "AuditLog",
-      entityId: audit.id,
-      details: { templateId: template.id, hasTemperatureAlerts: temperatureAlerts.length > 0 },
+      entityId: audit.id as string,
+      details: { templateId: template.id, mode: "create", hasTemperatureAlerts: temperatureAlerts.length > 0 },
     });
 
-    return NextResponse.json({ auditId: audit.id, status: "DRAFT" });
-  }
-
-  const targetAuditId = auditId || `pending_${template.id}_${Date.now()}`;
-  payloadRecord = await persistPhotoEvidenceToBucket(payloadRecord, tenantSlug, targetAuditId);
-
-  if (auditId) {
-    const existing = await prisma.auditLog.findFirst({
-      where: {
-        id: auditId,
-        tenantId: tenant.id,
-        templateId: template.id,
-      },
-      select: { id: true },
+    await clearOtherUserDrafts(sb, {
+      tenantId: tenant.id as string,
+      templateId: template.id as string,
+      userId: user.id,
+      keepAuditId: audit.id as string,
     });
 
-    if (existing) {
-      const audit = await prisma.auditLog.update({
-        where: { id: existing.id },
-        data: {
-          payload: {
-            ...payload,
-            __temperatureMeta: temperatureMeta,
-            __auditMeta: {
-              submittedByUserId: user.id,
-              submittedByName: actorName,
-              submittedByEmail: actorEmail,
-            },
-          },
-          status: "SUBMITTED",
-          submittedAt: new Date(),
-        },
-        select: { id: true },
-      });
-
-      await recordActivity({
-        tenantId: tenant.id,
-        userId: user.id,
-        action: "audit.submit",
-        entityType: "AuditLog",
-        entityId: audit.id,
-        details: { templateId: template.id, mode: "update", hasTemperatureAlerts: temperatureAlerts.length > 0 },
-      });
-
-      await clearOtherUserDrafts({
-        tenantId: tenant.id,
-        templateId: template.id,
-        userId: user.id,
-        keepAuditId: audit.id,
-      });
-
-      return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
-    }
-  }
-
-  const audit = await prisma.auditLog.create({
-    data: {
-      tenantId: tenant.id,
-      templateId: template.id,
-      status: "SUBMITTED",
-      payload: {
-        ...payload,
-        __temperatureMeta: temperatureMeta,
-        __auditMeta: {
-          submittedByUserId: user.id,
-          submittedByName: actorName,
-          submittedByEmail: actorEmail,
-        },
-      },
-      submittedAt: new Date(),
-    },
-    select: { id: true },
-  });
-
-  await recordActivity({
-    tenantId: tenant.id,
-    userId: user.id,
-    action: "audit.submit",
-    entityType: "AuditLog",
-    entityId: audit.id,
-    details: { templateId: template.id, mode: "create", hasTemperatureAlerts: temperatureAlerts.length > 0 },
-  });
-
-  await clearOtherUserDrafts({
-    tenantId: tenant.id,
-    templateId: template.id,
-    userId: user.id,
-    keepAuditId: audit.id,
-  });
-
-  return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
-  } catch (error: any) {
-    if (error?.code === "P2024") {
-      return NextResponse.json(
-        {
-          error: "Server is busy right now (database pool timeout). Please retry in a few seconds.",
-          code: "DB_POOL_TIMEOUT",
-        },
-        { status: 503 }
-      );
-    }
-
+    return NextResponse.json({ auditId: audit.id, status: "SUBMITTED" });
+  } catch {
     return NextResponse.json({ error: "Failed to process audit submission" }, { status: 500 });
   }
 }

@@ -68,7 +68,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               : "border-foreground/20")
           }
         >
-          Forms
+          Saved forms
         </Link>
         {caps.canSeeAdminRoutes ? (
           <Link

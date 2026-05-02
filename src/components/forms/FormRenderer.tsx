@@ -21,12 +21,16 @@ import type {
   TempField,
   DynamicTableField,
   FormSection,
+  FormStyle,
 } from "@/types/forms";
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyncQueue";
+import { isAppOffline } from "@/lib/client/appOffline";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
+import { dbClearDraft, dbGetDraft, dbPutDraft } from "@/lib/client/formsDb";
+import { dbEnqueueOutbox } from "@/lib/client/formsDb";
 
 type Props = {
   tenantSlug: string;
@@ -86,6 +90,32 @@ function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
   return {
     ...schema,
     sections,
+  };
+}
+
+function sectionColumnsClass(columns?: number) {
+  if (columns === 2) return "grid grid-cols-1 gap-4 md:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
+  if (columns === 4) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4";
+  return "grid grid-cols-1 gap-4 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]";
+}
+
+function formStyleTokens(style: FormStyle) {
+  if (style === "compact") {
+    return {
+      section: "gap-3 p-3 sm:p-4",
+      fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
+    };
+  }
+  if (style === "report") {
+    return {
+      section: "gap-4 p-5 sm:p-6",
+      fieldCard: "rounded-lg border border-foreground/20 bg-background p-3 shadow-sm",
+    };
+  }
+  return {
+    section: "gap-4 p-4 sm:p-5",
+    fieldCard: "rounded-lg border border-foreground/20 bg-background p-3 shadow-sm",
   };
 }
 
@@ -158,6 +188,14 @@ function writeLocalDraft(
   } catch {
     // ignore
   }
+
+  // Durable write (IndexedDB) – does not block UI.
+  void dbPutDraft({
+    tenantSlug,
+    templateId,
+    auditId: auditId || null,
+    payload: values as Record<string, unknown>,
+  });
 }
 
 function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string) {
@@ -166,6 +204,7 @@ function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: 
   } catch {
     // ignore
   }
+  void dbClearDraft(tenantSlug, templateId);
 }
 
 function readLocalDraft(
@@ -186,8 +225,17 @@ function readLocalDraft(
   }
 }
 
+async function readLocalDraftAsync(
+  tenantSlug: string,
+  templateId: string
+): Promise<{ ts: number; values: FormValues; auditId: string | null } | null> {
+  const row = await dbGetDraft(tenantSlug, templateId);
+  if (!row) return null;
+  return { ts: row.updatedAtLocal, values: row.payload as FormValues, auditId: row.auditId || null };
+}
+
 function isNetworkFailure(error: unknown) {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (isAppOffline()) return true;
   if (error instanceof TypeError) return true;
   return false;
 }
@@ -228,8 +276,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const hasSeenUserEditRef = useRef(false);
   const autoSaveInFlightRef = useRef(false);
   const autoSavePauseUntilRef = useRef(0);
+  const suppressLocalDraftWriteUntilRef = useRef(0);
+  const localDraftWriteTimerRef = useRef<number | null>(null);
 
   const effectiveSchema = useMemo(() => ensureDefaultPhotoEvidence(schema), [schema]);
+  const formStyle = (schema.meta?.formStyle || "default") as FormStyle;
+  const styleTokens = formStyleTokens(formStyle);
 
   const zodSchema = useMemo(() => buildZodSchema(effectiveSchema), [effectiveSchema]);
   const defaultValues = useMemo(() => buildDefaultValues(effectiveSchema), [effectiveSchema]);
@@ -269,6 +321,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     [effectiveSchema, watchedValues]
   );
 
+  function safeReset(nextValues: FormValues) {
+    // When we rehydrate drafts, `useWatch` fires and can overwrite local draft storage.
+    // Suppress local draft writes briefly to avoid clobbering server/local drafts.
+    suppressLocalDraftWriteUntilRef.current = Date.now() + 1200;
+    form.reset(nextValues);
+  }
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem("active-staff-profile:v1");
@@ -284,17 +343,34 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }, [tenantSlug]);
 
   useEffect(() => {
+    let alive = true;
+
     const local = readLocalDraft(currentUserId, tenantSlug, templateId);
-    if (!local) return;
-    if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
-    setDraftAuditId(local.auditId || null);
-    form.reset({ ...defaultValues, ...local.values });
+    if (local) {
+      if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
+      setDraftAuditId(local.auditId || null);
+      safeReset({ ...defaultValues, ...local.values });
+      return;
+    }
+
+    // Durable draft (IndexedDB) – async after mount.
+    (async () => {
+      const fromDb = await readLocalDraftAsync(tenantSlug, templateId);
+      if (!alive || !fromDb) return;
+      if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) return;
+      setDraftAuditId(fromDb.auditId || null);
+      safeReset({ ...defaultValues, ...fromDb.values });
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [defaultValues, form, templateId, tenantSlug, currentUserId, initialAuditId]);
 
   useEffect(() => {
     const accessToken = session?.access_token;
     if (!accessToken || !tenantSlug || !templateId) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (isAppOffline()) return;
 
     const local = readLocalDraft(currentUserId, tenantSlug, templateId);
     if (local && shouldSkipDraftFetch(currentUserId, tenantSlug, templateId, 5 * 60_000)) {
@@ -338,7 +414,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
           if (shouldAdoptServerDraft) {
             setDraftAuditId(data.draft.id);
-            form.reset({ ...defaultValues, ...data.draft.payload });
+            safeReset({ ...defaultValues, ...data.draft.payload });
             writeLocalDraft(currentUserId, tenantSlug, templateId, data.draft.payload, data.draft.id);
           }
 
@@ -368,6 +444,32 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       controller?.abort();
     };
   }, [defaultValues, form, session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
+
+  // Persist local draft quickly on edits (helps when mobile camera/file picker reloads the page).
+  useEffect(() => {
+    if (isLoadingDraft) return;
+    if (!tenantSlug || !templateId) return;
+    if (!currentUserId && !session?.access_token) return;
+    if (!form.formState.isDirty) return;
+    if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+
+    if (localDraftWriteTimerRef.current !== null) {
+      window.clearTimeout(localDraftWriteTimerRef.current);
+      localDraftWriteTimerRef.current = null;
+    }
+
+    localDraftWriteTimerRef.current = window.setTimeout(() => {
+      const values = form.getValues();
+      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId);
+    }, 350);
+
+    return () => {
+      if (localDraftWriteTimerRef.current !== null) {
+        window.clearTimeout(localDraftWriteTimerRef.current);
+        localDraftWriteTimerRef.current = null;
+      }
+    };
+  }, [watchedValues, isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token]);
 
   async function persistAudit(
     values: FormValues,
@@ -487,6 +589,15 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         mode,
         auditId: draftAuditId ?? undefined,
       });
+
+      // Durable outbox copy (IndexedDB) so refresh/localStorage cleanup won't lose queued work.
+      void dbEnqueueOutbox({
+        tenantSlug,
+        templateId,
+        mode,
+        auditId: draftAuditId ?? undefined,
+        payload: payloadWithMeta,
+      });
       if (!silent) {
         setNotification({
           title: mode === "draft" ? "Draft saved locally" : "Submission queued",
@@ -569,7 +680,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   return (
     <form
       onSubmit={form.handleSubmit(onSubmit)}
-      className="flex flex-col gap-6 rounded-xl border border-foreground/20 bg-background p-4 shadow-sm sm:p-6"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-6 rounded-xl border border-foreground/20 bg-background p-4 shadow-sm sm:p-6"
     >
       {isLoadingDraft ? (
         <div className="flex items-center gap-2 rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 py-2 text-sm text-foreground/70">
@@ -610,20 +721,27 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       {visibleSections.map((section, idx) => {
         if (section.type === "fields") {
           return (
-            <div key={`fields-${idx}`} className="flex flex-col gap-4 rounded-lg border border-foreground/15 bg-background p-4 sm:p-5">
+            <div
+              key={`fields-${idx}`}
+              className={`flex flex-col rounded-lg border border-foreground/15 bg-background ${styleTokens.section}`}
+            >
               {section.title ? (
                 section.title.trim().toLowerCase() !== "fields" ? (
-                  <div className="text-sm font-semibold text-foreground/80">{section.title}</div>
+                  <div className="flex items-center justify-between gap-3 border-b border-foreground/10 pb-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                      {section.title}
+                    </div>
+                  </div>
                 ) : null
               ) : null}
-              <div className="grid grid-cols-1 gap-4 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+              <div className={sectionColumnsClass(section.columns)}>
                 {section.fields.map((field) => (
                   <div
                     key={field.id}
                     className={
-                      field.type === "dynamic-table"
-                        ? "md:[grid-column:1/-1]"
-                        : ""
+                      field.type === "dynamic-table" || field.type === "photo" || field.type === "signature"
+                        ? `md:[grid-column:1/-1] ${styleTokens.fieldCard}`
+                        : styleTokens.fieldCard
                     }
                   >
                     <Field
@@ -645,6 +763,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
             <GridField
               key={`grid-${key}-${idx}`}
               grid={section}
+              formStyle={formStyle}
               name={key}
               control={form.control}
               register={form.register}
@@ -825,6 +944,28 @@ function Field({
           className="h-6 w-6 accent-foreground"
           {...register(field.id)}
         />
+        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  if (field.type === "yesno") {
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-medium" htmlFor={field.id}>
+          {field.label}
+          {field.required ? <span className="ml-1">*</span> : null}
+        </label>
+        <select
+          id={field.id}
+          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          {...register(field.id)}
+        >
+          <option value="">Select…</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+        {field.helpText ? <p className="text-sm text-foreground/70">{field.helpText}</p> : null}
         {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
       </div>
     );

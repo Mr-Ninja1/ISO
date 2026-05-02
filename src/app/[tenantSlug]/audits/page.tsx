@@ -1,15 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { ssrAuditRowsForTenant, ssrTenantBySlug } from "@/lib/data/ssrQueries";
 import { RefreshPageButton } from "@/components/RefreshPageButton";
 import { AuditsListClient } from "@/components/forms/AuditsListClient";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
-
-function isDatabaseUnavailable(error: unknown) {
-  const message = String((error as any)?.message || "");
-  const code = (error as any)?.code;
-  return code === "P2024" || /Can't reach database server|timed out|connection pool timeout|server is unreachable/i.test(message);
-}
+import { AdminBackButton } from "@/components/forms/AdminBackButton";
 
 export default async function AuditsPage({
   params,
@@ -29,16 +24,7 @@ export default async function AuditsPage({
       }
     | null = null;
 
-  try {
-    tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true, slug: true, name: true },
-    });
-  } catch (error) {
-    if (!isDatabaseUnavailable(error)) {
-      throw error;
-    }
-  }
+  tenant = await ssrTenantBySlug(tenantSlug);
 
   if (!tenant) {
     if (!tenantSlug) notFound();
@@ -85,56 +71,7 @@ export default async function AuditsPage({
     template: { title: string };
   }> = [];
 
-  try {
-    rows = await prisma.auditLog.findMany({
-      where: {
-        tenantId: tenant.id,
-      },
-      orderBy: [{ updatedAt: "desc" }],
-      take: 250,
-      select: {
-        id: true,
-        status: true,
-        templateId: true,
-        createdAt: true,
-        updatedAt: true,
-        submittedAt: true,
-        template: {
-          select: { title: true },
-        },
-      },
-    });
-  } catch (error: any) {
-    if (isDatabaseUnavailable(error)) {
-      return (
-        <div className="flex flex-col gap-4">
-          <FeatureSyncNotice
-            title="Saved forms are live-sync data"
-            message="The app could not reach the database right now, but this device will still use any cached saved forms. To see new submissions from other devices, reconnect so the app can sync again."
-            tone="warning"
-          />
-          <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            Stored forms are temporarily unavailable because the database is busy.
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Link href={`/${tenant.slug}/audits/local`} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
-              Open offline queued forms
-            </Link>
-            <Link href={`/${tenant.slug}/templates`} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
-              Run cached form
-            </Link>
-          </div>
-          <AuditsListClient
-            tenantSlug={tenant.slug}
-            initialStatus="ALL"
-            initialQuery=""
-            rows={[]}
-          />
-        </div>
-      );
-    }
-    throw error;
-  }
+  rows = await ssrAuditRowsForTenant(tenant.id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -143,7 +80,7 @@ export default async function AuditsPage({
           <h2 className="text-xl font-semibold">Stored forms</h2>
           <p className="text-sm text-foreground/70">Draft and submitted records across devices for {tenant.name}.</p>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-5 sm:items-center">
           <RefreshPageButton label="Pull to refresh" />
           <Link
             href={`/${tenant.slug}/audits/local`}
@@ -157,6 +94,7 @@ export default async function AuditsPage({
           >
             Last offline report
           </Link>
+          <AdminBackButton tenantSlug={tenant.slug} />
           <Link
             href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`}
             className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"

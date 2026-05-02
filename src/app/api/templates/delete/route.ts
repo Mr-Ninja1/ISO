@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { getTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -39,57 +39,67 @@ export async function POST(req: Request) {
     if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
     const { tenantSlug, templateId } = parsed.data;
+    const sb = createSupabaseWithBearer(token);
 
-    const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { role: true },
-    });
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (!hasPermission(membership.role, "forms.delete")) {
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
-    const current = await prisma.formTemplate.findFirst({
-      where: { id: templateId, tenantId: tenant.id },
-      select: { id: true, schema: true },
-    });
-    if (!current) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    const { data: current, error: ce } = await sb
+      .from("form_templates")
+      .select("id, schema")
+      .eq("id", templateId)
+      .eq("tenant_id", tenant.id)
+      .maybeSingle();
+
+    if (ce || !current) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
     const currentMeta = getTemplateSchemaMeta(current.schema);
-    const lineageId = currentMeta.lineageId || current.id;
+    const lineageId = currentMeta.lineageId || (current.id as string);
 
-    const allTenantTemplates = await prisma.formTemplate.findMany({
-      where: { tenantId: tenant.id },
-      select: { id: true, schema: true },
-    });
+    const { data: allTenantTemplates } = await sb.from("form_templates").select("id, schema").eq("tenant_id", tenant.id);
 
-    const lineageTemplateIds = allTenantTemplates
+    const lineageTemplateIds = (allTenantTemplates || [])
       .filter((t) => {
         const meta = getTemplateSchemaMeta(t.schema);
         return (meta.lineageId || t.id) === lineageId;
       })
-      .map((t) => t.id);
+      .map((t) => t.id as string);
 
-    const auditCount = await prisma.auditLog.count({
-      where: { tenantId: tenant.id, templateId: { in: lineageTemplateIds } },
-    });
+    let auditTotal = 0;
+    for (const tid of lineageTemplateIds) {
+      const { count } = await sb
+        .from("audit_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenant.id)
+        .eq("template_id", tid);
+      auditTotal += count ?? 0;
+    }
 
-    if (auditCount > 0) {
+    if (auditTotal > 0) {
       return NextResponse.json(
         { error: "Cannot delete this form because it has submissions. Archive/hide fields instead." },
         { status: 409 }
       );
     }
 
-    await prisma.formTemplate.deleteMany({
-      where: { tenantId: tenant.id, id: { in: lineageTemplateIds } },
-    });
+    for (const id of lineageTemplateIds) {
+      await sb.from("form_templates").delete().eq("id", id);
+    }
 
-    await recordActivity({
+    await recordActivity(sb, {
       tenantId: tenant.id,
       userId: user.id,
       action: "template.delete",
@@ -99,8 +109,9 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ deleted: lineageTemplateIds.length });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("/api/templates/delete POST error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

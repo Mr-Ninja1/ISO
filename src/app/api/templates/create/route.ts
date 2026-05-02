@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { normalizeTemplateSchema, withTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabase = createClient(
+    const supabaseAuth = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -43,79 +43,90 @@ export async function POST(req: Request) {
     }
 
     const { tenantSlug, title, categoryId, schema } = parsed.data;
+    const sb = createSupabaseWithBearer(token);
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true, role: true },
-    });
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (!hasPermission(membership.role, "forms.create")) {
       return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
     }
 
     if (categoryId) {
-      const category = await prisma.category.findFirst({
-        where: { id: categoryId, tenantId: tenant.id },
-        select: { id: true },
-      });
+      const { data: category } = await sb
+        .from("categories")
+        .select("id")
+        .eq("id", categoryId)
+        .eq("tenant_id", tenant.id)
+        .maybeSingle();
+
       if (!category) {
         return NextResponse.json({ error: "Category not found" }, { status: 404 });
       }
     }
 
-    let normalized;
+    let normalized: Record<string, unknown>;
     try {
-      normalized = normalizeTemplateSchema(schema, title);
-    } catch (e: any) {
-      return NextResponse.json({ error: e?.message || "Invalid schema" }, { status: 400 });
+      normalized = normalizeTemplateSchema(schema, title) as Record<string, unknown>;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Invalid schema";
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      const first = await tx.formTemplate.create({
-        data: {
-          tenantId: tenant.id,
-          categoryId: categoryId ?? null,
-          title,
-          isStandard: false,
-          schema: normalized,
-        },
-        select: { id: true, schema: true },
-      });
+    const { data: first, error: insErr } = await sb
+      .from("form_templates")
+      .insert({
+        tenant_id: tenant.id,
+        category_id: categoryId ?? null,
+        title,
+        is_standard: false,
+        schema: normalized,
+      })
+      .select("id, schema")
+      .single();
 
-      const schemaWithMeta = withTemplateSchemaMeta(first.schema, {
-        lineageId: first.id,
+    if (insErr || !first) {
+      return NextResponse.json({ error: insErr?.message || "Create failed" }, { status: 500 });
+    }
+
+    const schemaWithMeta = withTemplateSchemaMeta(
+      first.schema,
+      {
+        lineageId: first.id as string,
         templateVersion: 1,
         isLive: true,
-      }, title);
+      },
+      title
+    );
 
-      await tx.formTemplate.update({
-        where: { id: first.id },
-        data: { schema: schemaWithMeta },
-      });
+    const { error: upErr } = await sb.from("form_templates").update({ schema: schemaWithMeta }).eq("id", first.id as string);
 
-      return { id: first.id };
-    });
+    if (upErr) {
+      return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
 
-    await recordActivity({
+    await recordActivity(sb, {
       tenantId: tenant.id,
       userId: user.id,
       action: "template.create",
       entityType: "FormTemplate",
-      entityId: created.id,
+      entityId: first.id as string,
       details: { title, categoryId: categoryId ?? null },
     });
 
-    return NextResponse.json({ templateId: created.id });
-  } catch (error: any) {
+    return NextResponse.json({ templateId: first.id });
+  } catch (error: unknown) {
     console.error("/api/templates/create POST error", error);
-    return NextResponse.json({ error: error?.message || "Server error" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

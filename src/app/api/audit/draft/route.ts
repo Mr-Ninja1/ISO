@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -10,19 +10,21 @@ function getBearerToken(req: Request) {
   return match?.[1] || null;
 }
 
-const querySchema = z.object({
-  tenantSlug: z.string().min(1),
-  templateId: z.string().uuid().optional(),
-  auditId: z.string().uuid().optional(),
-}).refine((v) => Boolean(v.templateId || v.auditId), {
-  message: "templateId or auditId is required",
-});
+const querySchema = z
+  .object({
+    tenantSlug: z.string().min(1),
+    templateId: z.string().uuid().optional(),
+    auditId: z.string().uuid().optional(),
+  })
+  .refine((v) => Boolean(v.templateId || v.auditId), {
+    message: "templateId or auditId is required",
+  });
 
 function draftUserIdFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const meta = (payload as Record<string, any>).__draftMeta;
+  const meta = (payload as Record<string, unknown>).__draftMeta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
-  const userId = (meta as Record<string, any>).userId;
+  const userId = (meta as Record<string, unknown>).userId;
   return typeof userId === "string" && userId ? userId : null;
 }
 
@@ -30,7 +32,7 @@ export async function GET(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -38,7 +40,7 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -54,72 +56,69 @@ export async function GET(req: Request) {
   }
 
   const { tenantSlug, templateId, auditId } = parsed.data;
+  const sb = createSupabaseWithBearer(token);
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { id: true, role: true },
-  });
-  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!hasPermission(membership.role, "audit.saveDraft")) {
     return NextResponse.json({ error: "Insufficient role permissions" }, { status: 403 });
   }
 
-  let mine:
-    | {
-        id: string;
-        payload: unknown;
-        updatedAt: Date;
-      }
-    | undefined;
+  let mine: { id: string; payload: unknown; updatedAt: string } | undefined;
 
   if (auditId) {
-    const exact = await prisma.auditLog.findFirst({
-      where: {
-        id: auditId,
-        tenantId: tenant.id,
-        status: "DRAFT",
-        ...(templateId ? { templateId } : {}),
-      },
-      select: {
-        id: true,
-        payload: true,
-        updatedAt: true,
-      },
-    });
-
+    let q = sb
+      .from("audit_logs")
+      .select("id, payload, updated_at")
+      .eq("id", auditId)
+      .eq("tenant_id", tenant.id)
+      .eq("status", "DRAFT");
+    if (templateId) q = q.eq("template_id", templateId);
+    const { data: exact } = await q.maybeSingle();
     if (exact) {
-      mine = exact;
+      const row = exact as { id: string; payload: unknown; updated_at: string };
+      mine = { id: row.id, payload: row.payload, updatedAt: row.updated_at };
     }
   }
 
   if (!mine && templateId) {
-    const candidates = await prisma.auditLog.findMany({
-      where: {
-        tenantId: tenant.id,
-        templateId,
-        status: "DRAFT",
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        payload: true,
-        updatedAt: true,
-      },
-    });
+    const { data: candidates } = await sb
+      .from("audit_logs")
+      .select("id, payload, updated_at")
+      .eq("tenant_id", tenant.id)
+      .eq("template_id", templateId)
+      .eq("status", "DRAFT")
+      .order("updated_at", { ascending: false })
+      .limit(50);
 
-    mine = candidates.find((d) => draftUserIdFromPayload(d.payload) === user.id);
+    const row = (candidates || []).find((d) => draftUserIdFromPayload(d.payload) === user.id);
+    if (row) {
+      mine = {
+        id: row.id as string,
+        payload: row.payload,
+        updatedAt: row.updated_at as string,
+      };
+    }
   }
+
   if (!mine) {
     return NextResponse.json({ draft: null });
   }
 
-  const payload = mine.payload && typeof mine.payload === "object" && !Array.isArray(mine.payload)
-    ? { ...(mine.payload as Record<string, unknown>) }
-    : {};
+  const payload =
+    mine.payload && typeof mine.payload === "object" && !Array.isArray(mine.payload)
+      ? { ...(mine.payload as Record<string, unknown>) }
+      : {};
 
   delete (payload as Record<string, unknown>).__draftMeta;
 

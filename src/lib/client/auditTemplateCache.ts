@@ -1,6 +1,7 @@
 "use client";
 
 import type { FormSchemaV1 } from "@/types/forms";
+import { dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 
 export type AuditTemplatePayload = {
   tenant: {
@@ -56,6 +57,25 @@ export function readAuditTemplateCache(tenantSlug: string, templateId: string): 
   }
 }
 
+/** IndexedDB read (durable). Use after mount (async). */
+export async function readAuditTemplateCacheAsync(tenantSlug: string, templateId: string): Promise<AuditTemplatePayload | null> {
+  try {
+    const row = await dbGetTemplate(tenantSlug, templateId);
+    if (!row) return null;
+    return {
+      tenant: { slug: tenantSlug, name: row.tenantName, logoUrl: row.tenantLogoUrl ?? null },
+      template: {
+        id: templateId,
+        title: row.title,
+        schema: row.schema,
+        updatedAt: row.updatedAt,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function writeAuditTemplateCache(tenantSlug: string, templateId: string, data: AuditTemplatePayload) {
   try {
     const payload: CacheEnvelope = { ts: Date.now(), data };
@@ -63,4 +83,15 @@ export function writeAuditTemplateCache(tenantSlug: string, templateId: string, 
   } catch {
     // ignore local storage quota errors
   }
+
+  // Best-effort durable write; does not block UI.
+  void dbPutTemplate({
+    tenantSlug,
+    templateId,
+    updatedAt: data.template.updatedAt,
+    title: data.template.title,
+    schema: data.template.schema as FormSchemaV1,
+    tenantName: data.tenant.name,
+    tenantLogoUrl: data.tenant.logoUrl ?? null,
+  });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -25,26 +25,15 @@ export async function POST(req: Request) {
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
-      console.error("Missing Supabase env for tenant creation", {
-        supabaseUrl: !!supabaseUrl,
-        supabaseAnonKey: !!supabaseAnonKey,
-      });
-      return NextResponse.json(
-        { error: "Supabase environment variables are not configured." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Supabase environment variables are not configured." }, { status: 500 });
     }
 
-    const supabase = createClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      { auth: { persistSession: false } }
-    );
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false } });
 
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAuth.auth.getUser(token);
 
     if (userError) {
       console.warn("/api/tenants/create: supabase getUser error", userError.message);
@@ -54,7 +43,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Generate slug from name (lowercase, replace spaces with hyphens)
+    const svc = createServiceRoleSupabase();
+    if (!svc) {
+      return NextResponse.json(
+        {
+          error:
+            "SUPABASE_SERVICE_ROLE_KEY is not set. Brand creation requires the service role on the server.",
+        },
+        { status: 500 }
+      );
+    }
+
     let slug = name
       .toLowerCase()
       .trim()
@@ -65,32 +64,34 @@ export async function POST(req: Request) {
       slug = `brand-${Math.random().toString(36).slice(2, 8)}`;
     }
 
-    // Ensure slug is unique
     let attempt = 0;
     let uniqueSlug = slug;
     while (attempt < 10) {
-      const existing = await prisma.tenant.findUnique({ where: { slug: uniqueSlug } });
+      const { data: existing } = await svc.from("tenants").select("id").eq("slug", uniqueSlug).maybeSingle();
       if (!existing) break;
       uniqueSlug = `${slug}-${++attempt}`;
     }
 
-    // Create tenant
-    const tenant = await prisma.tenant.create({
-      data: {
-        name,
-        slug: uniqueSlug,
-        members: {
-          create: {
-            userId: user.id,
-            role: "ADMIN",
-          },
-        },
-      },
+    const { data: tenant, error: tenantErr } = await svc.from("tenants").insert({ name, slug: uniqueSlug }).select("id, slug").single();
+
+    if (tenantErr || !tenant) {
+      return NextResponse.json({ error: tenantErr?.message || "Failed to create tenant" }, { status: 500 });
+    }
+
+    const { error: memberErr } = await svc.from("tenant_members").insert({
+      tenant_id: tenant.id,
+      user_id: user.id,
+      role: "ADMIN",
     });
 
+    if (memberErr) {
+      await svc.from("tenants").delete().eq("id", tenant.id);
+      return NextResponse.json({ error: memberErr.message }, { status: 500 });
+    }
+
     return NextResponse.json({ slug: tenant.slug, tenantId: tenant.id });
-  } catch (error: any) {
-    console.error("Error creating tenant:", error);
-    return NextResponse.json({ error: error.message || "Failed to create tenant" }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Failed to create tenant";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

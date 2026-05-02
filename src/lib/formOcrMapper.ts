@@ -1,4 +1,4 @@
-import type { FieldDef, FieldType, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
+import type { FieldDef, FieldType, FieldsSection, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
 
 type AzureWord = { content?: string };
 type AzureCell = { rowIndex?: number; columnIndex?: number; content?: string };
@@ -159,14 +159,31 @@ export function mapAzureAnalyzeResultToSchema(result: AzureAnalyzeResult) {
   });
 
   const sections: FormSection[] = [];
-  if (topFields.length) sections.push({ type: "fields", title: "Fields", fields: topFields });
+  if (topFields.length) {
+    const topSection: FieldsSection = {
+      type: "fields",
+      title: "Fields",
+      fields: topFields,
+      columns: topFields.length >= 4 ? 2 : 1,
+    };
+    sections.push(topSection);
+  }
   if (table) sections.push(table);
-  if (footerFields.length) sections.push({ type: "fields", title: "Footer", fields: footerFields });
+  if (footerFields.length) {
+    const footerSection: FieldsSection = {
+      type: "fields",
+      title: "Footer",
+      fields: footerFields,
+      columns: footerFields.length >= 4 ? 2 : 1,
+    };
+    sections.push(footerSection);
+  }
 
   if (!sections.length) {
     sections.push({
       type: "fields",
       title: "Fields",
+      columns: 1,
       fields: [
         { id: makeId("text", 1), type: "text", label: "Field 1", required: false },
         { id: makeId("text", 2), type: "text", label: "Field 2", required: false },

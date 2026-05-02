@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 
 type TemplateItem = {
   id: string;
@@ -74,6 +75,7 @@ export function TemplateManagementPanel({
       }
 
       setMessage("Form deleted.");
+      requestWorkspaceRevalidate(tenantSlug);
       router.refresh();
     } catch (err: any) {
       const msg = String(err?.message || "");

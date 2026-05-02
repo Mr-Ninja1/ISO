@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hashPin } from "@/lib/staffPin";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
@@ -104,16 +105,18 @@ async function ensureSupabaseUserForEmail(email: string, password: string) {
   };
 }
 
-async function resolveAdminTenant(tenantSlug: string, userId: string) {
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true, slug: true } });
-  if (!tenant) return { error: NextResponse.json({ error: "Tenant not found" }, { status: 404 }) };
+async function resolveAdminTenant(sb: SupabaseClient, tenantSlug: string, userId: string) {
+  const { data: tenant, error: te } = await sb.from("tenants").select("id, slug").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) return { error: NextResponse.json({ error: "Tenant not found" }, { status: 404 }) };
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId },
-    select: { role: true },
-  });
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  if (!membership || !hasPermission(membership.role, "staff.manage")) {
+  if (me || !membership || !hasPermission(membership.role, "staff.manage")) {
     return { error: NextResponse.json({ error: "Staff management access required" }, { status: 403 }) };
   }
 
@@ -154,30 +157,31 @@ export async function GET(req: Request) {
     const tenantSlug = (url.searchParams.get("tenantSlug") || "").trim();
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
 
-    const adminTenant = await resolveAdminTenant(tenantSlug, user.id);
+    const sb = createSupabaseWithBearer(token);
+    const adminTenant = await resolveAdminTenant(sb, tenantSlug, user.id);
     if (adminTenant.error) return adminTenant.error;
 
-    const members = await prisma.tenantMember.findMany({
-      where: { tenantId: adminTenant.tenant.id },
-      orderBy: [{ createdAt: "asc" }],
-      select: { userId: true, role: true },
-    });
+    const { data: members } = await sb
+      .from("tenant_members")
+      .select("user_id, role")
+      .eq("tenant_id", adminTenant.tenant.id)
+      .order("created_at", { ascending: true });
 
-    const pinRows = await prisma.tenantStaffPin.findMany({
-      where: { tenantId: adminTenant.tenant.id },
-      select: { userId: true, email: true, fullName: true, pinHash: true },
-    });
+    const { data: pinRows } = await sb
+      .from("tenant_staff_pins")
+      .select("user_id, email, full_name, pin_hash")
+      .eq("tenant_id", adminTenant.tenant.id);
 
-    const pinByUserId = new Map(pinRows.map((r) => [r.userId, r]));
+    const pinByUserId = new Map((pinRows || []).map((r) => [r.user_id as string, r]));
 
-    const list = members.map((m) => {
-      const pin = pinByUserId.get(m.userId);
+    const list = (members || []).map((m) => {
+      const pin = pinByUserId.get(m.user_id as string);
       return {
-        userId: m.userId,
-        role: m.role,
-        email: pin?.email || "",
-        fullName: pin?.fullName || "",
-        hasPassword: Boolean(pin?.pinHash),
+        userId: m.user_id as string,
+        role: m.role as string,
+        email: (pin?.email as string) || "",
+        fullName: (pin?.full_name as string) || "",
+        hasPassword: Boolean(pin?.pin_hash),
       };
     });
 
@@ -205,20 +209,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Staff name is required" }, { status: 400 });
     }
 
-    const adminTenant = await resolveAdminTenant(tenantSlug, user.id);
+    const sb = createSupabaseWithBearer(token);
+    const adminTenant = await resolveAdminTenant(sb, tenantSlug, user.id);
     if (adminTenant.error) return adminTenant.error;
 
     const target = await ensureSupabaseUserForEmail(email, password);
 
-    const existingMembership = await prisma.tenantMember.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId: target.userId,
-        },
-      },
-      select: { role: true },
-    });
+    const { data: existingMembership } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", adminTenant.tenant.id)
+      .eq("user_id", target.userId)
+      .maybeSingle();
 
     if (existingMembership?.role === "ADMIN") {
       return NextResponse.json(
@@ -227,43 +229,31 @@ export async function POST(req: Request) {
       );
     }
 
-    await prisma.tenantMember.upsert({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId: target.userId,
-        },
-      },
-      update: { role: role || "MEMBER" },
-      create: {
-        tenantId: adminTenant.tenant.id,
-        userId: target.userId,
+    const { error: memErr } = await sb.from("tenant_members").upsert(
+      {
+        tenant_id: adminTenant.tenant.id,
+        user_id: target.userId,
         role: role || "MEMBER",
       },
-    });
+      { onConflict: "tenant_id,user_id" }
+    );
 
-    await prisma.tenantStaffPin.upsert({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId: target.userId,
-        },
-      },
-      update: {
-        email: target.normalizedEmail,
-        fullName: normalizedFullName,
-        pinHash: hashPin(password),
-      },
-      create: {
-        tenantId: adminTenant.tenant.id,
-        userId: target.userId,
-        email: target.normalizedEmail,
-        fullName: normalizedFullName,
-        pinHash: hashPin(password),
-      },
-    });
+    if (memErr) return NextResponse.json({ error: memErr.message }, { status: 500 });
 
-    await recordActivity({
+    const { error: pinErr } = await sb.from("tenant_staff_pins").upsert(
+      {
+        tenant_id: adminTenant.tenant.id,
+        user_id: target.userId,
+        email: target.normalizedEmail,
+        full_name: normalizedFullName,
+        pin_hash: hashPin(password),
+      },
+      { onConflict: "tenant_id,user_id" }
+    );
+
+    if (pinErr) return NextResponse.json({ error: pinErr.message }, { status: 500 });
+
+    await recordActivity(sb, {
       tenantId: adminTenant.tenant.id,
       userId: user.id,
       action: "staff.upsert",
@@ -298,18 +288,16 @@ export async function DELETE(req: Request) {
     if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
     const { tenantSlug, userId } = parsed.data;
-    const adminTenant = await resolveAdminTenant(tenantSlug, user.id);
+    const sb = createSupabaseWithBearer(token);
+    const adminTenant = await resolveAdminTenant(sb, tenantSlug, user.id);
     if (adminTenant.error) return adminTenant.error;
 
-    const membership = await prisma.tenantMember.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId,
-        },
-      },
-      select: { role: true },
-    });
+    const { data: membership } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", adminTenant.tenant.id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
     if (!membership) {
       return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
@@ -319,19 +307,13 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Admin accounts cannot be removed here" }, { status: 409 });
     }
 
-    await prisma.$transaction([
-      prisma.tenantMember.delete({
-        where: {
-          tenantId_userId: {
-            tenantId: adminTenant.tenant.id,
-            userId,
-          },
-        },
-      }),
-      prisma.tenantStaffPin.deleteMany({ where: { tenantId: adminTenant.tenant.id, userId } }),
-    ]);
+    await sb.from("tenant_staff_pins").delete().eq("tenant_id", adminTenant.tenant.id).eq("user_id", userId);
 
-    await recordActivity({
+    const { error: delMemErr } = await sb.from("tenant_members").delete().eq("tenant_id", adminTenant.tenant.id).eq("user_id", userId);
+
+    if (delMemErr) return NextResponse.json({ error: delMemErr.message }, { status: 500 });
+
+    await recordActivity(sb, {
       tenantId: adminTenant.tenant.id,
       userId: user.id,
       action: "staff.remove",
@@ -364,18 +346,16 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "No update fields provided" }, { status: 400 });
     }
 
-    const adminTenant = await resolveAdminTenant(tenantSlug, user.id);
+    const sb = createSupabaseWithBearer(token);
+    const adminTenant = await resolveAdminTenant(sb, tenantSlug, user.id);
     if (adminTenant.error) return adminTenant.error;
 
-    const membership = await prisma.tenantMember.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId,
-        },
-      },
-      select: { role: true },
-    });
+    const { data: membership } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", adminTenant.tenant.id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
     if (!membership) return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
     if (membership.role === "ADMIN") {
@@ -383,30 +363,20 @@ export async function PATCH(req: Request) {
     }
 
     if (role) {
-      await prisma.tenantMember.update({
-        where: {
-          tenantId_userId: {
-            tenantId: adminTenant.tenant.id,
-            userId,
-          },
-        },
-        data: { role },
-      });
+      const { error: roleErr } = await sb.from("tenant_members").update({ role }).eq("tenant_id", adminTenant.tenant.id).eq("user_id", userId);
+      if (roleErr) return NextResponse.json({ error: roleErr.message }, { status: 500 });
     }
 
     const normalizedEmail = email?.trim().toLowerCase();
-    const pinRow = await prisma.tenantStaffPin.findUnique({
-      where: {
-        tenantId_userId: {
-          tenantId: adminTenant.tenant.id,
-          userId,
-        },
-      },
-      select: { email: true, fullName: true, pinHash: true },
-    });
+    const { data: pinRow } = await sb
+      .from("tenant_staff_pins")
+      .select("email, full_name, pin_hash")
+      .eq("tenant_id", adminTenant.tenant.id)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    const nextEmail = normalizedEmail || pinRow?.email;
-    const nextFullName = fullName?.trim() || pinRow?.fullName;
+    const nextEmail = normalizedEmail || (pinRow?.email as string | undefined);
+    const nextFullName = fullName?.trim() || (pinRow?.full_name as string | undefined);
     if ((password || normalizedEmail) && !nextEmail) {
       return NextResponse.json({ error: "Email is required to save credentials" }, { status: 400 });
     }
@@ -415,31 +385,23 @@ export async function PATCH(req: Request) {
     }
 
     if (password || normalizedEmail || fullName) {
-      const nextPinHash = password ? hashPin(password) : pinRow?.pinHash;
+      const nextPinHash = password ? hashPin(password) : (pinRow?.pin_hash as string | undefined);
       if (!nextPinHash) {
         return NextResponse.json({ error: "Password is required for this staff member" }, { status: 400 });
       }
 
-      await prisma.tenantStaffPin.upsert({
-        where: {
-          tenantId_userId: {
-            tenantId: adminTenant.tenant.id,
-            userId,
-          },
-        },
-        update: {
+      const { error: pinUpErr } = await sb.from("tenant_staff_pins").upsert(
+        {
+          tenant_id: adminTenant.tenant.id,
+          user_id: userId,
           email: nextEmail!,
-          fullName: nextFullName!,
-          pinHash: nextPinHash,
+          full_name: nextFullName!,
+          pin_hash: nextPinHash,
         },
-        create: {
-          tenantId: adminTenant.tenant.id,
-          userId,
-          email: nextEmail!,
-          fullName: nextFullName!,
-          pinHash: nextPinHash,
-        },
-      });
+        { onConflict: "tenant_id,user_id" }
+      );
+
+      if (pinUpErr) return NextResponse.json({ error: pinUpErr.message }, { status: 500 });
     }
 
     if (password || normalizedEmail) {
@@ -457,7 +419,7 @@ export async function PATCH(req: Request) {
       }
     }
 
-    await recordActivity({
+    await recordActivity(sb, {
       tenantId: adminTenant.tenant.id,
       userId: user.id,
       action: "staff.update",

@@ -5,6 +5,8 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { createClient } from "@/lib/auth";
+import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
@@ -16,6 +18,9 @@ import {
   writeAuditTemplateCache,
 } from "@/lib/client/auditTemplateCache";
 import { writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
+import { isAppOffline } from "@/lib/client/appOffline";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { dbGetDraft } from "@/lib/client/formsDb";
 
 type TenantSummary = {
   id: string;
@@ -41,6 +46,8 @@ type TemplateSummary = {
     temperatureAlertBelow?: number;
     temperatureAlertAbove?: number;
     temperatureUnit?: "C" | "F";
+    cardIcon?: string;
+    cardColor?: string;
   };
 };
 
@@ -65,6 +72,46 @@ type WorkspaceCacheEnvelope = {
 };
 
 const RECENT_TEMPLATES_LIMIT = 6;
+type WorkspaceTheme = "default" | "slate-soft" | "warm-paper" | "mint-soft";
+const THEME_STORAGE_KEY = "iso-theme-v1";
+
+function templateCardClasses(color: string | undefined) {
+  switch (color) {
+    case "emerald":
+      return "border-emerald-300/70 bg-emerald-50/70 hover:bg-emerald-100/60";
+    case "amber":
+      return "border-amber-300/70 bg-amber-50/70 hover:bg-amber-100/60";
+    case "sky":
+      return "border-sky-300/70 bg-sky-50/70 hover:bg-sky-100/60";
+    case "violet":
+      return "border-violet-300/70 bg-violet-50/70 hover:bg-violet-100/60";
+    case "rose":
+      return "border-rose-300/70 bg-rose-50/70 hover:bg-rose-100/60";
+    default:
+      return "border-foreground/20 bg-background hover:bg-foreground/5";
+  }
+}
+
+function templateIconGlyph(icon: string | undefined) {
+  switch (icon) {
+    case "checklist":
+      return "✅";
+    case "safety":
+      return "🛡️";
+    case "cleaning":
+      return "🧹";
+    case "inventory":
+      return "📦";
+    case "staff":
+      return "👥";
+    case "food":
+      return "🍽️";
+    case "temperature":
+      return "🌡️";
+    default:
+      return "📋";
+  }
+}
 
 function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
   return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
@@ -98,6 +145,42 @@ function writeWorkspaceCache(userId: string | null, tenantSlug: string, category
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
     localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
+
+    // Keep category tabs consistent across cached category views.
+    // Each cache entry stores templates for a single category, but categories list should be global.
+    if (Array.isArray(data.categories) && data.categories.length > 0) {
+      const tenantMarker = `:${tenantSlug}:`;
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (!key.startsWith("workspace-cache:v2:")) continue;
+        if (!key.includes(tenantMarker)) continue;
+
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          const existing = JSON.parse(raw) as WorkspaceCacheEnvelope;
+          if (!existing?.data) continue;
+          // Only patch if different length (fast heuristic).
+          if (Array.isArray(existing.data.categories) && existing.data.categories.length === data.categories.length) continue;
+          const next: WorkspaceCacheEnvelope = {
+            ts: Date.now(),
+            data: {
+              ...existing.data,
+              tenant: data.tenant,
+              categories: data.categories,
+              role: data.role ?? existing.data.role,
+              isAdmin: typeof data.isAdmin === "boolean" ? data.isAdmin : existing.data.isAdmin,
+              capabilities: data.capabilities ?? existing.data.capabilities,
+            },
+          };
+          localStorage.setItem(key, JSON.stringify(next));
+        } catch {
+          // ignore malformed cache items
+        }
+      }
+    }
+
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("workspace-cache-updated", {
@@ -138,7 +221,7 @@ function writeRecentTemplateIds(tenantSlug: string, ids: string[]) {
 
 function WorkspaceSkeleton() {
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
+    <div className="workspace-shell min-h-dvh">
       <div className="mx-auto flex min-h-dvh max-w-4xl items-center px-4 py-8 sm:px-6">
         <div className="w-full overflow-hidden rounded-2xl border border-foreground/20 bg-background p-5 shadow-sm sm:p-6">
           <div className="flex items-center gap-3">
@@ -196,6 +279,8 @@ type QuickTemplateSettings = {
   temperatureAlertBelow: string;
   temperatureAlertAbove: string;
   temperatureUnit: "C" | "F";
+  cardIcon: string;
+  cardColor: string;
 };
 
 function TemplateQuickSettingsModal({
@@ -220,6 +305,8 @@ function TemplateQuickSettingsModal({
     temperatureAlertBelow: "",
     temperatureAlertAbove: "",
     temperatureUnit: "C",
+    cardIcon: "clipboard",
+    cardColor: "default",
   });
 
   useEffect(() => {
@@ -231,6 +318,8 @@ function TemplateQuickSettingsModal({
       temperatureAlertAbove:
         typeof template.settings?.temperatureAlertAbove === "number" ? String(template.settings.temperatureAlertAbove) : "",
       temperatureUnit: template.settings?.temperatureUnit === "F" ? "F" : "C",
+      cardIcon: template.settings?.cardIcon || "clipboard",
+      cardColor: template.settings?.cardColor || "default",
     });
   }, [open, template]);
 
@@ -254,6 +343,38 @@ function TemplateQuickSettingsModal({
         </div>
 
         <div className={showTemperatureSettings ? "mt-4 grid gap-3 sm:grid-cols-2" : "mt-4 grid gap-3"}>
+          <label className="grid gap-1 text-sm">
+            <span className="text-foreground/70">Card icon (optional)</span>
+            <select
+              className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+              value={draft.cardIcon}
+              onChange={(e) => setDraft((prev) => ({ ...prev, cardIcon: e.target.value }))}
+            >
+              <option value="clipboard">Clipboard</option>
+              <option value="checklist">Checklist</option>
+              <option value="safety">Safety</option>
+              <option value="cleaning">Cleaning</option>
+              <option value="inventory">Inventory</option>
+              <option value="staff">Staff</option>
+              <option value="food">Food</option>
+              <option value="temperature">Temperature</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-foreground/70">Card color (optional)</span>
+            <select
+              className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+              value={draft.cardColor}
+              onChange={(e) => setDraft((prev) => ({ ...prev, cardColor: e.target.value }))}
+            >
+              <option value="default">Default</option>
+              <option value="emerald">Emerald</option>
+              <option value="amber">Amber</option>
+              <option value="sky">Sky</option>
+              <option value="violet">Violet</option>
+              <option value="rose">Rose</option>
+            </select>
+          </label>
           <label className="grid gap-1 text-sm">
             <span className="text-foreground/70">Due in days</span>
             <input
@@ -352,6 +473,7 @@ function WorkspacePageInner() {
   const [addFormOpen, setAddFormOpen] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<WorkspaceTheme>("default");
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
   const [cardMenuTemplateId, setCardMenuTemplateId] = useState<string | null>(null);
@@ -368,6 +490,7 @@ function WorkspacePageInner() {
   const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [draftTemplateIds, setDraftTemplateIds] = useState<Set<string>>(new Set());
   const [revalidateTick, setRevalidateTick] = useState(0);
   const [confirmOfflineOpen, setConfirmOfflineOpen] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
@@ -378,6 +501,12 @@ function WorkspacePageInner() {
   const [openingLobby, setOpeningLobby] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const workspaceRetryTimerRef = useRef<number | null>(null);
+  /** Limits infinite skeleton when /api/workspace keeps returning 503 (e.g. dev DB pool saturated). */
+  const workspaceBusyRetriesRef = useRef(0);
+  const workspaceBusyRetriesSlugRef = useRef<string | null>(null);
+  const forceWorkspaceNetworkRefetchRef = useRef(false);
+  const suggestionsFetchedRef = useRef(false);
+  const offlineFromHook = useAppOffline();
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
@@ -385,6 +514,12 @@ function WorkspacePageInner() {
   const activeView = canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
   const isAdminView = activeView === "admin";
   const isFormsView = activeView === "forms";
+
+  const workspaceTemplatesPrefetchKey = useMemo(() => {
+    const tpls = workspace?.templates;
+    if (!tpls?.length) return "";
+    return tpls.map((t) => `${t.id}:${t.updatedAt}`).join("|");
+  }, [workspace]);
 
   function rememberRecentTemplate(templateId: string) {
     if (!tenantSlug) return;
@@ -449,7 +584,7 @@ function WorkspacePageInner() {
     try {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
-      await Promise.allSettled(targets.map(async (cid) => {
+      for (const cid of targets) {
         const url = new URL("/api/workspace", window.location.origin);
         url.searchParams.set("tenantSlug", tenantSlug);
         if (cid) url.searchParams.set("categoryId", cid);
@@ -458,9 +593,9 @@ function WorkspacePageInner() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Offline prep failed (${res.status})`);
+        if (!res.ok) throw new Error((data as any)?.error || `Offline prep failed (${res.status})`);
         writeWorkspaceCache(cacheUserId, tenantSlug, cid, data as WorkspaceData);
-      }));
+      }
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
       templatesUrl.searchParams.set("tenantSlug", tenantSlug);
@@ -518,25 +653,25 @@ function WorkspacePageInner() {
 
   async function primeOfflineCachesInBackground() {
     if (!workspace || !accessToken || !tenantSlug) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (isAppOffline()) return;
 
     setNativeWarmupRunning(true);
     try {
-      const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
-
-      await Promise.allSettled(targets.map(async (cid) => {
-        const url = new URL("/api/workspace", window.location.origin);
-        url.searchParams.set("tenantSlug", tenantSlug);
-        if (cid) url.searchParams.set("categoryId", cid);
-
-        const res = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!res.ok) return;
+      // One workspace snapshot only — parallel GET /api/workspace per category hammers Prisma and causes 503s + infinite retry UX on mobile shells.
+      const url = new URL("/api/workspace", window.location.origin);
+      url.searchParams.set("tenantSlug", tenantSlug);
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
         const data = (await res.json().catch(() => null)) as WorkspaceData | null;
-        if (!data) return;
-        writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
-      }));
+        if (data) {
+          writeWorkspaceCache(cacheUserId, tenantSlug, null, data);
+          if (data.selectedCategoryId) {
+            writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
+          }
+        }
+      }
 
       const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
       templatesUrl.searchParams.set("tenantSlug", tenantSlug);
@@ -697,6 +832,8 @@ function WorkspacePageInner() {
             meta.temperatureUnit === "F" || meta.temperatureUnit === "C"
               ? meta.temperatureUnit
               : template.settings?.temperatureUnit,
+          cardIcon: typeof meta.cardIcon === "string" ? meta.cardIcon : template.settings?.cardIcon,
+          cardColor: typeof meta.cardColor === "string" ? meta.cardColor : template.settings?.cardColor,
         },
       });
     } catch (err: any) {
@@ -733,6 +870,8 @@ function WorkspacePageInner() {
         temperatureAlertBelow: settings.temperatureAlertBelow.trim() === "" ? undefined : Number(settings.temperatureAlertBelow),
         temperatureAlertAbove: settings.temperatureAlertAbove.trim() === "" ? undefined : Number(settings.temperatureAlertAbove),
         temperatureUnit: settings.temperatureUnit,
+        cardIcon: settings.cardIcon || undefined,
+        cardColor: settings.cardColor || undefined,
       };
 
       const nextSchema = {
@@ -781,6 +920,31 @@ function WorkspacePageInner() {
     }
   }
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY) as WorkspaceTheme | null;
+      if (!stored) return;
+      if (!["default", "slate-soft", "warm-paper", "mint-soft"].includes(stored)) return;
+      setTheme(stored);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "default") {
+      root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", theme);
+    }
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // ignore storage errors
+    }
+  }, [theme]);
+
   const showTenantPicker = useMemo(
     () => !tenantSlug && tenantChoices.length > 1,
     [tenantSlug, tenantChoices.length]
@@ -802,6 +966,28 @@ function WorkspacePageInner() {
       .map((id) => byId.get(id))
       .filter((t): t is TemplateSummary => Boolean(t));
   }, [workspace, recentTemplateIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDraftIndicators() {
+      if (!workspace?.tenant?.slug || !workspace.templates?.length) {
+        if (!cancelled) setDraftTemplateIds(new Set());
+        return;
+      }
+      const pairs = await Promise.all(
+        workspace.templates.map(async (template) => {
+          const draft = await dbGetDraft(workspace.tenant.slug, template.id);
+          return [template.id, Boolean(draft)] as const;
+        })
+      );
+      if (cancelled) return;
+      setDraftTemplateIds(new Set(pairs.filter(([, hasDraft]) => hasDraft).map(([id]) => id)));
+    }
+    loadDraftIndicators();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.tenant?.slug, workspace?.templates]);
 
   // Hydrate instantly from local cache, independent of auth/network timing.
   useEffect(() => {
@@ -913,6 +1099,11 @@ function WorkspacePageInner() {
     if (!accessToken) return;
     if (!tenantSlug) return;
 
+    if (workspaceBusyRetriesSlugRef.current !== tenantSlug) {
+      workspaceBusyRetriesSlugRef.current = tenantSlug;
+      workspaceBusyRetriesRef.current = 0;
+    }
+
     const cached = readWorkspaceCache(cacheUserId, tenantSlug, categoryId);
     const hasCached = Boolean(cached);
     if (cached) {
@@ -939,9 +1130,41 @@ function WorkspacePageInner() {
     let keepLoading = false;
 
     const hasFreshCache = isWorkspaceCacheFresh(cacheUserId, tenantSlug, categoryId, 2 * 60_000);
-    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+    const forceNetworkRefetch = forceWorkspaceNetworkRefetchRef.current;
+    if (forceNetworkRefetch) {
+      forceWorkspaceNetworkRefetchRef.current = false;
+    }
 
-    if ((hasFreshCache || isOffline) && cached) {
+    // Offline (browser or embedded shell): never call /api/workspace — local caches only.
+    if (offlineFromHook) {
+      if (cached) {
+        setWorkspace(cached);
+        setWorkspaceLoading(false);
+        setSwitchingCategory(false);
+        setError("");
+        return () => {
+          if (workspaceRetryTimerRef.current !== null) {
+            window.clearTimeout(workspaceRetryTimerRef.current);
+            workspaceRetryTimerRef.current = null;
+          }
+        };
+      }
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      setWorkspace(null);
+      setError(
+        "No offline copy of this workspace yet. Connect once while online so categories and forms can be cached, then this screen works fully offline."
+      );
+      return () => {
+        if (workspaceRetryTimerRef.current !== null) {
+          window.clearTimeout(workspaceRetryTimerRef.current);
+          workspaceRetryTimerRef.current = null;
+        }
+      };
+    }
+
+    // Online + cache still within TTL: skip duplicate fetch unless forced (still show cache instantly above).
+    if (hasFreshCache && cached && !forceRefresh && !forceNetworkRefetch) {
       setWorkspace(cached);
       setWorkspaceLoading(false);
       setSwitchingCategory(false);
@@ -953,31 +1176,35 @@ function WorkspacePageInner() {
       };
     }
 
-    if (cached && !forceRefresh) {
-      // Cache-first: keep the UI responsive and let background sync revalidate later.
-      setWorkspace(cached);
-      setUiActiveCategoryId(null);
-      setWorkspaceLoading(false);
-      setSwitchingCategory(false);
-      return () => {
-        if (workspaceRetryTimerRef.current !== null) {
-          window.clearTimeout(workspaceRetryTimerRef.current);
-          workspaceRetryTimerRef.current = null;
-        }
-      };
-    }
+    // Online + stale / missing cache / ?refresh=1 → revalidate (prefer direct Supabase, fall back to /api/workspace).
 
-    fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
+    (async () => {
+      let data: WorkspaceData | null = null;
+
+      try {
+        const supabase = createClient();
+        data = (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
+      } catch {
+        /* RLS not deployed yet or transient PostgREST error — use API route */
+      }
+
+      if (!data) {
+        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+        const parsed = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const err = new Error(data?.error || `Failed to load workspace (${res.status})`) as Error & { status?: number };
+          const err = new Error((parsed as any)?.error || `Failed to load workspace (${res.status})`) as Error & {
+            status?: number;
+          };
           err.status = res.status;
           throw err;
         }
-        return data as WorkspaceData;
-      })
+        data = parsed as WorkspaceData;
+      }
+
+      return data;
+    })()
       .then((data) => {
+        workspaceBusyRetriesRef.current = 0;
         const sameTenant =
           workspace?.tenant.slug === data.tenant.slug &&
           workspace?.tenant.name === data.tenant.name &&
@@ -1031,6 +1258,24 @@ function WorkspacePageInner() {
           /Forbidden|Unauthorized/i.test(String(err?.message || ""));
         if (!hasCached) {
           if (busy || authOrAccess) {
+            if (isAppOffline()) {
+              keepLoading = false;
+              setWorkspaceLoading(false);
+              setSwitchingCategory(false);
+              return;
+            }
+            workspaceBusyRetriesRef.current += 1;
+            const maxBusyRetries = 28;
+            if (workspaceBusyRetriesRef.current >= maxBusyRetries) {
+              keepLoading = false;
+              setWorkspace(null);
+              setUiActiveCategoryId(null);
+              setError(
+                "Workspace did not respond in time (often the dev server or database is overloaded — especially after many parallel requests). Reload when Next.js has finished compiling, or stop other heavy tabs."
+              );
+              workspaceBusyRetriesRef.current = 0;
+              return;
+            }
             // Keep the first-time download panel visible and retry shortly instead of flashing an error state.
             keepLoading = true;
             setWorkspace(null);
@@ -1061,7 +1306,7 @@ function WorkspacePageInner() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey, revalidateTick, cacheUserId]);
+  }, [authLoading, user, accessToken, tenantSlug, workspaceLoadKey, revalidateTick, cacheUserId, offlineFromHook]);
 
   async function handleSeed(names: string[]) {
     if (!accessToken || !tenantSlug) return;
@@ -1138,7 +1383,7 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     if (!workspace || !accessToken || !tenantSlug) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (isAppOffline()) return;
 
     let active = true;
     const key = `template-bulk-warm:v1:${tenantSlug}`;
@@ -1180,7 +1425,7 @@ function WorkspacePageInner() {
   }, [workspace?.tenant.slug, workspace?.templates?.length, accessToken, tenantSlug]);
 
   useEffect(() => {
-    if (!workspace) return;
+    if (!workspace || offlineFromHook) return;
 
     const role = workspace.role || (workspace.isAdmin ? "ADMIN" : "MEMBER");
     const canAccessSettings =
@@ -1194,21 +1439,24 @@ function WorkspacePageInner() {
     workspace?.role,
     workspace?.isAdmin,
     router,
+    offlineFromHook,
   ]);
 
   useEffect(() => {
-    if (!workspace) return;
+    if (!workspace || offlineFromHook) return;
     const toPrefetch = workspace.templates.slice(0, 8);
     for (const t of toPrefetch) {
       router.prefetch(`/${workspace.tenant.slug}/audits/new?templateId=${t.id}`);
     }
-  }, [workspace?.tenant.slug, workspace?.templates, router]);
+  }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook]);
 
   useEffect(() => {
     const onOnline = () => setRevalidateTick((x) => x + 1);
-    const onFocus = () => setRevalidateTick((x) => x + 1);
+    const onFocus = () => {
+      if (!isAppOffline()) setRevalidateTick((x) => x + 1);
+    };
     const onVisible = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !isAppOffline()) {
         setRevalidateTick((x) => x + 1);
       }
     };
@@ -1224,14 +1472,30 @@ function WorkspacePageInner() {
   }, []);
 
   useEffect(() => {
-    if (!seedOpen) return;
-    if (!accessToken) return;
-    if (suggestionsLoading) return;
-    if (suggestions.length) return;
+    const onInvalidate = (event: Event) => {
+      if (isAppOffline()) return;
+      const custom = event as CustomEvent<{ tenantSlug?: string }>;
+      if (!tenantSlug || custom.detail?.tenantSlug !== tenantSlug) return;
+      // Allow mutations (create category/template) to reflect immediately,
+      // even if the workspace cache TTL hasn't expired yet.
+      forceWorkspaceNetworkRefetchRef.current = true;
+      setRevalidateTick((x) => x + 1);
+    };
+    window.addEventListener("workspace-invalidate", onInvalidate as EventListener);
+    return () => window.removeEventListener("workspace-invalidate", onInvalidate as EventListener);
+  }, [tenantSlug]);
 
+  useEffect(() => {
+    if (!seedOpen || offlineFromHook) return;
+    if (!accessToken) return;
+    if (suggestionsFetchedRef.current) return;
+
+    suggestionsFetchedRef.current = true;
     setSuggestionsLoading(true);
+    const controller = new AbortController();
     fetch("/api/workspace/suggestions", {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -1239,9 +1503,14 @@ function WorkspacePageInner() {
         return data as { suggestions?: string[] };
       })
       .then((data) => setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []))
-      .catch(() => setSuggestions([]))
+      .catch(() => {
+        suggestionsFetchedRef.current = false;
+        setSuggestions([]);
+      })
       .finally(() => setSuggestionsLoading(false));
-  }, [seedOpen, accessToken, suggestionsLoading, suggestions.length]);
+
+    return () => controller.abort();
+  }, [seedOpen, accessToken, offlineFromHook]);
 
   useEffect(() => {
     if (!tenantSlug || !workspace) return;
@@ -1329,7 +1598,7 @@ function WorkspacePageInner() {
   }
 
   if (error && !workspace) {
-    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    const offline = offlineFromHook;
     return (
       <div className="min-h-dvh bg-background">
         <div className="mx-auto max-w-4xl p-6">
@@ -1497,6 +1766,22 @@ function WorkspacePageInner() {
 
                       </>
                     ) : null}
+
+                    <div className="px-3 py-2">
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
+                        Theme
+                      </div>
+                      <select
+                        className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                        value={theme}
+                        onChange={(e) => setTheme(e.target.value as WorkspaceTheme)}
+                      >
+                        <option value="default">Default (current)</option>
+                        <option value="slate-soft">Slate soft</option>
+                        <option value="warm-paper">Warm paper</option>
+                        <option value="mint-soft">Mint soft</option>
+                      </select>
+                    </div>
 
                     <button
                       type="button"
@@ -1769,22 +2054,24 @@ function WorkspacePageInner() {
                 </div>
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleOpenAdminDashboard(tenant.slug)}
-                disabled={openingAdminDashboard}
-                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
-                    {openingAdminDashboard ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">{openingAdminDashboard ? "Opening..." : "Admin dashboard"}</span>
-                    <span className="mt-1 block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
-                  </span>
-                </div>
-              </button>
+              {canAccessSettings ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenAdminDashboard(tenant.slug)}
+                  disabled={openingAdminDashboard}
+                  className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                      {openingAdminDashboard ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{openingAdminDashboard ? "Opening..." : "Admin dashboard"}</span>
+                      <span className="mt-1 block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
+                    </span>
+                  </div>
+                </button>
+              ) : null}
 
               {canStaffManage ? (
                 <button
@@ -1832,13 +2119,25 @@ function WorkspacePageInner() {
                 <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Forms workspace</div>
                 <div className="text-sm text-foreground/65">Categories and forms stay here, separate from the admin console.</div>
               </div>
-              <button
-                type="button"
-                onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
-              >
-                Back to admin
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenAudits(tenant.slug)}
+                  disabled={openingAudits}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {openingAudits ? "Opening..." : "View submitted forms"}
+                </button>
+                {canAccessSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
+                  >
+                    Back to admin
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="rounded-lg border border-foreground/20 bg-background p-3 sm:p-4">
@@ -2010,12 +2309,18 @@ function WorkspacePageInner() {
                         router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
                       }}
                       className={
-                        "relative w-full rounded-lg border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5 focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
+                        "relative w-full rounded-lg border p-4 text-left focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
+                        templateCardClasses(t.settings?.cardColor) +
+                        " " +
                         (openingTemplateId === t.id ? "opacity-80" : "")
                       }
                     >
                       <div className="flex items-start justify-between gap-4 pr-8">
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex items-start gap-3">
+                          <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-foreground/20 bg-background text-lg leading-none">
+                            {templateIconGlyph(t.settings?.cardIcon)}
+                          </div>
+                          <div className="min-w-0">
                           <div className="font-semibold">{t.title}</div>
                           <div className="text-sm text-foreground/70">
                             {openingTemplateId === t.id ? (
@@ -2027,11 +2332,19 @@ function WorkspacePageInner() {
                               "Run audit"
                             )}
                           </div>
-                          {t.settings?.dueDays ? (
-                            <div className="mt-2 inline-flex rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 py-0.5 text-[11px] font-medium text-foreground/60">
-                              Due in {t.settings.dueDays} days
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <div className="inline-flex rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 py-0.5 text-[11px] font-medium text-foreground/60">
+                              {typeof t.settings?.dueDays === "number"
+                                ? `Due in ${t.settings.dueDays} days`
+                                : "Due date: Not set"}
                             </div>
-                          ) : null}
+                            {draftTemplateIds.has(t.id) ? (
+                              <div className="inline-flex rounded-full border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                                Saved draft
+                              </div>
+                            ) : null}
+                          </div>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2">

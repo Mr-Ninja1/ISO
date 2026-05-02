@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Download, FileText, MoreVertical, Share2, Printer, Loader2 } from "lucide-react";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
+import { shareAuditLink } from "@/components/forms/AuditShareControls";
 import { useAuth } from "@/components/AuthProvider";
 import {
   mergeAuditsRows,
@@ -10,8 +12,104 @@ import {
   writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
+import { isAppOffline } from "@/lib/client/appOffline";
+import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
+
+function CardMenu({
+  tenantSlug,
+  auditId,
+  templateTitle,
+  status,
+}: {
+  tenantSlug: string;
+  auditId: string;
+  templateTitle: string;
+  status: "DRAFT" | "SUBMITTED";
+}) {
+  const [open, setOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setOpen(false);
+    setGenerating(true);
+    try {
+      const reportUrl = `/${tenantSlug}/audits/${auditId}`;
+      window.open(reportUrl, "_blank");
+      // The report page will handle PDF generation via its own print button
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleShare = async () => {
+    setOpen(false);
+    setGenerating(true);
+    try {
+      const reportUrl = `${window.location.origin}/${tenantSlug}/audits/${auditId}`;
+      void shareAuditLink(reportUrl, templateTitle);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleView = () => {
+    setOpen(false);
+    window.location.href = `/${tenantSlug}/audits/${auditId}`;
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        disabled={generating}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-60"
+        aria-label="More options"
+      >
+        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
+            <button
+              type="button"
+              onClick={handleView}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+            >
+              <FileText className="h-4 w-4" />
+              View report
+            </button>
+            {status === "SUBMITTED" && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={generating}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+                >
+                  <Printer className="h-4 w-4" />
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  disabled={generating}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share / WhatsApp
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function rowSignature(row: CachedAuditRow) {
   return [row.id, row.status, row.templateId, row.createdAt, row.updatedAt, row.submittedAt || "", row.template.title].join("|");
@@ -80,7 +178,7 @@ export function AuditsListClient({
   useEffect(() => {
     const token = session?.access_token || "";
     if (!token || !tenantSlug) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (isAppOffline()) return;
 
     const cached = readAuditsListCache(user?.id || null, tenantSlug);
     const since = cached?.maxUpdatedAt || null;
@@ -135,6 +233,9 @@ export function AuditsListClient({
       return row.template.title.toLowerCase().includes(normalizedQuery);
     });
   }, [allRows, statusFilter, query]);
+
+  const draftRows = useMemo(() => filteredRows.filter((r) => r.status === "DRAFT"), [filteredRows]);
+  const submittedRows = useMemo(() => filteredRows.filter((r) => r.status === "SUBMITTED"), [filteredRows]);
 
   const exportStatus = statusFilter === "ALL" ? undefined : statusFilter;
   const exportQuery = query.trim();
@@ -213,37 +314,97 @@ export function AuditsListClient({
           No forms found for this filter.
         </div>
       ) : (
-        <div className="space-y-2">
-          {filteredRows.map((row) => (
-            <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="line-clamp-2 font-medium">{row.template.title}</div>
-                  <div className="mt-0.5 text-xs text-foreground/70 break-words">
-                    Status: {row.status} • Updated {new Date(row.updatedAt).toLocaleString()}
-                    {row.submittedAt ? ` • Submitted ${new Date(row.submittedAt).toLocaleString()}` : ""}
+        <div className="space-y-6">
+          {draftRows.length > 0 ? (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground/90">Drafts ({draftRows.length})</h3>
+              <div className="space-y-2">
+                {draftRows.map((row) => (
+                  <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="line-clamp-2 font-medium">{row.template.title}</div>
+                        <div className="mt-0.5 text-xs text-foreground/70 break-words">
+                          Updated {new Date(row.updatedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="flex w-full items-center gap-2 sm:w-auto">
+                        <Link
+                          href={`/${tenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}&auditId=${encodeURIComponent(row.id)}`}
+                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
+                        >
+                          <FileText className="h-4 w-4" />
+                          <span className="hidden sm:inline">Continue draft</span>
+                          <span className="sm:hidden">Continue</span>
+                        </Link>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex w-full items-center gap-2 sm:w-auto">
-                  {row.status === "DRAFT" ? (
-                    <Link
-                      href={`/${tenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}&auditId=${encodeURIComponent(row.id)}`}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
-                    >
-                      Continue draft
-                    </Link>
-                  ) : (
-                    <Link
-                      href={`/${tenantSlug}/audits/${row.id}`}
-                      className="inline-flex h-10 w-full items-center justify-center rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
-                    >
-                      View report
-                    </Link>
-                  )}
-                </div>
+                ))}
               </div>
             </div>
-          ))}
+          ) : null}
+
+          {submittedRows.length > 0 ? (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-foreground/90">Submitted forms ({submittedRows.length})</h3>
+              <div className="space-y-2">
+                {submittedRows.map((row) => (
+                  <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="line-clamp-2 font-medium">{row.template.title}</div>
+                        <div className="mt-0.5 text-xs text-foreground/70 break-words">
+                          Submitted {new Date(row.submittedAt || row.updatedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="flex w-full items-center gap-2 sm:w-auto">
+                        <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
+                          <Link
+                            href={`/${tenantSlug}/audits/${row.id}`}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
+                          >
+                            <FileText className="h-4 w-4" />
+                            View report
+                          </Link>
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                            onClick={() => {
+                              const reportUrl = `${window.location.origin}/${tenantSlug}/audits/${row.id}`;
+                              void shareAuditLink(reportUrl, row.template.title);
+                            }}
+                          >
+                            <Share2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Share</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                            onClick={() => {
+                              const reportUrl = `/${tenantSlug}/audits/${row.id}`;
+                              window.open(reportUrl, "_blank");
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                            <span className="hidden sm:inline">PDF</span>
+                          </button>
+                        </div>
+                        <div className="flex sm:hidden">
+                          <CardMenu
+                            tenantSlug={tenantSlug}
+                            auditId={row.id}
+                            templateTitle={row.template.title}
+                            status={row.status}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </>

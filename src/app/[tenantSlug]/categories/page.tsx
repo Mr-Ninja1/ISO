@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { ssrTenantWithCategories } from "@/lib/data/ssrQueries";
 import { CategoriesManager } from "@/components/CategoriesManager";
 
 export default async function CategoriesPage({
@@ -9,12 +9,7 @@ export default async function CategoriesPage({
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    include: {
-      categories: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
-    },
-  });
+  const tenant = await ssrTenantWithCategories(tenantSlug);
 
   if (!tenant) notFound();
 

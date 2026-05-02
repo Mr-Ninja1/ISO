@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -41,36 +41,45 @@ export async function GET(req: Request) {
   }
 
   const { tenantSlug, templateId } = parsed.data;
+  const sb = createSupabaseWithBearer(token);
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true, slug: true, name: true, logoUrl: true },
-  });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const { data: tenant, error: te } = await sb
+    .from("tenants")
+    .select("id, slug, name, logo_url")
+    .eq("slug", tenantSlug)
+    .maybeSingle();
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { id: true },
-  });
-  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-  const template = await prisma.formTemplate.findFirst({
-    where: { id: templateId, tenantId: tenant.id },
-    select: { id: true, title: true, schema: true, updatedAt: true },
-  });
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("id")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { data: template, error: tplErr } = await sb
+    .from("form_templates")
+    .select("id, title, schema, updated_at")
+    .eq("id", templateId)
+    .eq("tenant_id", tenant.id)
+    .maybeSingle();
+
+  if (tplErr || !template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
   return NextResponse.json({
     tenant: {
       slug: tenant.slug,
       name: tenant.name,
-      logoUrl: tenant.logoUrl,
+      logoUrl: tenant.logo_url,
     },
     template: {
       id: template.id,
       title: template.title,
       schema: template.schema,
-      updatedAt: template.updatedAt,
+      updatedAt: template.updated_at,
     },
   });
 }

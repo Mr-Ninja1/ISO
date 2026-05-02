@@ -32,8 +32,21 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  try {
+    const key = "iso-theme-v1";
+    const value = localStorage.getItem(key);
+    if (!value) return;
+    document.documentElement.setAttribute("data-theme", value);
+  } catch {}
+})();`,
+          }}
+        />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />

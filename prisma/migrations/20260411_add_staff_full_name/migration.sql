@@ -1,2 +1,0 @@
-ALTER TABLE tenant_staff_pin
-  ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';

@@ -13,6 +13,8 @@ const withPWA = nextPWA({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  /** Android emulator uses http://10.0.2.2:3000 — allow dev/HMR without silent webpack failures in embedded WebViews. */
+  allowedDevOrigins: ["10.0.2.2"],
 };
 
 export default withPWA(nextConfig);

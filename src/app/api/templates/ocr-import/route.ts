@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { mapAzureAnalyzeResultToSchema } from "@/lib/formOcrMapper";
 
 function getBearerToken(req: Request) {
@@ -62,17 +62,18 @@ export async function POST(req: Request) {
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
     if (!(file instanceof File)) return NextResponse.json({ error: "Image file is required" }, { status: 400 });
 
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const sb = createSupabaseWithBearer(token);
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { id: true },
-    });
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("id")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT || "";
     const key = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY || "";

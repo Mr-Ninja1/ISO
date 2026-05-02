@@ -13,11 +13,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Calendar, Camera, Check, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
-import type { FieldDef, FieldType, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
+import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
+import { buildGridLayout } from "@/lib/gridLayout";
 
 type BuilderState = {
   topFields: FieldDef[];
+  topFieldsColumns: 1 | 2 | 3 | 4;
   bottomFields: FieldDef[];
+  bottomFieldsColumns: 1 | 2 | 3 | 4;
   grid: GridSection | null;
 };
 
@@ -87,6 +90,39 @@ function defaultGrid(): GridSection {
       { id: "col_3", type: "text", label: "", required: false },
     ],
   };
+}
+
+function sectionColumnsClass(columns: 1 | 2 | 3 | 4) {
+  if (columns === 1) return "grid grid-cols-1 gap-4";
+  if (columns === 2) return "grid grid-cols-1 gap-4 md:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
+  return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4";
+}
+
+function SectionColumnsSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: 1 | 2 | 3 | 4;
+  onChange: (next: 1 | 2 | 3 | 4) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs text-foreground/70">
+      <span>{label}</span>
+      <select
+        className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value) as 1 | 2 | 3 | 4)}
+      >
+        <option value={1}>1 column</option>
+        <option value={2}>2 columns</option>
+        <option value={3}>3 columns</option>
+        <option value={4}>4 columns</option>
+      </select>
+    </label>
+  );
 }
 
 function palette(): PaletteItem[] {
@@ -360,7 +396,56 @@ function GridBuilder({
 }) {
   const [activeColId, setActiveColId] = useState<string | null>(null);
   const [colEditor, setColEditor] = useState<{ colId: string; top: number; left: number } | null>(null);
+  const [selection, setSelection] = useState<{
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  } | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [toolsPos, setToolsPos] = useState<{ top: number; left: number } | null>(null);
+  const dragAnchorRef = useRef<{ row: number; col: number } | null>(null);
+  const undoStackRef = useRef<GridSection[]>([]);
+  const longPressRef = useRef<number | null>(null);
+  const [mergeDraft, setMergeDraft] = useState<{
+    label: string;
+    textAlign: "left" | "center" | "right";
+    fontSize: "sm" | "md" | "lg";
+    fontWeight: "normal" | "medium" | "semibold" | "bold";
+    fontStyle: "normal" | "italic";
+  } | null>(null);
+
+  function sanitizeMergedCells(next: GridSection): GridSection {
+    const rowCount = typeof next.rows === "number" ? Math.max(1, next.rows) : 1;
+    const normalized = buildGridLayout(next, rowCount);
+    const validMergeIds = new Set<string>();
+    for (const row of normalized.rows) {
+      for (const cell of row) {
+        if (cell.kind === "cell" && cell.mergeId) validMergeIds.add(cell.mergeId);
+      }
+    }
+    if (!next.mergedCells?.length) return next;
+    return { ...next, mergedCells: next.mergedCells.filter((cell) => validMergeIds.has(cell.id)) };
+  }
+
+  function cloneGridState(next: GridSection): GridSection {
+    return JSON.parse(JSON.stringify(next)) as GridSection;
+  }
+
+  function applyGridChange(next: GridSection, options?: { skipHistory?: boolean }) {
+    if (!options?.skipHistory) {
+      undoStackRef.current.push(cloneGridState(grid));
+      if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+    }
+    onChange(sanitizeMergedCells(next));
+  }
+
+  function undoLastChange() {
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+    onChange(previous);
+  }
 
   const activeCol = useMemo(
     () => grid.columns.find((c) => c.id === activeColId) ?? null,
@@ -396,8 +481,56 @@ function GridBuilder({
     };
   }, [colEditor]);
 
+  useEffect(() => {
+    if (!selection) {
+      setMergeDraft(null);
+      return;
+    }
+    const sel = normalizeSelection(selection);
+    const merge = findMergeAt(sel.startRow, sel.startCol);
+    if (!merge) {
+      setMergeDraft(null);
+      return;
+    }
+    setMergeDraft({
+      label: merge.field?.label || "",
+      textAlign: (merge.field?.textAlign as "left" | "center" | "right") || "left",
+      fontSize: (merge.field?.fontSize as "sm" | "md" | "lg") || "md",
+      fontWeight: (merge.field?.fontWeight as "normal" | "medium" | "semibold" | "bold") || "normal",
+      fontStyle: (merge.field?.fontStyle as "normal" | "italic") || "normal",
+    });
+  }, [selection, grid.mergedCells]);
+
+  useEffect(() => {
+    function stopSelecting() {
+      setIsSelecting(false);
+      dragAnchorRef.current = null;
+    }
+    window.addEventListener("mouseup", stopSelecting);
+    return () => window.removeEventListener("mouseup", stopSelecting);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (longPressRef.current != null) {
+        window.clearTimeout(longPressRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    function onUndo(ev: KeyboardEvent) {
+      const isUndoKey = (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z";
+      if (!isUndoKey) return;
+      ev.preventDefault();
+      undoLastChange();
+    }
+    window.addEventListener("keydown", onUndo);
+    return () => window.removeEventListener("keydown", onUndo);
+  }, []);
+
   function updateColumn(colId: string, patch: Partial<SimpleFieldDef>) {
-    onChange({
+    applyGridChange({
       ...grid,
       columns: grid.columns.map((c) => (c.id === colId ? ({ ...c, ...patch } as any) : c)),
     });
@@ -406,12 +539,129 @@ function GridBuilder({
   function addColumn() {
     const colId = makeId("col");
     const nextCol: SimpleFieldDef = { id: colId, type: "text", label: "Column", required: false } as any;
-    onChange({ ...grid, columns: [...grid.columns, nextCol] });
+    applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
     setActiveColId(colId);
   }
 
   const previewRows = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
-  const activeColumns = grid.columns.filter((c) => c.isActive !== false);
+  const layout = useMemo(() => buildGridLayout(grid, previewRows), [grid, previewRows]);
+  const activeColumns = layout.columns;
+
+  function normalizeSelection(sel: NonNullable<typeof selection>) {
+    const startRow = Math.min(sel.startRow, sel.endRow);
+    const endRow = Math.max(sel.startRow, sel.endRow);
+    const startCol = Math.min(sel.startCol, sel.endCol);
+    const endCol = Math.max(sel.startCol, sel.endCol);
+    return {
+      startRow,
+      endRow,
+      startCol,
+      endCol,
+      rowSpan: endRow - startRow + 1,
+      colSpan: endCol - startCol + 1,
+    };
+  }
+
+  function mergeRange(cell: GridMergedCell) {
+    const rowSpan = Math.max(1, cell.rowSpan || 1);
+    const colSpan = Math.max(1, cell.colSpan || 1);
+    return {
+      startRow: cell.row,
+      endRow: cell.row + rowSpan - 1,
+      startCol: cell.col,
+      endCol: cell.col + colSpan - 1,
+      rowSpan,
+      colSpan,
+    };
+  }
+
+  function rangesOverlap(a: ReturnType<typeof normalizeSelection>, b: ReturnType<typeof normalizeSelection>) {
+    return !(a.endRow < b.startRow || a.startRow > b.endRow || a.endCol < b.startCol || a.startCol > b.endCol);
+  }
+
+  function findMergeAt(rowIndex: number, colIndex: number) {
+    return (grid.mergedCells || []).find((cell) => {
+      const r = mergeRange(cell);
+      return rowIndex >= r.startRow && rowIndex <= r.endRow && colIndex >= r.startCol && colIndex <= r.endCol;
+    }) || null;
+  }
+
+  function selectionOverlapsMerge(sel: ReturnType<typeof normalizeSelection>) {
+    return (grid.mergedCells || []).some((cell) => rangesOverlap(sel, mergeRange(cell)));
+  }
+
+  function overlappingMerges(sel: ReturnType<typeof normalizeSelection>) {
+    return (grid.mergedCells || []).filter((cell) => rangesOverlap(sel, mergeRange(cell)));
+  }
+
+  function selectionContainsRange(
+    sel: ReturnType<typeof normalizeSelection>,
+    range: ReturnType<typeof mergeRange>
+  ) {
+    return (
+      sel.startRow <= range.startRow &&
+      sel.endRow >= range.endRow &&
+      sel.startCol <= range.startCol &&
+      sel.endCol >= range.endCol
+    );
+  }
+
+  function updateMerge(mergeId: string, patch: Partial<GridMergedCell>) {
+    applyGridChange({
+      ...grid,
+      mergedCells: (grid.mergedCells || []).map((cell) => (cell.id === mergeId ? { ...cell, ...patch } : cell)),
+    });
+  }
+
+  const normalizedSelection = selection ? normalizeSelection(selection) : null;
+  const selectedMerge = normalizedSelection ? findMergeAt(normalizedSelection.startRow, normalizedSelection.startCol) : null;
+  const overlaps = normalizedSelection ? overlappingMerges(normalizedSelection) : [];
+  const canExpandFromSingleMerge =
+    Boolean(normalizedSelection) &&
+    overlaps.length === 1 &&
+    selectionContainsRange(normalizedSelection!, mergeRange(overlaps[0]));
+  const canMerge =
+    Boolean(normalizedSelection) &&
+    Boolean(normalizedSelection && (normalizedSelection.rowSpan > 1 || normalizedSelection.colSpan > 1)) &&
+    Boolean(normalizedSelection && (!selectionOverlapsMerge(normalizedSelection) || canExpandFromSingleMerge));
+  const canUnmerge = Boolean(selectedMerge);
+
+  function mergeSelected() {
+    if (!normalizedSelection) return;
+    const id = makeId("merge");
+    const merged: GridMergedCell = {
+      id,
+      row: normalizedSelection.startRow,
+      col: normalizedSelection.startCol,
+      rowSpan: normalizedSelection.rowSpan,
+      colSpan: normalizedSelection.colSpan,
+      field: {
+        id,
+        type: "text",
+        label: "Merged cell",
+        required: false,
+      },
+    };
+    const nextMergedCells = canExpandFromSingleMerge
+      ? (grid.mergedCells || []).filter((cell) => cell.id !== overlaps[0].id)
+      : (grid.mergedCells || []);
+    applyGridChange({ ...grid, mergedCells: [...nextMergedCells, merged] });
+    setSelection({
+      startRow: normalizedSelection.startRow,
+      startCol: normalizedSelection.startCol,
+      endRow: normalizedSelection.endRow,
+      endCol: normalizedSelection.endCol,
+    });
+  }
+
+  function unmergeSelected() {
+    if (!selectedMerge) return;
+    applyGridChange({
+      ...grid,
+      mergedCells: (grid.mergedCells || []).filter((cell) => cell.id !== selectedMerge.id),
+    });
+    setSelection(null);
+  }
 
   return (
     <div className="rounded-lg border border-foreground/20 bg-background p-4 flex flex-col h-full">
@@ -420,6 +670,9 @@ function GridBuilder({
           <div className="text-sm font-semibold">Data Log Table</div>
           <div className="text-xs text-foreground/70 mt-0.5">
             Click headers to edit columns
+          </div>
+          <div className="text-[11px] text-foreground/55 mt-1">
+            Tip: Right-click or long-press cells/headers for contextual tools.
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -433,9 +686,20 @@ function GridBuilder({
               value={typeof grid.rows === "number" ? grid.rows : 1}
               onChange={(e) => {
                 const next = Math.max(1, Number(e.target.value || 1));
-                onChange({ ...grid, rows: next });
+                applyGridChange({ ...grid, rows: next });
               }}
             />
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+              onClick={() => {
+                const current = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
+                applyGridChange({ ...grid, rows: current + 1 });
+              }}
+              title="Add one row"
+            >
+              + Row
+            </button>
           </div>
           <button
             type="button"
@@ -445,18 +709,27 @@ function GridBuilder({
             <Plus className="h-3.5 w-3.5" />
             Add column
           </button>
+          <button
+            type="button"
+            className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5 disabled:opacity-50"
+            onClick={undoLastChange}
+            disabled={undoStackRef.current.length === 0}
+            title="Undo last table edit (Ctrl/Cmd+Z)"
+          >
+            Undo
+          </button>
         </div>
       </div>
 
       <div className="mt-4 overflow-x-auto flex-1 flex flex-col">
-        <table className="w-full min-w-max border-collapse text-xs border border-foreground/20">
+        <table className="w-full min-w-max border-collapse text-xs border border-foreground/35">
           <thead>
             <tr>
               {activeColumns.map((col) => (
                 <th
                   key={col.id}
                   className={
-                    "border border-foreground/20 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    "border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
                     (col.type === "checkbox" ? "w-16" : "")
                   }
                   style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
@@ -478,6 +751,34 @@ function GridBuilder({
                       const maxLeft = Math.max(12, window.innerWidth - 340);
                       setColEditor({ colId: col.id, top, left: Math.min(desiredLeft, maxLeft) });
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setActiveColId(col.id);
+                      setColEditor({
+                        colId: col.id,
+                        top: e.clientY + 8,
+                        left: e.clientX + 8,
+                      });
+                    }}
+                    onTouchStart={(e) => {
+                      const touch = e.touches[0];
+                      if (!touch) return;
+                      if (longPressRef.current != null) window.clearTimeout(longPressRef.current);
+                      longPressRef.current = window.setTimeout(() => {
+                        setActiveColId(col.id);
+                        setColEditor({
+                          colId: col.id,
+                          top: touch.clientY + 8,
+                          left: touch.clientX + 8,
+                        });
+                      }, 450);
+                    }}
+                    onTouchEnd={() => {
+                      if (longPressRef.current != null) {
+                        window.clearTimeout(longPressRef.current);
+                        longPressRef.current = null;
+                      }
+                    }}
                     title="Edit column"
                   >
                     {col.label || "Click to edit / column name"}
@@ -489,23 +790,281 @@ function GridBuilder({
           <tbody>
             {Array.from({ length: previewRows }).map((_, rowIndex) => (
               <tr key={`preview-row-${rowIndex}`}>
-                {activeColumns.map((col) => (
-                  <td
-                    key={`${col.id}-${rowIndex}`}
-                    className={
-                      "h-9 border border-foreground/20 bg-background px-3 py-2 text-xs text-foreground/45 " +
-                      (col.type === "checkbox" ? "w-16 text-center" : "")
-                    }
-                    style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
-                  >
-                    {rowIndex === 0 ? (col.type === "yesno" ? "yes/no" : col.type) : ""}
-                  </td>
-                ))}
+                {layout.rows[rowIndex]?.map((cell, colIndex) => {
+                  if (!cell || cell.kind === "covered") return null;
+                  const col = cell.field;
+                  const isSelected =
+                    normalizedSelection &&
+                    rowIndex >= normalizedSelection.startRow &&
+                    rowIndex <= normalizedSelection.endRow &&
+                    colIndex >= normalizedSelection.startCol &&
+                    colIndex <= normalizedSelection.endCol;
+
+                  return (
+                    <td
+                      key={`${col.id}-${rowIndex}-${cell.mergeId || "cell"}`}
+                      rowSpan={cell.rowSpan}
+                      colSpan={cell.colSpan}
+                      className={
+                        "h-9 border border-foreground/35 px-3 py-2 text-xs " +
+                        (col.type === "checkbox" ? "w-16 text-center" : "") +
+                        (isSelected ? " bg-foreground/10" : " bg-background")
+                      }
+                      style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return;
+                        const merge = findMergeAt(rowIndex, colIndex);
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setToolsPos({ top: Math.max(12, rect.top - 44), left: rect.left });
+                        if (merge) {
+                          const range = mergeRange(merge);
+                          setSelection({
+                            startRow: range.startRow,
+                            startCol: range.startCol,
+                            endRow: range.endRow,
+                            endCol: range.endCol,
+                          });
+                          return;
+                        }
+                        dragAnchorRef.current = { row: rowIndex, col: colIndex };
+                        setIsSelecting(true);
+                        if (e.shiftKey && selection) {
+                          setSelection({
+                            ...selection,
+                            endRow: rowIndex,
+                            endCol: colIndex,
+                          });
+                          return;
+                        }
+                        if (selection) {
+                          const current = normalizeSelection(selection);
+                          const clickedInsideCurrent =
+                            rowIndex >= current.startRow &&
+                            rowIndex <= current.endRow &&
+                            colIndex >= current.startCol &&
+                            colIndex <= current.endCol;
+                          if (!clickedInsideCurrent) {
+                            setSelection({
+                              ...selection,
+                              endRow: rowIndex,
+                              endCol: colIndex,
+                            });
+                            return;
+                          }
+                        }
+                        setSelection({
+                          startRow: rowIndex,
+                          startCol: colIndex,
+                          endRow: rowIndex,
+                          endCol: colIndex,
+                        });
+                      }}
+                      onMouseEnter={() => {
+                        if (!isSelecting || !dragAnchorRef.current) return;
+                        setSelection({
+                          startRow: dragAnchorRef.current.row,
+                          startCol: dragAnchorRef.current.col,
+                          endRow: rowIndex,
+                          endCol: colIndex,
+                        });
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        const merge = findMergeAt(rowIndex, colIndex);
+                        if (merge) {
+                          const range = mergeRange(merge);
+                          setSelection({
+                            startRow: range.startRow,
+                            startCol: range.startCol,
+                            endRow: range.endRow,
+                            endCol: range.endCol,
+                          });
+                        } else {
+                          setSelection({
+                            startRow: rowIndex,
+                            startCol: colIndex,
+                            endRow: rowIndex,
+                            endCol: colIndex,
+                          });
+                        }
+                        setToolsPos({ top: e.clientY + 8, left: e.clientX + 8 });
+                      }}
+                      onTouchStart={(e) => {
+                        const touch = e.touches[0];
+                        if (!touch) return;
+                        if (longPressRef.current != null) window.clearTimeout(longPressRef.current);
+                        longPressRef.current = window.setTimeout(() => {
+                          const merge = findMergeAt(rowIndex, colIndex);
+                          if (merge) {
+                            const range = mergeRange(merge);
+                            setSelection({
+                              startRow: range.startRow,
+                              startCol: range.startCol,
+                              endRow: range.endRow,
+                              endCol: range.endCol,
+                            });
+                          } else {
+                            setSelection({
+                              startRow: rowIndex,
+                              startCol: colIndex,
+                              endRow: rowIndex,
+                              endCol: colIndex,
+                            });
+                          }
+                          setToolsPos({ top: touch.clientY + 8, left: touch.clientX + 8 });
+                        }, 450);
+                      }}
+                      onTouchEnd={() => {
+                        if (longPressRef.current != null) {
+                          window.clearTimeout(longPressRef.current);
+                          longPressRef.current = null;
+                        }
+                      }}
+                      title="Click to select cell"
+                    >
+                      {cell.mergeId ? col.label || "Merged cell" : rowIndex === 0 ? (col.type === "yesno" ? "yes/no" : col.type) : ""}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {toolsPos && normalizedSelection ? (
+        <div
+          className="fixed z-40 w-[360px] rounded-md border border-foreground/30 bg-background p-2 shadow-md"
+          style={{ top: toolsPos.top, left: toolsPos.left }}
+        >
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/25 px-2 text-xs hover:bg-foreground/5 disabled:opacity-50"
+              onClick={mergeSelected}
+              disabled={!canMerge}
+            >
+              Merge
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/25 px-2 text-xs hover:bg-foreground/5 disabled:opacity-50"
+              onClick={unmergeSelected}
+              disabled={!canUnmerge}
+            >
+              Unmerge
+            </button>
+            <button
+              type="button"
+              className="ml-auto inline-flex h-7 items-center justify-center rounded-md border border-foreground/25 px-2 text-xs hover:bg-foreground/5"
+              onClick={() => setToolsPos(null)}
+            >
+              Close
+            </button>
+          </div>
+          {selectedMerge && mergeDraft ? (
+            <div className="mt-2 grid gap-2">
+              <div className="text-[11px] font-medium text-foreground/60">Merged label (header text)</div>
+              <input
+                className="h-8 rounded-md border border-foreground/25 bg-background px-2 text-xs"
+                value={mergeDraft.label}
+                placeholder="Add field label"
+                onChange={(e) => setMergeDraft((prev) => (prev ? { ...prev, label: e.target.value } : prev))}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={mergeDraft.textAlign}
+                  onChange={(e) =>
+                    setMergeDraft((prev) =>
+                      prev ? { ...prev, textAlign: e.target.value as "left" | "center" | "right" } : prev
+                    )
+                  }
+                >
+                  <option value="left">Align Left</option>
+                  <option value="center">Align Center</option>
+                  <option value="right">Align Right</option>
+                </select>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={mergeDraft.fontSize}
+                  onChange={(e) =>
+                    setMergeDraft((prev) => (prev ? { ...prev, fontSize: e.target.value as "sm" | "md" | "lg" } : prev))
+                  }
+                >
+                  <option value="sm">Small text</option>
+                  <option value="md">Normal text</option>
+                  <option value="lg">Large text</option>
+                </select>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={mergeDraft.fontWeight}
+                  onChange={(e) =>
+                    setMergeDraft((prev) =>
+                      prev ? { ...prev, fontWeight: e.target.value as "normal" | "medium" | "semibold" | "bold" } : prev
+                    )
+                  }
+                >
+                  <option value="normal">Weight Normal</option>
+                  <option value="medium">Weight Medium</option>
+                  <option value="semibold">Weight Semi-bold</option>
+                  <option value="bold">Weight Bold</option>
+                </select>
+                <label className="inline-flex h-8 items-center gap-2 rounded-md border border-foreground/20 bg-background px-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={mergeDraft.fontStyle === "italic"}
+                    onChange={(e) =>
+                      setMergeDraft((prev) => (prev ? { ...prev, fontStyle: e.target.checked ? "italic" : "normal" } : prev))
+                    }
+                  />
+                  Italic
+                </label>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-[11px] text-foreground/60">
+                  {selectedMerge.rowSpan || 1} x {selectedMerge.colSpan || 1}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                    onClick={() =>
+                      setMergeDraft({
+                        label: selectedMerge.field?.label || "",
+                        textAlign: (selectedMerge.field?.textAlign as "left" | "center" | "right") || "left",
+                        fontSize: (selectedMerge.field?.fontSize as "sm" | "md" | "lg") || "md",
+                        fontWeight: (selectedMerge.field?.fontWeight as "normal" | "medium" | "semibold" | "bold") || "normal",
+                        fontStyle: (selectedMerge.field?.fontStyle as "normal" | "italic") || "normal",
+                      })
+                    }
+                  >
+                    Revert
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center justify-center rounded-md bg-foreground px-2 text-xs text-background hover:opacity-90"
+                    onClick={() =>
+                      updateMerge(selectedMerge.id, {
+                        field: {
+                          ...(selectedMerge.field || { id: selectedMerge.id, type: "text", required: false }),
+                          label: mergeDraft.label,
+                          textAlign: mergeDraft.textAlign,
+                          fontSize: mergeDraft.fontSize,
+                          fontWeight: mergeDraft.fontWeight,
+                          fontStyle: mergeDraft.fontStyle,
+                        },
+                      })
+                    }
+                  >
+                    Apply tweaks
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {colEditor && activeCol && colEditor.colId === activeCol.id ? (
         <div
@@ -542,7 +1101,7 @@ function GridBuilder({
                 onChange={(nextType) => {
                   const patch: any = { type: nextType };
                   if (nextType === "temp" && !("unit" in activeCol)) patch.unit = "C";
-                  onChange({
+                  applyGridChange({
                     ...grid,
                     columns: grid.columns.map((c) =>
                       c.id === activeCol.id ? ({ ...c, ...patch } as any) : c
@@ -610,7 +1169,7 @@ function GridBuilder({
                 type="button"
                 className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
                 onClick={() => {
-                  onChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
+                  applyGridChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
                   setColEditor(null);
                   setActiveColId(null);
                 }}
@@ -634,6 +1193,7 @@ export function FormBuilder({
   onChangeSections,
   title,
   onTitleChange,
+  formType = "custom",
   lockExistingDeletes = false,
   lockedFieldIds = [],
   lockedGridColumnIds = [],
@@ -643,6 +1203,7 @@ export function FormBuilder({
   onChangeSections: (sections: FormSection[]) => void;
   title?: string;
   onTitleChange?: (next: string) => void;
+  formType?: FormType;
   lockExistingDeletes?: boolean;
   lockedFieldIds?: string[];
   lockedGridColumnIds?: string[];
@@ -651,13 +1212,20 @@ export function FormBuilder({
   const initialState = useMemo<BuilderState>(() => {
     const topFields: FieldDef[] = [];
     const bottomFields: FieldDef[] = [];
+    let topFieldsColumns: 1 | 2 | 3 | 4 = 1;
+    let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
     let grid: GridSection | null = null;
 
     if (initialSections?.length) {
       for (const section of initialSections) {
         if (section.type === "fields") {
-          if (section.title?.toLowerCase().includes("footer")) bottomFields.push(...section.fields);
-          else topFields.push(...section.fields);
+          if (section.title?.toLowerCase().includes("footer")) {
+            bottomFields.push(...section.fields);
+            bottomFieldsColumns = section.columns || bottomFieldsColumns;
+          } else {
+            topFields.push(...section.fields);
+            topFieldsColumns = section.columns || topFieldsColumns;
+          }
           continue;
         }
         if (section.type === "grid" && !grid) {
@@ -667,7 +1235,7 @@ export function FormBuilder({
       }
     }
 
-    return { topFields, bottomFields, grid };
+    return { topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grid };
   }, [initialSections]);
 
   const [state, setState] = useState<BuilderState>(initialState);
@@ -681,26 +1249,38 @@ export function FormBuilder({
 
   const [activeDrag, setActiveDrag] = useState<PaletteItem | null>(null);
   const [insertTarget, setInsertTarget] = useState<"top" | "bottom">("top");
+  const [questionLabel, setQuestionLabel] = useState("");
+  const [questionType, setQuestionType] = useState<FieldType>(formType === "answer-sheet" ? "text" : "yesno");
   const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
   const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
+  useEffect(() => {
+    if (formType === "questionnaire") {
+      setQuestionType("yesno");
+      return;
+    }
+    if (formType === "answer-sheet") {
+      setQuestionType("text");
+    }
+  }, [formType]);
+
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const computedSections = useMemo<FormSection[]>(() => {
-    const sections: FormSection[] = [{ type: "fields", title: "Fields", fields: state.topFields }];
+    const sections: FormSection[] = [{ type: "fields", title: "Fields", columns: state.topFieldsColumns, fields: state.topFields }];
     if (state.grid) sections.push(state.grid);
     if (state.bottomFields.length) {
-      sections.push({ type: "fields", title: "Footer", fields: state.bottomFields });
+      sections.push({ type: "fields", title: "Footer", columns: state.bottomFieldsColumns, fields: state.bottomFields });
     }
     return sections;
-  }, [state.bottomFields, state.grid, state.topFields]);
+  }, [state.bottomFields, state.bottomFieldsColumns, state.grid, state.topFields, state.topFieldsColumns]);
 
   function sync(next: BuilderState) {
     setState(next);
-    const sections: FormSection[] = [{ type: "fields", title: "Fields", fields: next.topFields }];
+    const sections: FormSection[] = [{ type: "fields", title: "Fields", columns: next.topFieldsColumns, fields: next.topFields }];
     if (next.grid) sections.push(next.grid);
     if (next.bottomFields.length) {
-      sections.push({ type: "fields", title: "Footer", fields: next.bottomFields });
+      sections.push({ type: "fields", title: "Footer", columns: next.bottomFieldsColumns, fields: next.bottomFields });
     }
     onChangeSections(sections);
   }
@@ -748,6 +1328,20 @@ export function FormBuilder({
     if (overId === "drop_canvas" || overId === "drop_top_fields") {
       addItem(fieldType, "top");
     }
+  }
+
+  const showQuestionTools = formType === "questionnaire" || formType === "answer-sheet";
+
+  function addQuestion() {
+    const label = questionLabel.trim();
+    if (!label) return;
+    const nextField = defaultField(questionType);
+    nextField.label = label;
+    if (formType === "answer-sheet" && nextField.type === "text") {
+      nextField.multiline = true;
+    }
+    sync({ ...state, topFields: [...state.topFields, nextField] });
+    setQuestionLabel("");
   }
 
   return (
@@ -824,9 +1418,59 @@ export function FormBuilder({
                     </div>
                   ) : null}
 
+                  {showQuestionTools ? (
+                    <div className="mt-4 rounded-md border border-foreground/15 bg-foreground/[0.03] p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                        Quick question
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-[1fr_180px_120px]">
+                        <input
+                          className="h-9 rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                          placeholder="Type the question label"
+                          value={questionLabel}
+                          onChange={(e) => setQuestionLabel(e.target.value)}
+                        />
+                        <select
+                          className="h-9 rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                          value={questionType}
+                          onChange={(e) => setQuestionType(e.target.value as FieldType)}
+                        >
+                          <option value="text">Text</option>
+                          <option value="yesno">Yes / No</option>
+                          <option value="checkbox">Checkbox</option>
+                          <option value="number">Number</option>
+                          <option value="date">Date</option>
+                          <option value="time">Time</option>
+                          <option value="signature">Signature</option>
+                          <option value="photo">Photo</option>
+                        </select>
+                        <button
+                          type="button"
+                          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                          onClick={addQuestion}
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <div className="mt-2 text-xs text-foreground/60">
+                        {formType === "answer-sheet"
+                          ? "Answer sheet: questions default to multiline text responses."
+                          : "Questionnaire: pick the response type for each question."}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <FieldDropArea id="drop_top_fields" label="Top fields">
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className="text-xs text-foreground/60">Arrange the upper section in a multi-column flow.</div>
+                      <SectionColumnsSelect
+                        label="Columns"
+                        value={state.topFieldsColumns}
+                        onChange={(columns) => sync({ ...state, topFieldsColumns: columns })}
+                      />
+                    </div>
                     {state.topFields.length ? (
-                      <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      <div className={"mt-3 " + sectionColumnsClass(state.topFieldsColumns)}>
                         {state.topFields.map((f) => (
                           <FieldCard
                             key={f.id}
@@ -877,6 +1521,14 @@ export function FormBuilder({
 
                   <div className="mt-6">
                     <FieldDropArea id="drop_bottom_fields" label="Footer fields">
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <div className="text-xs text-foreground/60">Keep signatures, notes, and confirmations grouped in the footer.</div>
+                        <SectionColumnsSelect
+                          label="Columns"
+                          value={state.bottomFieldsColumns}
+                          onChange={(columns) => sync({ ...state, bottomFieldsColumns: columns })}
+                        />
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -923,7 +1575,7 @@ export function FormBuilder({
                       </div>
 
                       {state.bottomFields.length ? (
-                        <div className="mt-2 grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        <div className={"mt-3 " + sectionColumnsClass(state.bottomFieldsColumns)}>
                           {state.bottomFields.map((f) => (
                             <FieldCard
                               key={f.id}

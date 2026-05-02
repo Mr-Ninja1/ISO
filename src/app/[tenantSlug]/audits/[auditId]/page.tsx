@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { ssrAuditReportForPrint } from "@/lib/data/ssrQueries";
 import { PrintButton } from "@/components/PrintButton";
+import { AuditReportShareControls } from "@/components/forms/AuditShareControls";
 import type { FormSchemaV1, FormSection, FieldDef } from "@/types/forms";
 import { collectTemperatureSeries } from "@/lib/temperatureMonitoring";
+import { buildGridLayout } from "@/lib/gridLayout";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
+import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -56,6 +59,13 @@ function visibleSections(schema: FormSchemaV1): FormSection[] {
       return { ...section, columns: section.columns.filter((c) => c.isActive !== false) };
     })
     .filter((section) => (section.type === "fields" ? section.fields.length > 0 : section.columns.length > 0));
+}
+
+function sectionColumnsClass(columns?: number) {
+  if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
+  if (columns === 4) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4";
+  return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]";
 }
 
 function shouldUseLandscape(schema: FormSchemaV1) {
@@ -113,47 +123,7 @@ export default async function AuditReportPage({
       }
     | null = null;
 
-  try {
-    audit = await prisma.auditLog.findFirst({
-      where: {
-        id: auditId,
-        tenant: { slug: tenantSlug },
-      },
-      select: {
-        id: true,
-        status: true,
-        createdAt: true,
-        payload: true,
-        tenant: {
-          select: {
-            name: true,
-            logoUrl: true,
-            slug: true,
-          },
-        },
-        template: {
-          select: {
-            title: true,
-            schema: true,
-          },
-        },
-      },
-    });
-  } catch (error: any) {
-    if (error?.code === "P2024") {
-      return (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          Report loading is delayed because the database is busy. Please retry in a few seconds.
-          <div className="mt-2">
-            <Link className="underline" href={`/${tenantSlug}/audits`}>
-              Back to stored forms
-            </Link>
-          </div>
-        </div>
-      );
-    }
-    throw error;
-  }
+  audit = await ssrAuditReportForPrint(auditId, tenantSlug);
 
   if (!audit) notFound();
 
@@ -216,10 +186,22 @@ export default async function AuditReportPage({
             Landscape
           </Link>
         </div>
-        <PrintButton />
+        <div className="flex items-center gap-2">
+          <PdfGeneratorButton
+            filename={`${tenant.slug}-${audit.template.title.replace(/[^a-z0-9]/gi, '-')}-${auditId}.pdf`}
+            orientation={resolvedOrientation}
+          />
+          <AuditReportShareControls
+            tenantSlug={tenantSlug}
+            auditId={auditId}
+            title={schema.title || audit.template.title}
+            enablePdfShare={true}
+          />
+          <PrintButton />
+        </div>
       </div>
 
-      <div className="print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6">
+      <div className="print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6" id="report-content">
         <div className="print-page-break-avoid rounded-md border border-foreground/30 p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -294,12 +276,12 @@ export default async function AuditReportPage({
               return (
                 <section key={`fields-${idx}`} className="print-page-break-avoid rounded-md border border-foreground/20 p-3">
                   {section.title && section.title.trim().toLowerCase() !== "fields" ? <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title}</h3> : null}
-                  <div className="grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+                  <div className={sectionColumnsClass(section.columns)}>
                     {section.fields.map((field) => (
                       <div
                         key={field.id}
                         className={
-                          field.type === "dynamic-table"
+                          field.type === "dynamic-table" || field.type === "photo" || field.type === "signature"
                             ? "md:[grid-column:1/-1] rounded-md border border-foreground/15 p-2"
                             : "rounded-md border border-foreground/15 p-2"
                         }
@@ -317,6 +299,7 @@ export default async function AuditReportPage({
             const rows = Array.isArray(payload[key]) ? (payload[key] as Array<Record<string, unknown>>) : [];
             const fixedRows = typeof section.rows === "number" ? section.rows : rows.length;
             const rowCount = Math.max(rows.length, fixedRows || 0, 1);
+            const layout = buildGridLayout(section, rowCount);
 
             return (
               <section key={`grid-${key}-${idx}`} className="rounded-md border border-foreground/20 p-3">
@@ -325,7 +308,7 @@ export default async function AuditReportPage({
                   <table className="w-full min-w-max border-collapse text-xs">
                     <thead>
                       <tr>
-                        {section.columns.map((col) => (
+                        {layout.columns.map((col) => (
                           <th
                             key={col.id}
                             className={
@@ -344,26 +327,30 @@ export default async function AuditReportPage({
                         const row = rows[rowIndex] || {};
                         return (
                           <tr key={`r-${rowIndex}`}>
-                            {section.columns.map((col) => {
-                              const cell = row[col.id];
+                            {layout.rows[rowIndex]?.map((cell, colIndex) => {
+                              if (!cell || cell.kind === "covered") return null;
+                              const col = cell.field;
+                              const value = row[col.id];
                               return (
                                 <td
-                                  key={`${rowIndex}-${col.id}`}
+                                  key={`${rowIndex}-${colIndex}-${cell.mergeId || col.id}`}
+                                  rowSpan={cell.rowSpan}
+                                  colSpan={cell.colSpan}
                                   className={
                                     "h-8 border border-foreground/20 px-2 py-1 align-top " +
                                     (col.type === "checkbox" ? "w-16 text-center" : "")
                                   }
                                   style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
                                 >
-                                  {isDataUrl(cell) ? (
+                                  {isDataUrl(value) ? (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={cell as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />
+                                    <img src={value as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />
                                   ) : (
-                                    isImageSource(cell)
+                                    isImageSource(value)
                                       ? (
-                                        <a href={cell as string} target="_blank" rel="noreferrer" className="underline">View image</a>
+                                        <a href={value as string} target="_blank" rel="noreferrer" className="underline">View image</a>
                                       )
-                                      : col.type === "yesno" ? asYesNo(cell) : asText(cell)
+                                      : col.type === "yesno" ? asYesNo(value) : asText(value)
                                   )}
                                 </td>
                               );

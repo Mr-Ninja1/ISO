@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { prisma } from "@/lib/prisma";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { normalizeRole } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -52,11 +52,13 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const sb = createSupabaseWithBearer(token);
 
   const { searchParams } = new URL(req.url);
   const tenantSlug = searchParams.get("tenantSlug") || "";
@@ -66,58 +68,69 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
   }
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true },
-  });
-
-  if (!tenant) {
+  const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) {
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
 
   const role = normalizeRole(membership?.role);
-  if (!membership || (role !== "ADMIN" && role !== "MANAGER")) {
+  if (me || !membership || (role !== "ADMIN" && role !== "MANAGER")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const templates = await prisma.formTemplate.findMany({
-    where: { tenantId: tenant.id },
-    select: { id: true, title: true },
-  });
-  const templateTitleById = new Map(templates.map((template) => [template.id, template.title]));
+  const { data: templateRows } = await sb.from("form_templates").select("id, title").eq("tenant_id", tenant.id);
+  const templateTitleById = new Map((templateRows || []).map((t) => [t.id as string, t.title as string]));
 
-  const rowUserIds = Array.from(new Set([user.id]));
+  const { data: logRows, error: logErr } = await sb
+    .from("activity_logs")
+    .select("id, user_id, action, entity_type, entity_id, details, created_at")
+    .eq("tenant_id", tenant.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
-  const rows = (await prisma.$queryRawUnsafe(
-    `SELECT
-      a."id",
-      a."userId",
-      a."action",
-      a."entityType",
-      a."entityId",
-      a."details",
-      a."createdAt",
-      p.full_name AS "actorName",
-      p.email AS "actorEmail"
-    FROM "ActivityLog" a
-    LEFT JOIN tenant_staff_pin p
-      ON p.tenant_id = $1::uuid
-     AND p.user_id = a."userId"
-    WHERE a."tenantId" = $1::uuid
-    ORDER BY a."createdAt" DESC
-    LIMIT $2`,
-    tenant.id,
-    limit
-  )) as ActivityRow[];
+  if (logErr) {
+    return NextResponse.json({ error: logErr.message }, { status: 500 });
+  }
 
-  for (const row of rows) {
-    if (!rowUserIds.includes(row.userId)) {
-      rowUserIds.push(row.userId);
+  const rows: ActivityRow[] = (logRows || []).map((r) => ({
+    id: r.id as string,
+    userId: r.user_id as string,
+    action: r.action as string,
+    entityType: r.entity_type as string,
+    entityId: (r.entity_id as string | null) ?? null,
+    details: r.details,
+    createdAt: new Date(r.created_at as string),
+    actorName: null,
+    actorEmail: null,
+    targetName: null,
+  }));
+
+  const rowUserIds = Array.from(new Set(rows.map((r) => r.userId)));
+
+  if (rowUserIds.length > 0) {
+    const { data: pinRows } = await sb
+      .from("tenant_staff_pins")
+      .select("user_id, full_name, email")
+      .eq("tenant_id", tenant.id)
+      .in("user_id", rowUserIds);
+
+    const pinByUserId = new Map(
+      (pinRows || []).map((p) => [p.user_id as string, { fullName: p.full_name as string, email: p.email as string }])
+    );
+
+    for (const row of rows) {
+      const pin = pinByUserId.get(row.userId);
+      if (pin) {
+        row.actorName = pin.fullName;
+        row.actorEmail = pin.email;
+      }
     }
   }
 
@@ -135,7 +148,7 @@ export async function GET(req: Request) {
       for (const authUser of users) {
         if (!pendingIds.has(authUser.id)) continue;
         authUserById.set(authUser.id, {
-          fullName: (authUser.user_metadata as Record<string, unknown> | undefined)?.full_name as string | null ?? null,
+          fullName: ((authUser.user_metadata as Record<string, unknown> | undefined)?.full_name as string | null) ?? null,
           email: authUser.email || null,
         });
         pendingIds.delete(authUser.id);
@@ -156,7 +169,7 @@ export async function GET(req: Request) {
           ? details.userName
           : typeof details?.staffName === "string"
             ? details.staffName
-          : null;
+            : null;
     const detailActorEmail =
       typeof details?.submittedByEmail === "string"
         ? details.submittedByEmail
@@ -164,13 +177,17 @@ export async function GET(req: Request) {
           ? details.userEmail
           : typeof details?.staffEmail === "string"
             ? details.staffEmail
-          : null;
+            : null;
     const authUser = authUserById.get(row.userId) || null;
     const targetName =
       row.entityType === "AuditLog"
-        ? (detailTemplateId ? templateTitleById.get(detailTemplateId) || null : null)
+        ? detailTemplateId
+          ? templateTitleById.get(detailTemplateId) || null
+          : null
         : row.entityType === "FormTemplate"
-          ? (row.entityId ? templateTitleById.get(row.entityId) || null : null)
+          ? row.entityId
+            ? templateTitleById.get(row.entityId) || null
+            : null
           : typeof details?.title === "string"
             ? details.title
             : typeof details?.name === "string"

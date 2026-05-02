@@ -1,5 +1,6 @@
 ﻿import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { ssrTenantBySlug } from "@/lib/data/ssrQueries";
+import { isSupabaseServiceRoleConfigured } from "@/lib/supabase/serviceRole";
 import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
 import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
@@ -28,7 +29,7 @@ function displayNameFromSlug(slug: string) {
 
 async function findTenantWithTimeout(tenantSlug: string, timeoutMs: number) {
   return Promise.race([
-    prisma.tenant.findUnique({ where: { slug: tenantSlug } }),
+    ssrTenantBySlug(tenantSlug),
     new Promise<null>((_, reject) => {
       setTimeout(() => reject(new Error("Tenant lookup timed out")), timeoutMs);
     }),
@@ -69,11 +70,17 @@ export default async function TenantLayout({
         tenant = {
           name: dbTenant.name,
           slug: dbTenant.slug,
-          logoUrl: dbTenant.logoUrl,
+          logoUrl: dbTenant.logoUrl ?? null,
         };
         writeTenantHeaderCache(tenant);
+      } else if (process.env.NODE_ENV === "development" && !isSupabaseServiceRoleConfigured()) {
+        // Local dev without service role: avoid hard 404 so client routes can still use the user JWT + RLS APIs.
+        tenant = {
+          name: displayNameFromSlug(tenantSlug),
+          slug: tenantSlug,
+          logoUrl: null,
+        };
       } else {
-        // Tenant not found (db reachable). Keep existing behavior.
         notFound();
       }
     } catch {

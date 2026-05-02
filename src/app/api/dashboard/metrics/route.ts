@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { prisma } from "@/lib/prisma";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
+import type { FormSchemaV1 } from "@/types/forms";
 import { collectTemperatureAlerts, collectTemperatureSeries } from "@/lib/temperatureMonitoring";
 
 function getBearerToken(req: Request) {
@@ -53,12 +54,20 @@ function schemaHasTemperatureInputs(schema: unknown): boolean {
 
 function templateSettings(schema: unknown) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
-    return { dueDays: undefined as number | undefined, temperatureAlertBelow: undefined as number | undefined, temperatureAlertAbove: undefined as number | undefined };
+    return {
+      dueDays: undefined as number | undefined,
+      temperatureAlertBelow: undefined as number | undefined,
+      temperatureAlertAbove: undefined as number | undefined,
+    };
   }
 
   const meta = (schema as Record<string, unknown>).meta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
-    return { dueDays: undefined as number | undefined, temperatureAlertBelow: undefined as number | undefined, temperatureAlertAbove: undefined as number | undefined };
+    return {
+      dueDays: undefined as number | undefined,
+      temperatureAlertBelow: undefined as number | undefined,
+      temperatureAlertAbove: undefined as number | undefined,
+    };
   }
 
   const metaRecord = meta as Record<string, unknown>;
@@ -80,7 +89,7 @@ export async function GET(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -88,7 +97,7 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -96,65 +105,77 @@ export async function GET(req: Request) {
   const tenantSlug = (searchParams.get("tenantSlug") || "").trim();
   if (!tenantSlug) return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug: tenantSlug },
-    select: { id: true, name: true, slug: true },
-  });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const sb = createSupabaseWithBearer(token);
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const { data: tenant, error: te } = await sb.from("tenants").select("id, name, slug").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-  if (!membership || !hasPermission(membership.role, "audit.view")) {
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership || !hasPermission(membership.role, "audit.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [submittedCount, draftCount, staffCount, submittedAudits, liveTemplates, draftAudits] = await Promise.all([
-    prisma.auditLog.count({ where: { tenantId: tenant.id, status: "SUBMITTED" } }),
-    prisma.auditLog.count({ where: { tenantId: tenant.id, status: "DRAFT" } }),
-    prisma.tenantMember.count({ where: { tenantId: tenant.id } }),
-    prisma.auditLog.findMany({
-      where: { tenantId: tenant.id, status: "SUBMITTED" },
-      orderBy: [{ updatedAt: "desc" }],
-      take: 500,
-      select: {
-        id: true,
-        createdAt: true,
-        updatedAt: true,
-        payload: true,
-        template: {
-          select: {
-            id: true,
-            title: true,
-            schema: true,
-          },
-        },
+  const tenantId = tenant.id as string;
+
+  const [submittedCountRes, draftCountRes, staffCountRes, submittedAuditsRes, liveTemplatesRes, draftAuditsRes] =
+    await Promise.all([
+      sb.from("audit_logs").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", "SUBMITTED"),
+      sb.from("audit_logs").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", "DRAFT"),
+      sb.from("tenant_members").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId),
+      sb
+        .from("audit_logs")
+        .select("id, created_at, updated_at, payload, form_templates(id, title, schema)")
+        .eq("tenant_id", tenantId)
+        .eq("status", "SUBMITTED")
+        .order("updated_at", { ascending: false })
+        .limit(500),
+      sb.from("form_templates").select("id, schema").eq("tenant_id", tenantId),
+      sb
+        .from("audit_logs")
+        .select("id, updated_at, form_templates(id, schema)")
+        .eq("tenant_id", tenantId)
+        .eq("status", "DRAFT")
+        .order("updated_at", { ascending: false }),
+    ]);
+
+  const submittedCount = submittedCountRes.count ?? 0;
+  const draftCount = draftCountRes.count ?? 0;
+  const staffCount = staffCountRes.count ?? 0;
+
+  const submittedAudits = (submittedAuditsRes.data || []).map((audit: Record<string, unknown>) => {
+    const tpl = audit.form_templates as { id: string; title: string; schema: unknown } | null;
+    return {
+      id: audit.id as string,
+      createdAt: new Date(audit.created_at as string),
+      updatedAt: new Date(audit.updated_at as string),
+      payload: audit.payload,
+      template: {
+        id: tpl?.id ?? "",
+        title: tpl?.title ?? "Form",
+        schema: tpl?.schema,
       },
-    }),
-    prisma.formTemplate.findMany({
-      where: { tenantId: tenant.id },
-      select: {
-        id: true,
-        schema: true,
-      },
-    }),
-    prisma.auditLog.findMany({
-      where: { tenantId: tenant.id, status: "DRAFT" },
-      orderBy: [{ updatedAt: "desc" }],
-      select: {
-        id: true,
-        updatedAt: true,
-        template: {
-          select: {
-            id: true,
-            schema: true,
-          },
-        },
-      },
-    }),
-  ]);
+    };
+  });
+
+  const liveTemplates = (liveTemplatesRes.data || []).map((t: Record<string, unknown>) => ({
+    id: t.id as string,
+    schema: t.schema,
+  }));
+
+  const draftAudits = (draftAuditsRes.data || []).map((audit: Record<string, unknown>) => {
+    const tpl = audit.form_templates as { id: string; schema: unknown } | null;
+    return {
+      id: audit.id as string,
+      updatedAt: new Date(audit.updated_at as string),
+      template: tpl ? { id: tpl.id, schema: tpl.schema } : null,
+    };
+  });
 
   const liveOnlyTemplates = liveTemplates.filter((template) => templateIsLive(template.schema));
   const dueRuleTemplates = liveOnlyTemplates.filter((template) => templateSettings(template.schema).dueDays !== undefined).length;
@@ -189,7 +210,7 @@ export async function GET(req: Request) {
 
   for (const audit of submittedAudits) {
     const payload = (audit.payload as Record<string, unknown>) || {};
-    const schema = audit.template.schema as any;
+    const schema = audit.template.schema as FormSchemaV1;
     const alerts = collectTemperatureAlerts(schema, payload);
     const series = collectTemperatureSeries(schema, payload);
 

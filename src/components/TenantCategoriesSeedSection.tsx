@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 
 export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string }) {
   const router = useRouter();
@@ -19,19 +20,26 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionsFetchedRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      suggestionsFetchedRef.current = false;
+      return;
+    }
     if (!accessToken) return;
-    if (suggestionsLoading) return;
+    if (suggestionsFetchedRef.current) return;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       setSuggestions([]);
       return;
     }
 
+    suggestionsFetchedRef.current = true;
     setSuggestionsLoading(true);
+    const controller = new AbortController();
     fetch("/api/workspace/suggestions", {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -39,9 +47,14 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
         return data as { suggestions?: string[] };
       })
       .then((data) => setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []))
-      .catch(() => setSuggestions([]))
+      .catch(() => {
+        suggestionsFetchedRef.current = false;
+        setSuggestions([]);
+      })
       .finally(() => setSuggestionsLoading(false));
-  }, [open, accessToken, suggestionsLoading]);
+
+    return () => controller.abort();
+  }, [open, accessToken]);
 
   async function handleSubmit(names: string[]) {
     if (!accessToken) return;
@@ -73,6 +86,7 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
       if (!res.ok) throw new Error(data?.error || `Failed to add categories (${res.status})`);
 
       setOpen(false);
+      requestWorkspaceRevalidate(tenantSlug);
       router.refresh();
     } catch (e: any) {
       const msg = String(e?.message || "");

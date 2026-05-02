@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { persistPhotoEvidenceToBucket } from "@/lib/photoEvidenceStorage";
 import { recordActivity } from "@/lib/activityTracker";
@@ -60,16 +60,11 @@ function rowStatusPriority(status: string) {
   return 2;
 }
 
-function mapStatus(value: unknown) {
-  if (value === "OPEN" || value === "IN_PROGRESS" || value === "CLOSED") return value;
-  return "OPEN";
-}
-
 export async function GET(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -77,7 +72,7 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -85,44 +80,56 @@ export async function GET(req: Request) {
   const tenantSlug = (searchParams.get("tenantSlug") || "").trim();
   if (!tenantSlug) return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true, name: true, slug: true } });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const sb = createSupabaseWithBearer(token);
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const { data: tenant, error: te } = await sb.from("tenants").select("id, name, slug").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-  if (!membership || !hasPermission(membership.role, "settings.view")) {
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership || !hasPermission(membership.role, "settings.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rows = await prisma.correctiveAction.findMany({
-    where: { tenantId: tenant.id },
-    orderBy: [{ updatedAt: "desc" }],
-  });
+  const { data: rows, error: listErr } = await sb
+    .from("corrective_actions")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .order("updated_at", { ascending: false });
+
+  if (listErr) {
+    return NextResponse.json({ error: listErr.message }, { status: 500 });
+  }
 
   const now = Date.now();
-  const actions = rows
+  const actions = (rows || [])
     .map((row) => {
       const evidence = getEvidence(row.evidence);
-      const dueDate = row.dueDate ? row.dueDate.toISOString() : null;
-      const isOverdue = Boolean(row.status !== "CLOSED" && row.dueDate && row.dueDate.getTime() < now);
+      const dueDateRaw = row.due_date as string | null;
+      const dueDate = dueDateRaw ? new Date(dueDateRaw).toISOString() : null;
+      const status = row.status as string;
+      const dueMs = dueDateRaw ? new Date(dueDateRaw).getTime() : null;
+      const isOverdue = Boolean(status !== "CLOSED" && dueMs !== null && dueMs < now);
       return {
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        ownerName: row.ownerName,
-        ownerEmail: row.ownerEmail,
+        id: row.id as string,
+        title: row.title as string,
+        description: row.description as string,
+        ownerName: row.owner_name as string,
+        ownerEmail: row.owner_email as string | null,
         dueDate,
-        status: row.status,
-        sourceType: row.sourceType,
-        sourceId: row.sourceId,
+        status,
+        sourceType: row.source_type as string | null,
+        sourceId: row.source_id as string | null,
         evidence,
-        closedAt: row.closedAt ? row.closedAt.toISOString() : null,
-        archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
+        closedAt: row.closed_at ? new Date(row.closed_at as string).toISOString() : null,
+        archivedAt: row.archived_at ? new Date(row.archived_at as string).toISOString() : null,
+        createdAt: new Date(row.created_at as string).toISOString(),
+        updatedAt: new Date(row.updated_at as string).toISOString(),
         isOverdue,
       };
     })
@@ -158,7 +165,7 @@ export async function POST(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -166,23 +173,29 @@ export async function POST(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
-  const { tenantSlug, title, description, ownerName, ownerEmail, dueDate, sourceType, sourceId, evidenceNotes, evidencePhotos } = parsed.data;
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const { tenantSlug, title, description, ownerName, ownerEmail, dueDate, sourceType, sourceId, evidenceNotes, evidencePhotos } =
+    parsed.data;
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const sb = createSupabaseWithBearer(token);
 
-  if (!membership || !hasPermission(membership.role, "settings.view")) {
+  const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership || !hasPermission(membership.role, "settings.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -192,46 +205,50 @@ export async function POST(req: Request) {
     ? ((evidencePayload as Record<string, unknown>).evidencePhotos as unknown[]).filter((item): item is string => typeof item === "string")
     : [];
 
-  const created = await prisma.correctiveAction.create({
-    data: {
-      id,
-      tenantId: tenant.id,
-      title,
-      description,
-      ownerName,
-      ownerEmail: safeString(ownerEmail),
-      dueDate: parseDate(dueDate),
-      sourceType: safeString(sourceType),
-      sourceId: safeString(sourceId),
-      status: "OPEN",
-      evidence: {
-        notes: safeString(evidenceNotes),
-        photos,
-      },
+  const dueParsed = parseDate(dueDate);
+
+  const { error: insErr } = await sb.from("corrective_actions").insert({
+    id,
+    tenant_id: tenant.id,
+    title,
+    description,
+    owner_name: ownerName,
+    owner_email: safeString(ownerEmail),
+    due_date: dueParsed ? dueParsed.toISOString() : null,
+    source_type: safeString(sourceType),
+    source_id: safeString(sourceId),
+    status: "OPEN",
+    evidence: {
+      notes: safeString(evidenceNotes),
+      photos,
     },
   });
 
-  await recordActivity({
-    tenantId: tenant.id,
+  if (insErr) {
+    return NextResponse.json({ error: insErr.message }, { status: 500 });
+  }
+
+  await recordActivity(sb, {
+    tenantId: tenant.id as string,
     userId: user.id,
     action: "correctiveAction.create",
     entityType: "CorrectiveAction",
-    entityId: created.id,
+    entityId: id,
     details: {
-      title: created.title,
-      ownerName: created.ownerName,
-      status: created.status,
+      title,
+      ownerName,
+      status: "OPEN",
     },
   });
 
-  return NextResponse.json({ ok: true, actionId: created.id });
+  return NextResponse.json({ ok: true, actionId: id });
 }
 
 export async function PATCH(req: Request) {
   const token = getBearerToken(req);
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -239,34 +256,45 @@ export async function PATCH(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const parsed = updateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
-  const { actionId, tenantSlug, title, description, ownerName, ownerEmail, dueDate, sourceType, sourceId, evidenceNotes, evidencePhotos, status } = parsed.data;
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug }, select: { id: true } });
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const { actionId, tenantSlug, title, description, ownerName, ownerEmail, dueDate, sourceType, sourceId, evidenceNotes, evidencePhotos, status } =
+    parsed.data;
 
-  const membership = await prisma.tenantMember.findFirst({
-    where: { tenantId: tenant.id, userId: user.id },
-    select: { role: true },
-  });
+  const sb = createSupabaseWithBearer(token);
 
-  if (!membership || !hasPermission(membership.role, "settings.view")) {
+  const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+  if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+  const { data: membership, error: me } = await sb
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (me || !membership || !hasPermission(membership.role, "settings.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const existing = await prisma.correctiveAction.findFirst({
-    where: { id: actionId, tenantId: tenant.id },
-  });
+  const { data: existing, error: exErr } = await sb
+    .from("corrective_actions")
+    .select("*")
+    .eq("id", actionId)
+    .eq("tenant_id", tenant.id)
+    .maybeSingle();
 
-  if (!existing) return NextResponse.json({ error: "Corrective action not found" }, { status: 404 });
+  if (exErr || !existing) return NextResponse.json({ error: "Corrective action not found" }, { status: 404 });
 
-  const nextStatus = status || existing.status;
-  const statusChanged = nextStatus !== existing.status;
+  const existingStatus = existing.status as string;
+  const nextStatus = status || existingStatus;
+  const statusChanged = nextStatus !== existingStatus;
+
   const evidencePayload = evidencePhotos?.length ? await persistPhotoEvidenceToBucket({ evidencePhotos }, tenantSlug, actionId) : { evidencePhotos: [] };
   const newPhotos = Array.isArray((evidencePayload as Record<string, unknown>).evidencePhotos)
     ? ((evidencePayload as Record<string, unknown>).evidencePhotos as unknown[]).filter((item): item is string => typeof item === "string")
@@ -277,35 +305,62 @@ export async function PATCH(req: Request) {
     photos: newPhotos.length > 0 ? [...currentEvidence.photos, ...newPhotos] : currentEvidence.photos,
   };
 
-  const updated = await prisma.correctiveAction.update({
-    where: { id: existing.id },
-    data: {
-      title: safeString(title) || existing.title,
-      description: safeString(description) || existing.description,
-      ownerName: safeString(ownerName) || existing.ownerName,
-      ownerEmail: safeString(ownerEmail),
-      dueDate: dueDate === undefined ? existing.dueDate : parseDate(dueDate),
-      sourceType: sourceType === undefined ? existing.sourceType : safeString(sourceType),
-      sourceId: sourceId === undefined ? existing.sourceId : safeString(sourceId),
+  const parsedDue = dueDate === undefined ? undefined : parseDate(dueDate);
+  const nextDue =
+    dueDate === undefined
+      ? (existing.due_date as string | null)
+      : parsedDue
+        ? parsedDue.toISOString()
+        : null;
+
+  const closedAt =
+    nextStatus === "CLOSED" ? ((existing.closed_at as string | null) ?? new Date().toISOString()) : null;
+  const archivedAt =
+    nextStatus === "CLOSED" ? ((existing.archived_at as string | null) ?? new Date().toISOString()) : null;
+
+  const { error: updErr } = await sb
+    .from("corrective_actions")
+    .update({
+      title: safeString(title) || (existing.title as string),
+      description: safeString(description) || (existing.description as string),
+      owner_name: safeString(ownerName) || (existing.owner_name as string),
+      owner_email: ownerEmail === undefined ? (existing.owner_email as string | null) : safeString(ownerEmail),
+      due_date: nextDue,
+      source_type: sourceType === undefined ? (existing.source_type as string | null) : safeString(sourceType),
+      source_id: sourceId === undefined ? (existing.source_id as string | null) : safeString(sourceId),
       status: nextStatus,
       evidence: nextEvidence,
-      closedAt: nextStatus === "CLOSED" ? existing.closedAt || new Date() : null,
-      archivedAt: nextStatus === "CLOSED" ? existing.archivedAt || new Date() : null,
-    },
-  });
+      closed_at: closedAt,
+      archived_at: archivedAt,
+    })
+    .eq("id", existing.id as string)
+    .eq("tenant_id", tenant.id);
 
-  await recordActivity({
-    tenantId: tenant.id,
+  if (updErr) {
+    return NextResponse.json({ error: updErr.message }, { status: 500 });
+  }
+
+  const updatedTitle = safeString(title) || (existing.title as string);
+  const updatedOwner = safeString(ownerName) || (existing.owner_name as string);
+
+  await recordActivity(sb, {
+    tenantId: tenant.id as string,
     userId: user.id,
-    action: statusChanged ? (nextStatus === "CLOSED" ? "correctiveAction.archive" : existing.status === "CLOSED" ? "correctiveAction.reopen" : "correctiveAction.update") : "correctiveAction.update",
+    action: statusChanged
+      ? nextStatus === "CLOSED"
+        ? "correctiveAction.archive"
+        : existingStatus === "CLOSED"
+          ? "correctiveAction.reopen"
+          : "correctiveAction.update"
+      : "correctiveAction.update",
     entityType: "CorrectiveAction",
-    entityId: updated.id,
+    entityId: actionId,
     details: {
-      title: updated.title,
-      ownerName: updated.ownerName,
-      status: updated.status,
+      title: updatedTitle,
+      ownerName: updatedOwner,
+      status: nextStatus,
     },
   });
 
-  return NextResponse.json({ ok: true, actionId: updated.id });
+  return NextResponse.json({ ok: true, actionId });
 }

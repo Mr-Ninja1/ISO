@@ -7,7 +7,7 @@ import { AlertTriangle, Eye, EyeOff, Loader2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/components/AuthProvider";
 import { FormBuilder } from "@/components/forms/FormBuilder";
-import type { FormSection } from "@/types/forms";
+import type { FieldDef, FormSection, FormStyle, FormType } from "@/types/forms";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import {
   enqueueTemplateSync,
@@ -47,7 +47,7 @@ type EditInfoResponse = {
     id: string;
     title: string;
     categoryId: string | null;
-    schema: { sections?: FormSection[]; fields?: any[]; title?: string; meta?: { templateVersion?: number } };
+    schema: { sections?: FormSection[]; fields?: any[]; title?: string; meta?: { templateVersion?: number; formType?: FormType; formStyle?: FormStyle; cardIcon?: string; cardColor?: string } };
     version: number;
   };
   lock: {
@@ -245,6 +245,117 @@ function buildLocalTemplateId() {
   return `local_tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
+function buildId(prefix: string) {
+  try {
+    const cryptoAny = crypto as unknown as { randomUUID?: () => string };
+    if (cryptoAny?.randomUUID) return `${prefix}_${cryptoAny.randomUUID()}`;
+  } catch {
+    // ignore
+  }
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+}
+
+function isSchemaEmpty(sections: FormSection[]) {
+  return sections.every((section) => {
+    if (section.type === "fields") return section.fields.length === 0;
+    return section.columns.length === 0;
+  });
+}
+
+function buildPresetSections(formType: FormType): FormSection[] {
+  if (formType === "questionnaire") {
+    const q1: FieldDef = { id: buildId("q"), type: "yesno", label: "Question 1", required: false };
+    return [{ type: "fields", title: "Questions", fields: [q1] }];
+  }
+  if (formType === "answer-sheet") {
+    const q1: FieldDef = {
+      id: buildId("q"),
+      type: "text",
+      label: "Question 1",
+      required: false,
+      multiline: true,
+    };
+    return [{ type: "fields", title: "Questions", fields: [q1] }];
+  }
+  if (formType === "inspection") {
+    return [
+      {
+        type: "fields",
+        title: "Header",
+        fields: [
+          { id: buildId("location"), type: "text", label: "Location", required: false },
+          { id: buildId("week"), type: "text", label: "Week", required: false },
+          { id: buildId("month"), type: "text", label: "Month", required: false },
+          { id: buildId("year"), type: "text", label: "Year", required: false },
+        ],
+      },
+      {
+        type: "grid",
+        id: "form_data",
+        title: "Inspection Log",
+        rows: 10,
+        columns: [
+          { id: buildId("item"), type: "text", label: "Item", required: false },
+          { id: buildId("freq"), type: "text", label: "Frequency", required: false },
+          { id: buildId("status"), type: "yesno", label: "Status", required: false },
+          { id: buildId("notes"), type: "text", label: "Notes", required: false },
+        ],
+      },
+    ];
+  }
+  if (formType === "handwritten") {
+    return [
+      {
+        type: "fields",
+        title: "Handwritten Header",
+        fields: [
+          { id: buildId("name"), type: "signature", label: "Name / initials", required: false },
+          { id: buildId("date"), type: "signature", label: "Date", required: false },
+        ],
+      },
+      {
+        type: "grid",
+        id: "form_data",
+        title: "Handwritten Log",
+        rows: 8,
+        columns: [
+          { id: buildId("item"), type: "signature", label: "Item", required: false },
+          { id: buildId("notes"), type: "signature", label: "Notes", required: false },
+          { id: buildId("status"), type: "signature", label: "Status", required: false },
+        ],
+      },
+    ];
+  }
+  return [{ type: "fields", title: "Fields", fields: [] }];
+}
+
+function convertSectionsToHandwritten(sections: FormSection[]): FormSection[] {
+  return sections.map((section) => {
+    if (section.type === "fields") {
+      return {
+        ...section,
+        fields: section.fields.map((field) => {
+          if (field.type === "dynamic-table") {
+            return {
+              ...field,
+              columns: field.columns.map((col) => ({ ...col, type: "text" as const })),
+            };
+          }
+          return { ...field, type: "signature" as const };
+        }),
+      };
+    }
+    return {
+      ...section,
+      columns: section.columns.map((col) => ({ ...col, type: "signature" as const })),
+      mergedCells: (section.mergedCells || []).map((cell) => ({
+        ...cell,
+        field: cell.field ? { ...cell.field, type: "signature" as const } : cell.field,
+      })),
+    };
+  });
+}
+
 function writeWorkspaceNotice(message: string, tone: "default" | "success" | "warning" | "error" = "default") {
   try {
     localStorage.setItem(
@@ -311,6 +422,11 @@ export default function NewTemplatePage() {
 
   const [title, setTitle] = useState("Custom Form");
   const [sections, setSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
+  const [formType, setFormType] = useState<FormType>("custom");
+  const [formStyle, setFormStyle] = useState<FormStyle>("default");
+  const [cardIcon, setCardIcon] = useState("clipboard");
+  const [cardColor, setCardColor] = useState("default");
+  const [schemaMeta, setSchemaMeta] = useState<Record<string, unknown>>({});
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showPhotoImportGuide, setShowPhotoImportGuide] = useState(false);
   const [headerActionsMount, setHeaderActionsMount] = useState<HTMLElement | null>(null);
@@ -469,9 +585,17 @@ export default function NewTemplatePage() {
       })
       .then((data) => {
         const loadedSections = schemaToSections(data.template.schema);
+        const nextMeta = data.template.schema?.meta && typeof data.template.schema.meta === "object"
+          ? (data.template.schema.meta as Record<string, unknown>)
+          : {};
         setTitle(data.template.title || data.template.schema.title || "Custom Form");
         setSelectedCategoryId(data.template.categoryId ?? null);
         setSections(loadedSections);
+        setSchemaMeta(nextMeta);
+        setFormType((nextMeta.formType as FormType) || "custom");
+        setFormStyle((nextMeta.formStyle as FormStyle) || "default");
+        setCardIcon(typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : "clipboard");
+        setCardColor(typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : "default");
         setBaseSections(loadedSections);
         setBaseVersion(data.template.version || 1);
         setHasAudits(data.lock.hasAudits);
@@ -493,6 +617,13 @@ export default function NewTemplatePage() {
         version: 1 as const,
         title,
         sections,
+        meta: {
+          ...schemaMeta,
+          formType,
+          formStyle,
+          cardIcon,
+          cardColor,
+        },
       };
 
       const endpoint = isEditMode ? "/api/templates/save-changes" : "/api/templates/create";
@@ -588,6 +719,13 @@ export default function NewTemplatePage() {
           version: 1 as const,
           title,
           sections,
+          meta: {
+            ...schemaMeta,
+            formType,
+            formStyle,
+            cardIcon,
+            cardColor,
+          },
         };
         enqueueTemplateSync({
           mode: isEditMode ? "save-changes" : "create",
@@ -658,6 +796,11 @@ export default function NewTemplatePage() {
 
       setTitle((data?.title as string) || "Imported Form");
       setSections(importedSections);
+      setFormType("custom");
+      setFormStyle("default");
+      setCardIcon("clipboard");
+      setCardColor("default");
+      setSchemaMeta({});
       setBaseSections(importedSections);
       setBuilderResetKey(`ocr-import-${Date.now()}`);
       setPreviewOpen(false);
@@ -669,6 +812,23 @@ export default function NewTemplatePage() {
   }
 
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim();
+
+  function handleFormTypeChange(next: FormType) {
+    setFormType(next);
+    if (next === "handwritten") {
+      setSections((prev) => {
+        const converted = convertSectionsToHandwritten(prev);
+        return converted;
+      });
+      setBuilderResetKey(`handwritten-${Date.now()}`);
+      return;
+    }
+    if (isSchemaEmpty(sections)) {
+      const preset = buildPresetSections(next);
+      setSections(preset);
+      setBuilderResetKey(`preset-${next}-${Date.now()}`);
+    }
+  }
 
   return (
     <div className="relative min-h-dvh">
@@ -766,11 +926,77 @@ export default function NewTemplatePage() {
       <div className="overflow-visible">
         <div className={"grid grid-cols-1 " + (previewOpen ? "lg:grid-cols-[1fr_320px]" : "") }>
           <div className="min-w-0">
+            <div className="px-3 pt-3 sm:px-6">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
+                <label className="text-xs font-semibold uppercase tracking-wide">Form type</label>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={formType}
+                  onChange={(e) => handleFormTypeChange(e.target.value as FormType)}
+                >
+                  <option value="custom">Custom</option>
+                  <option value="questionnaire">Questionnaire</option>
+                  <option value="answer-sheet">Answer sheet</option>
+                  <option value="inspection">Inspection</option>
+                  <option value="handwritten">Handwritten capture</option>
+                </select>
+                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Style</label>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={formStyle}
+                  onChange={(e) => setFormStyle(e.target.value as FormStyle)}
+                >
+                  <option value="default">Default</option>
+                  <option value="compact">Compact</option>
+                  <option value="report">Report</option>
+                </select>
+                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Card icon</label>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={cardIcon}
+                  onChange={(e) => setCardIcon(e.target.value)}
+                >
+                  <option value="clipboard">Clipboard</option>
+                  <option value="checklist">Checklist</option>
+                  <option value="safety">Safety</option>
+                  <option value="cleaning">Cleaning</option>
+                  <option value="inventory">Inventory</option>
+                  <option value="staff">Staff</option>
+                  <option value="food">Food</option>
+                  <option value="temperature">Temperature</option>
+                </select>
+                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Card color</label>
+                <select
+                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={cardColor}
+                  onChange={(e) => setCardColor(e.target.value)}
+                >
+                  <option value="default">Default</option>
+                  <option value="emerald">Emerald</option>
+                  <option value="amber">Amber</option>
+                  <option value="sky">Sky</option>
+                  <option value="violet">Violet</option>
+                  <option value="rose">Rose</option>
+                </select>
+                <span className="text-foreground/50">
+                  {formType === "inspection"
+                    ? "Adds a starter log table (editable)."
+                    : formType === "answer-sheet"
+                      ? "Quick add creates multiline answers."
+                      : formType === "questionnaire"
+                        ? "Quick add focuses on response types."
+                        : formType === "handwritten"
+                          ? "All fields switch to signature-style capture for stylus/finger input."
+                        : "Use the default builder."}
+                </span>
+              </div>
+            </div>
             <FormBuilder
               onChangeSections={setSections}
               initialSections={sections}
               title={title}
               onTitleChange={setTitle}
+              formType={formType}
               lockExistingDeletes={hasAudits}
               lockedFieldIds={lockedFieldIds}
               lockedGridColumnIds={lockedGridColumnIds}
@@ -870,6 +1096,48 @@ export default function NewTemplatePage() {
                   ))}
                 </select>
               </div>
+
+              <details className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-3">
+                <summary className="cursor-pointer text-xs font-semibold text-foreground/70">
+                  Optional card appearance
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-foreground/70">Card icon</label>
+                    <select
+                      className="h-9 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                      value={cardIcon}
+                      onChange={(e) => setCardIcon(e.target.value)}
+                      disabled={saving}
+                    >
+                      <option value="clipboard">Clipboard</option>
+                      <option value="checklist">Checklist</option>
+                      <option value="safety">Safety</option>
+                      <option value="cleaning">Cleaning</option>
+                      <option value="inventory">Inventory</option>
+                      <option value="staff">Staff</option>
+                      <option value="food">Food</option>
+                      <option value="temperature">Temperature</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-foreground/70">Card color</label>
+                    <select
+                      className="h-9 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                      value={cardColor}
+                      onChange={(e) => setCardColor(e.target.value)}
+                      disabled={saving}
+                    >
+                      <option value="default">Default</option>
+                      <option value="emerald">Emerald</option>
+                      <option value="amber">Amber</option>
+                      <option value="sky">Sky</option>
+                      <option value="violet">Violet</option>
+                      <option value="rose">Rose</option>
+                    </select>
+                  </div>
+                </div>
+              </details>
             </div>
 
             <div className="mt-4 flex items-center justify-end gap-2">

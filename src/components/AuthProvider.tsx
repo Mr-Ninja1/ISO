@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { createClient } from "@/lib/auth";
+import { createClient, ISO_MOBILE_SHELL_LS_KEY } from "@/lib/auth";
 
 type AuthContextType = {
   session: Session | null;
@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.removeItem("lastTenantSlug");
       localStorage.removeItem("active-staff-profile:v1");
+      localStorage.removeItem(ISO_MOBILE_SHELL_LS_KEY);
     } catch {
       // ignore
     }

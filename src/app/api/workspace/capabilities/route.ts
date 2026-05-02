@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission, normalizeRole } from "@/lib/roleGate";
 
 function getBearerToken(req: Request) {
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const tenantSlug = url.searchParams.get("tenantSlug") || "";
   if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
 
-  const supabase = createClient(
+  const supabaseAuth = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -25,41 +25,47 @@ export async function GET(req: Request) {
 
   const {
     data: { user },
-  } = await supabase.auth.getUser(token);
+  } = await supabaseAuth.auth.getUser(token);
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const sb = createSupabaseWithBearer(token);
 
-    const membership = await prisma.tenantMember.findFirst({
-      where: { tenantId: tenant.id, userId: user.id },
-      select: { role: true },
-    });
-    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const { data: tenant, error: te } = await sb.from("tenants").select("id").eq("slug", tenantSlug).maybeSingle();
+
+    if (te || !tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+    const { data: membership, error: me } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (me || !membership) {
+      console.error("Capabilities check failed:", { error: me, hasMembership: !!membership, userId: user.id, tenantId: tenant.id });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const role = normalizeRole(membership.role);
-    return NextResponse.json({
-      role,
-      capabilities: {
-        canAccessSettings: hasPermission(role, "settings.view"),
-        canCreateForms: hasPermission(role, "forms.create"),
-        canManageCategories: hasPermission(role, "categories.manage"),
-        canManageStaff: hasPermission(role, "staff.manage"),
+    return NextResponse.json(
+      {
+        role,
+        capabilities: {
+          canAccessSettings: hasPermission(role, "settings.view"),
+          canCreateForms: hasPermission(role, "forms.create"),
+          canManageCategories: hasPermission(role, "categories.manage"),
+          canManageStaff: hasPermission(role, "staff.manage"),
+        },
       },
-    }, {
-      headers: {
-        "Cache-Control": "private, max-age=30, stale-while-revalidate=90",
-      },
-    });
-  } catch (error: any) {
-    if (error?.code === "P2024") {
-      return NextResponse.json({ error: "Capabilities backend is busy." }, { status: 503 });
-    }
+      {
+        headers: {
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=90",
+        },
+      }
+    );
+  } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

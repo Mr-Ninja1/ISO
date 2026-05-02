@@ -2,18 +2,35 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Tenant, Category } from "@prisma/client";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 
-type TenantWithCategories = Tenant & { categories: Category[] };
+type CategoryRow = {
+  id: string;
+  tenantId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type TenantWithCategories = {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  categories: CategoryRow[];
+};
 
 type Props = {
   tenant: TenantWithCategories;
 };
 
-type CategoryItem = Pick<Category, "id" | "name" | "sortOrder">;
+type CategoryItem = Pick<CategoryRow, "id" | "name" | "sortOrder">;
 
 export function CategoriesManager({ tenant }: Props) {
   const { session } = useAuth();
@@ -92,6 +109,7 @@ export function CategoriesManager({ tenant }: Props) {
       setCategories([...categories, newCategory]);
       setNewCategoryName("");
       setMessage("Category created!");
+      requestWorkspaceRevalidate(tenant.slug);
       // Force a server-side refresh so `workspace` server data is re-fetched
       // and the new category is visible in server-rendered components.
       try { 
@@ -174,6 +192,7 @@ export function CategoriesManager({ tenant }: Props) {
       }
 
       setCategories(categories.filter((c) => c.id !== categoryId));
+      requestWorkspaceRevalidate(tenant.slug);
     } catch (error: any) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;

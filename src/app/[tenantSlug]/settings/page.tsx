@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { ssrCategoriesForTenant, ssrTenantBySlug, ssrTemplatesForTenant } from "@/lib/data/ssrQueries";
 import { TenantSettingsForm } from "@/components/TenantSettingsForm";
 import { TenantCategoriesSeedSection } from "@/components/TenantCategoriesSeedSection";
 import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
@@ -21,32 +21,22 @@ export default async function TenantSettingsPage({
   const focusSection = resolvedSearchParams.focus;
 
   try {
-    const tenant = await prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-    });
+    const tenant = await ssrTenantBySlug(tenantSlug);
 
     if (!tenant) notFound();
 
     const [categories, templatesRaw] = await Promise.all([
-      prisma.category.findMany({
-        where: { tenantId: tenant.id },
-        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-        select: { id: true, name: true },
-      }),
-      prisma.formTemplate.findMany({
-        where: { tenantId: tenant.id },
-        orderBy: [{ updatedAt: "desc" }],
-        select: { id: true, title: true, categoryId: true, updatedAt: true },
-      }),
+      ssrCategoriesForTenant(tenant.id),
+      ssrTemplatesForTenant(tenant.id),
     ]);
 
     const categoryById = new Map(categories.map((c) => [c.id, c.name]));
-    const templates = templatesRaw.map((t) => ({
-      id: t.id,
-      title: t.title,
-      categoryId: t.categoryId,
-      categoryName: t.categoryId ? (categoryById.get(t.categoryId) || "Uncategorized") : "Uncategorized",
-      updatedAt: t.updatedAt.toISOString(),
+    const templates = templatesRaw.map((t: Record<string, unknown>) => ({
+      id: t.id as string,
+      title: t.title as string,
+      categoryId: (t.category_id as string | null) ?? null,
+      categoryName: t.category_id ? categoryById.get(t.category_id as string) || "Uncategorized" : "Uncategorized",
+      updatedAt: new Date(t.updated_at as string).toISOString(),
     }));
 
     return (
