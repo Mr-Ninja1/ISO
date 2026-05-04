@@ -168,13 +168,10 @@ export default function Home() {
                   type="button"
                   onClick={handleDeveloperAccess}
                   className="inline-flex items-center gap-2 rounded-full border border-dashed border-foreground/20 bg-background/70 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-foreground/55 transition hover:border-foreground/35 hover:text-foreground/80"
-                  aria-label="Developer access"
-                  title={developerClicks > 0 ? `${6 - developerClicks} clicks left` : "Developer access"}
+                  aria-label="Access"
+                  title="Access"
                 >
-                  Developer access
-                  <span className="text-[10px] normal-case tracking-normal text-foreground/40">
-                    click 6 times
-                  </span>
+                  Access
                 </button>
               </div>
             </div>
@@ -188,21 +185,38 @@ export default function Home() {
         </section>
 
         <aside className="border-t border-foreground/10 px-6 py-10 sm:px-10 lg:border-t-0 lg:border-l lg:px-12 lg:py-14">
-          <div className="flex h-full flex-col justify-between gap-8">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/55">Why it works</div>
-              <div className="mt-3 space-y-4">
-                <InfoRow title="Workspace caching" text="Categories, form schemas, and quick actions are pulled once and reused offline." />
-                <InfoRow title="Saved forms" text="Drafts and submitted forms stay available even when the connection drops." />
-                <InfoRow title="Compliance flow" text="Temperature alerts, corrective actions, and audit reports stay organized." />
-                <InfoRow title="Cross-device sync" text="Fresh changes update in the background when the device comes back online." />
+          <div className="flex h-full flex-col justify-between gap-6">
+            <div className="rounded-[1.75rem] border border-foreground/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.03),rgba(255,255,255,0.96))] p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground/55">Live snapshot</div>
+                  <h2 className="mt-2 text-lg font-semibold">The workspace at a glance</h2>
+                </div>
+                <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
+                  Online
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                <SnapshotRow
+                  title="Offline cache"
+                  text="Forms, drafts, and evidence stay available on tablet and desktop."
+                />
+                <SnapshotRow
+                  title="Developer oversight"
+                  text="Activation, deactivation, and brand alerts stay in the console."
+                />
+                <SnapshotRow
+                  title="Sync status"
+                  text="Changes flow through when the device comes back online."
+                />
               </div>
             </div>
 
-            <div className="rounded-2xl border border-foreground/10 bg-foreground/[0.03] p-5">
+            <div className="rounded-2xl border border-foreground/10 bg-background/75 p-5 shadow-sm">
               <div className="text-sm font-semibold">Built for ISO-led service brands</div>
               <p className="mt-2 text-sm leading-6 text-foreground/65">
-                Replace the need for a native app with a fast PWA that works on tablets, supports evidence capture, and keeps your audit trail usable offline for any service brand following ISO standards.
+                A fast PWA that keeps audit work, evidence capture, and brand oversight feeling lightweight without losing control.
               </p>
             </div>
           </div>
@@ -221,6 +235,18 @@ function Metric({ label, value, icon }: { label: string; value: string; icon: Re
         {label}
       </div>
       <div className="mt-2 text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function SnapshotRow({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-2xl border border-foreground/10 bg-background/80 p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold">{title}</div>
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-900" />
+      </div>
+      <div className="mt-1 text-sm leading-6 text-foreground/65">{text}</div>
     </div>
   );
 }
@@ -293,15 +319,6 @@ function InstallPwaBanner({
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function InfoRow({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="rounded-2xl border border-foreground/10 bg-background/80 p-4 shadow-sm">
-      <div className="text-sm font-semibold">{title}</div>
-      <div className="mt-1 text-sm leading-6 text-foreground/65">{text}</div>
     </div>
   );
 }

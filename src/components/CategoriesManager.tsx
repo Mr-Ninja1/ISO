@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
@@ -226,8 +227,9 @@ export function CategoriesManager({ tenant }: Props) {
           <button
             type="submit"
             disabled={loading || !newCategoryName.trim()}
-            className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {loading ? "Adding..." : "Add"}
           </button>
         </div>

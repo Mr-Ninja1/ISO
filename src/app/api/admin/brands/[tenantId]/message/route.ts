@@ -42,21 +42,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ tenantI
       return NextResponse.json({ error: error?.message || "Failed to create alert" }, { status: 500 });
     }
 
-    // Log the message send action
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    const supabase = createClient(supabaseUrl!, supabaseAnonKey!, { auth: { persistSession: false } });
-    const { data: adminUser } = await supabase.auth.getUser(token);
     await svc.from("activity_logs").insert({
       tenant_id: tenantId,
-      user_id: adminUser.user?.id,
+      user_id: adminUser?.id,
       action: "brand.message.send",
       entity_type: "tenant_announcement",
       entity_id: alert.id,
       details: {
         title,
         message,
-          createdBy: adminUser?.email || null,
+        createdBy: adminUser?.email || null,
       },
     });
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/auth";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
@@ -392,8 +393,9 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
                 type="button"
                 onClick={() => setConfirmRemoveLogoOpen(true)}
                 disabled={uploadingLogo}
-                className="mt-3 rounded-md border border-foreground/20 px-3 py-2 text-sm"
+                className="mt-3 inline-flex items-center gap-2 rounded-md border border-foreground/20 px-3 py-2 text-sm disabled:opacity-50"
               >
+                {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {uploadingLogo ? "Working..." : "Remove Logo"}
               </button>
             </div>
@@ -416,8 +418,9 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
       <button
         type="submit"
         disabled={loading || uploadingLogo}
-        className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
       >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? "Saving..." : "Save Settings"}
       </button>
       </form>

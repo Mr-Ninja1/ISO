@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
@@ -131,8 +132,9 @@ export default function OnboardingPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
         >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Creating..." : "Create Brand"}
         </button>
       </form>
