@@ -30,7 +30,7 @@ export async function fetchWorkspaceViaSupabase(
 
   const { data: tenantRow, error: tenantErr } = await supabase
     .from("tenants")
-    .select("id,name,slug,logo_url")
+    .select("id,name,slug,logo_url,is_active")
     .eq("slug", tenantSlug)
     .maybeSingle();
 
@@ -43,6 +43,12 @@ export async function fetchWorkspaceViaSupabase(
   if (!tenantRow) {
     const err = new Error("Tenant not found") as Error & { status?: number };
     err.status = 404;
+    throw err;
+  }
+
+  if ((tenantRow as Record<string, unknown>).is_active === false) {
+    const err = new Error("This brand has been deactivated") as Error & { status?: number };
+    err.status = 403;
     throw err;
   }
 

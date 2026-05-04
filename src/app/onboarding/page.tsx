@@ -99,6 +99,14 @@ export default function OnboardingPage() {
         </p>
       </div>
 
+      <div className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="font-semibold">Free version / trial mode</div>
+        <p className="mt-1 leading-6">
+          During testing, every new brand is created active right away so you can keep moving.
+          The developer console can deactivate a brand later if needed.
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="w-full space-y-4">
         <div className="space-y-2">
           <label htmlFor="name" className="text-sm font-medium">

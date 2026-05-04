@@ -72,7 +72,11 @@ export async function POST(req: Request) {
       uniqueSlug = `${slug}-${++attempt}`;
     }
 
-    const { data: tenant, error: tenantErr } = await svc.from("tenants").insert({ name, slug: uniqueSlug }).select("id, slug").single();
+    const { data: tenant, error: tenantErr } = await svc
+      .from("tenants")
+      .insert({ name, slug: uniqueSlug, is_active: true })
+      .select("id, slug")
+      .single();
 
     if (tenantErr || !tenant) {
       return NextResponse.json({ error: tenantErr?.message || "Failed to create tenant" }, { status: 500 });
@@ -89,7 +93,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: memberErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ slug: tenant.slug, tenantId: tenant.id });
+    return NextResponse.json({ slug: tenant.slug, tenantId: tenant.id, isActive: true, mode: "trial" });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create tenant";
     return NextResponse.json({ error: msg }, { status: 500 });

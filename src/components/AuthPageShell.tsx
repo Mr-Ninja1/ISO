@@ -6,6 +6,8 @@ import { ShieldCheck, Sparkles, HardDriveDownload, Layers3 } from "lucide-react"
 
 type Props = {
   eyebrow: string;
+  onEyebrowClick?: () => void;
+  eyebrowTitle?: string;
   title: string;
   subtitle: string;
   formTitle: string;
@@ -18,6 +20,8 @@ type Props = {
 
 export function AuthPageShell({
   eyebrow,
+  onEyebrowClick,
+  eyebrowTitle,
   title,
   subtitle,
   formTitle,
@@ -37,10 +41,22 @@ export function AuthPageShell({
 
           <div className="relative flex h-full flex-col justify-between gap-6 md:gap-10">
             <div className="space-y-4 md:space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
-                <Sparkles className="h-3.5 w-3.5" />
-                {eyebrow}
-              </div>
+              {onEyebrowClick ? (
+                <button
+                  type="button"
+                  onClick={onEyebrowClick}
+                  title={eyebrowTitle}
+                  className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60 transition hover:border-foreground/20 hover:text-foreground/80"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {eyebrow}
+                </button>
+              ) : (
+                <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {eyebrow}
+                </div>
+              )}
 
               <div className="max-w-xl space-y-3 md:space-y-4">
                 <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">{title}</h1>

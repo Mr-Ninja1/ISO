@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
@@ -15,6 +15,31 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [banner, setBanner] = useState<{ verified: boolean; reset: boolean }>({ verified: false, reset: false });
+  const [secureAccessClicks, setSecureAccessClicks] = useState(0);
+  const secureAccessClicksRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setBanner({
+      verified: params.get("verified") === "1",
+      reset: params.get("reset") === "1",
+    });
+  }, []);
+
+  const handleSecureAccessClick = () => {
+    secureAccessClicksRef.current += 1;
+
+    if (secureAccessClicksRef.current >= 6) {
+      secureAccessClicksRef.current = 0;
+      setSecureAccessClicks(0);
+      router.push("/developer-login");
+      return;
+    }
+
+    setSecureAccessClicks(secureAccessClicksRef.current);
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,6 +56,17 @@ export default function LoginPage() {
 
       const accessToken = session?.access_token || "";
       if (accessToken) {
+        const developerRes = await fetch("/api/admin/metrics", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (developerRes.ok) {
+          router.push("/admin");
+          return;
+        }
+
         const verifyRes = await fetch("/api/staff/verify-pin", {
           method: "POST",
           headers: {
@@ -79,6 +115,8 @@ export default function LoginPage() {
   return (
     <AuthPageShell
       eyebrow="Secure access"
+      onEyebrowClick={handleSecureAccessClick}
+      eyebrowTitle={secureAccessClicks > 0 ? `${6 - secureAccessClicks} clicks left` : "Developer access"}
       title="Sign in to your operational workspace."
       subtitle="Open your brand, continue drafts, review saved forms, and keep the workspace synced across devices."
       formTitle="Welcome back"
@@ -88,6 +126,17 @@ export default function LoginPage() {
       footerLabel="Create one"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {banner.verified ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            Your email has been verified. You can sign in now.
+          </div>
+        ) : null}
+        {banner.reset ? (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+            Your password was updated. Sign in with your new password.
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium text-foreground/80">
             Email
@@ -130,6 +179,19 @@ export default function LoginPage() {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Signing in..." : "Sign In"}
         </button>
+
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <Link href="/forgot-password" className="font-medium text-foreground/70 underline underline-offset-4 hover:text-foreground">
+            Forgot password?
+          </Link>
+          <Link href="/verify-email" className="font-medium text-foreground/70 underline underline-offset-4 hover:text-foreground">
+            Need verification?
+          </Link>
+        </div>
+
+        <Link href="/developer-login" className="block text-center text-sm font-medium text-foreground/55 underline underline-offset-4 hover:text-foreground/80">
+          Developer sign in
+        </Link>
       </form>
     </AuthPageShell>
   );

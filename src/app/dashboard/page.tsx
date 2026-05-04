@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { isPlatformAdminEmail } from "@/lib/adminAccess";
 
 type Tenant = {
   id: string;
@@ -120,17 +121,35 @@ export default function DashboardPage() {
           <p className="break-all text-foreground/70">{user?.email}</p>
         </div>
 
-        <button
-          onClick={handleSignOut}
-          disabled={signingOut}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 py-2 disabled:opacity-60 sm:w-auto"
-        >
-          {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {signingOut ? "Signing out..." : "Sign Out"}
-        </button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          {isPlatformAdminEmail(user?.email) ? (
+            <Link
+              href="/admin"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 py-2 hover:bg-foreground/5 sm:w-auto"
+            >
+              Admin console
+            </Link>
+          ) : null}
+          <button
+            onClick={handleSignOut}
+            disabled={signingOut}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 py-2 disabled:opacity-60 sm:w-auto"
+          >
+            {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {signingOut ? "Signing out..." : "Sign Out"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-8 space-y-6">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">Free version / trial mode</div>
+          <p className="mt-1 leading-6">
+            New brands stay active while we are in test mode. If you later want approval-only access,
+            the developer console can deactivate brands manually.
+          </p>
+        </div>
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <h2 className="text-xl font-semibold">Your brands</h2>
           <Link

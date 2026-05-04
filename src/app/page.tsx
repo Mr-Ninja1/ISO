@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -21,6 +21,8 @@ export default function Home() {
   const [isIos, setIsIos] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const [developerClicks, setDeveloperClicks] = useState(0);
+  const developerClicksRef = useRef(0);
 
   useEffect(() => {
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -85,6 +87,19 @@ export default function Home() {
     setShowInstallHelp(true);
   };
 
+  const handleDeveloperAccess = () => {
+    developerClicksRef.current += 1;
+
+    if (developerClicksRef.current >= 6) {
+      developerClicksRef.current = 0;
+      setDeveloperClicks(0);
+      router.push("/developer-login");
+      return;
+    }
+
+    setDeveloperClicks(developerClicksRef.current);
+  };
+
   if (loading) {
     return <AppLoadingScreen title="Loading" subtitle="Preparing your workspace..." />;
   }
@@ -147,6 +162,21 @@ export default function Home() {
                   </button>
                 ) : null}
               </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleDeveloperAccess}
+                  className="inline-flex items-center gap-2 rounded-full border border-dashed border-foreground/20 bg-background/70 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-foreground/55 transition hover:border-foreground/35 hover:text-foreground/80"
+                  aria-label="Developer access"
+                  title={developerClicks > 0 ? `${6 - developerClicks} clicks left` : "Developer access"}
+                >
+                  Developer access
+                  <span className="text-[10px] normal-case tracking-normal text-foreground/40">
+                    click 6 times
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -178,6 +208,7 @@ export default function Home() {
           </div>
         </aside>
       </div>
+
     </main>
   );
 }

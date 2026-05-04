@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
+import { ThemeBootstrap } from "@/components/ThemeBootstrap";
+import { SmallScreenModal } from "@/components/SmallScreenModal";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,18 +37,6 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(() => {
-  try {
-    const key = "iso-theme-v1";
-    const value = localStorage.getItem(key);
-    if (!value) return;
-    document.documentElement.setAttribute("data-theme", value);
-  } catch {}
-})();`,
-          }}
-        />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -66,7 +56,9 @@ export default function RootLayout({
         <link rel="icon" href="/icon.svg" />
       </head>
       <body className="min-h-full flex flex-col">
+        <ThemeBootstrap />
         <AuthProvider>{children}</AuthProvider>
+        <SmallScreenModal />
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
@@ -12,16 +12,27 @@ export default function SignUpPage() {
   const { signUp, signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const confirmUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/login?verified=1`;
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { userId } = await signUp(email, password);
+      const { userId } = await signUp(email, password, { emailRedirectTo: confirmUrl });
 
       const bypassEmailConfirm =
         process.env.NEXT_PUBLIC_DEV_BYPASS_EMAIL_CONFIRMATION === "true";
@@ -41,10 +52,11 @@ export default function SignUpPage() {
         }
 
         await signIn(email, password);
+        router.push("/onboarding");
+        return;
       }
 
-      // Redirect to onboarding after signup
-      router.push("/onboarding");
+      router.push(`/verify-email?email=${encodeURIComponent(email)}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`);
     } catch (err: any) {
       setError(err.message || "Sign up failed");
     } finally {
@@ -96,7 +108,27 @@ export default function SignUpPage() {
           />
         </div>
 
+        <div className="space-y-2">
+          <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground/80">
+            Confirm password
+          </label>
+          <input
+            id="confirmPassword"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            disabled={loading}
+            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            placeholder="••••••••"
+          />
+        </div>
+
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+
+        <p className="text-xs leading-5 text-foreground/60">
+          If email verification is enabled, we will send a confirmation link to your inbox before you can continue.
+        </p>
 
         <button
           type="submit"

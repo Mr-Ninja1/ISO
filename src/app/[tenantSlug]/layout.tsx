@@ -5,18 +5,10 @@ import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
 import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
 
-type TenantHeaderMeta = { name: string; slug: string; logoUrl: string | null };
-type TenantHeaderCacheEntry = { ts: number; tenant: TenantHeaderMeta };
-
-const globalForTenantHeaderCache = globalThis as unknown as {
-  tenantHeaderCache?: Map<string, TenantHeaderCacheEntry>;
-};
-
-const tenantHeaderCache = globalForTenantHeaderCache.tenantHeaderCache ?? new Map<string, TenantHeaderCacheEntry>();
-if (!globalForTenantHeaderCache.tenantHeaderCache) {
-  globalForTenantHeaderCache.tenantHeaderCache = tenantHeaderCache;
-}
+type TenantHeaderMeta = { name: string; slug: string; logoUrl: string | null; isActive?: boolean };
 
 function displayNameFromSlug(slug: string) {
   const cleaned = slug.replace(/[-_]+/g, " ").trim();
@@ -36,20 +28,6 @@ async function findTenantWithTimeout(tenantSlug: string, timeoutMs: number) {
   ]);
 }
 
-function readTenantHeaderCache(tenantSlug: string, ttlMs: number): TenantHeaderMeta | null {
-  const item = tenantHeaderCache.get(tenantSlug);
-  if (!item) return null;
-  if (Date.now() - item.ts > ttlMs) {
-    tenantHeaderCache.delete(tenantSlug);
-    return null;
-  }
-  return item.tenant;
-}
-
-function writeTenantHeaderCache(tenant: TenantHeaderMeta) {
-  tenantHeaderCache.set(tenant.slug, { ts: Date.now(), tenant });
-}
-
 export default async function TenantLayout({
   children,
   params,
@@ -60,7 +38,7 @@ export default async function TenantLayout({
   const { tenantSlug } = await params;
   if (!tenantSlug) notFound();
 
-  let tenant: TenantHeaderMeta | null = readTenantHeaderCache(tenantSlug, 5 * 60_000);
+  let tenant: TenantHeaderMeta | null = null;
   let dbUnavailable = false;
 
   if (!tenant) {
@@ -71,14 +49,15 @@ export default async function TenantLayout({
           name: dbTenant.name,
           slug: dbTenant.slug,
           logoUrl: dbTenant.logoUrl ?? null,
+          isActive: dbTenant.isActive,
         };
-        writeTenantHeaderCache(tenant);
       } else if (process.env.NODE_ENV === "development" && !isSupabaseServiceRoleConfigured()) {
         // Local dev without service role: avoid hard 404 so client routes can still use the user JWT + RLS APIs.
         tenant = {
           name: displayNameFromSlug(tenantSlug),
           slug: tenantSlug,
           logoUrl: null,
+          isActive: true,
         };
       } else {
         notFound();
@@ -90,8 +69,21 @@ export default async function TenantLayout({
         name: displayNameFromSlug(tenantSlug),
         slug: tenantSlug,
         logoUrl: null,
+        isActive: true,
       };
     }
+  }
+
+  if (tenant.isActive === false) {
+    return (
+      <OfflineRouteBlock
+        title="Brand deactivated"
+        message="This brand is currently inactive. Ask a system administrator to activate the brand before continuing."
+        hint="Once the brand is reactivated, normal access will return automatically."
+        backHref="/dashboard"
+        backLabel="Back to lobby"
+      />
+    );
   }
 
   return (
@@ -133,6 +125,7 @@ export default async function TenantLayout({
         {children}
       </main>
       </div>
+      <BrandAlertListener tenantSlug={tenant.slug} />
       <div className="print:hidden">
         <TenantBottomTabNav tenantSlug={tenant.slug} />
       </div>
