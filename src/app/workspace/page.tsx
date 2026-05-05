@@ -12,6 +12,7 @@ import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { NotificationModal } from "@/components/NotificationModal";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
+import { WorkspaceTourModal } from "@/components/WorkspaceTourModal";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import {
   readAuditTemplateCache,
@@ -469,6 +470,7 @@ function WorkspacePageInner() {
   const [seedBusy, setSeedBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [workspaceTourOpen, setWorkspaceTourOpen] = useState(false);
 
   const [addFormOpen, setAddFormOpen] = useState(false);
 
@@ -521,6 +523,8 @@ function WorkspacePageInner() {
     return tpls.map((t) => `${t.id}:${t.updatedAt}`).join("|");
   }, [workspace]);
 
+  const workspaceTourSeenKey = tenantSlug ? `workspace-tour:v1:${tenantSlug}` : "";
+
   function rememberRecentTemplate(templateId: string) {
     if (!tenantSlug) return;
     const next = [templateId, ...recentTemplateIds.filter((id) => id !== templateId)].slice(
@@ -529,6 +533,26 @@ function WorkspacePageInner() {
     );
     setRecentTemplateIds(next);
     writeRecentTemplateIds(tenantSlug, next);
+  }
+
+  function markWorkspaceTourSeen() {
+    if (!workspaceTourSeenKey) return;
+    try {
+      localStorage.setItem(workspaceTourSeenKey, "1");
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  function openWorkspaceSeedFromTour() {
+    markWorkspaceTourSeen();
+    setWorkspaceTourOpen(false);
+    setSeedOpen(true);
+  }
+
+  function dismissWorkspaceTour() {
+    markWorkspaceTourSeen();
+    setWorkspaceTourOpen(false);
   }
 
   function clearTenantLocalCache() {
@@ -1651,6 +1675,28 @@ function WorkspacePageInner() {
 
   const hasCategories = categories.length > 0;
 
+  useEffect(() => {
+    const categoryCount = categories.length;
+    const templateCount = templates.length;
+    if (categoryCount > 0 || templateCount > 0) return;
+    if (!(canManageCategories || canCreateForms || canStaffManage)) return;
+
+    try {
+      if (workspaceTourSeenKey && localStorage.getItem(workspaceTourSeenKey) === "1") return;
+    } catch {
+      // ignore storage failures
+    }
+
+    setWorkspaceTourOpen(true);
+  }, [
+    categories.length,
+    templates.length,
+    canManageCategories,
+    canCreateForms,
+    canStaffManage,
+    workspaceTourSeenKey,
+  ]);
+
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
       <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background/95 shadow-sm backdrop-blur">
@@ -2242,15 +2288,33 @@ function WorkspacePageInner() {
 
             {!hasCategories ? (
               <div className="rounded-lg border border-foreground/20 bg-background p-6">
-                <h2 className="text-lg font-semibold">Setup Your Workspace</h2>
-                <p className="mt-1 text-sm text-foreground/70">Add categories to organize your audit forms.</p>
-                <button
-                  type="button"
-                  onClick={() => setSeedOpen(true)}
-                  className="mt-4 inline-flex h-11 items-center justify-center rounded-md bg-foreground px-4 text-background"
-                >
-                  Setup Workspace
-                </button>
+                <div className="inline-flex items-center rounded-full border border-foreground/20 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
+                  Start here
+                </div>
+                <h2 className="mt-3 text-lg font-semibold">Your workspace is empty</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/70">
+                  Begin by creating categories so your forms have a home. Good first categories are Back of House,
+                  Front of House, Kitchen, PPE, and Storage. After that, add forms and invite staff to your brand.
+                </p>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={openWorkspaceSeedFromTour}
+                    className="inline-flex h-11 items-center justify-center rounded-md bg-foreground px-4 text-background"
+                  >
+                    Create categories
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceTourOpen(true)}
+                    className="inline-flex h-11 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
+                  >
+                    Show quick tour
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-foreground/50">
+                  You can add as many categories as you need. The workspace will grow with your brand.
+                </p>
               </div>
             ) : templates.length === 0 ? (
               <div className="rounded-lg border border-foreground/20 bg-background p-6">
@@ -2454,6 +2518,12 @@ function WorkspacePageInner() {
         busy={seedBusy}
         suggestions={suggestions}
         loadingSuggestions={suggestionsLoading}
+      />
+
+      <WorkspaceTourModal
+        open={workspaceTourOpen}
+        onClose={dismissWorkspaceTour}
+        onStartSetup={openWorkspaceSeedFromTour}
       />
 
       {workspace ? (

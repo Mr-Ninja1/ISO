@@ -108,6 +108,14 @@ export default function OnboardingPage() {
         </p>
       </div>
 
+      <div className="w-full rounded-xl border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
+        <div className="font-semibold text-foreground">What happens next</div>
+        <p className="mt-1 leading-6">
+          After you create the brand, the workspace opens with a quick setup tour that starts with categories,
+          then forms, then staff.
+        </p>
+      </div>
+
       <form onSubmit={handleSubmit} className="w-full space-y-4">
         <div className="space-y-2">
           <label htmlFor="name" className="text-sm font-medium">
