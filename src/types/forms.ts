@@ -31,6 +31,8 @@ export type BaseField = {
   id: string;
   type: FieldType;
   label: string;
+  // Optional explicit column width for table/grid rendering.
+  widthPx?: number;
   isActive?: boolean;
   required?: boolean;
   helpText?: string;

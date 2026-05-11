@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Calendar, Camera, Check, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
+import { Calendar, Camera, Check, ChevronDown, ChevronRight, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
 import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
 import { buildGridLayout } from "@/lib/gridLayout";
 
@@ -85,11 +85,20 @@ function defaultGrid(): GridSection {
     title: "Log Sheet",
     rows: 31,
     columns: [
-      { id: "col_1", type: "text", label: "", required: false },
-      { id: "col_2", type: "text", label: "", required: false },
-      { id: "col_3", type: "text", label: "", required: false },
+      { id: "col_1", type: "text", label: "Add column name", required: false },
+      { id: "col_2", type: "text", label: "Add column name", required: false },
+      { id: "col_3", type: "text", label: "Add column name", required: false },
     ],
   };
+}
+
+function defaultMetadataHeaderFields(): FieldDef[] {
+  return [
+    { id: makeId("week"), type: "text", label: "Week", required: false, placeholder: "" },
+    { id: makeId("month"), type: "text", label: "Month", required: false, placeholder: "" },
+    { id: makeId("year"), type: "text", label: "Year", required: false, placeholder: "" },
+    { id: makeId("issue_date"), type: "date", label: "Issue date", required: false, placeholder: "" },
+  ];
 }
 
 function sectionColumnsClass(columns: 1 | 2 | 3 | 4) {
@@ -300,6 +309,64 @@ function FieldCard({
               </div>
             </>
           ) : null}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Text align</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={field.textAlign || "left"}
+                onChange={(e) =>
+                  onChange({ ...field, textAlign: e.target.value as "left" | "center" | "right" })
+                }
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Font size</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={field.fontSize || "md"}
+                onChange={(e) => onChange({ ...field, fontSize: e.target.value as "sm" | "md" | "lg" })}
+              >
+                <option value="sm">Small</option>
+                <option value="md">Medium</option>
+                <option value="lg">Large</option>
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Font weight</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={field.fontWeight || "normal"}
+                onChange={(e) =>
+                  onChange({
+                    ...field,
+                    fontWeight: e.target.value as "normal" | "medium" | "semibold" | "bold",
+                  })
+                }
+              >
+                <option value="normal">Normal</option>
+                <option value="medium">Medium</option>
+                <option value="semibold">Semibold</option>
+                <option value="bold">Bold</option>
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Font style</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={field.fontStyle || "normal"}
+                onChange={(e) => onChange({ ...field, fontStyle: e.target.value as "normal" | "italic" })}
+              >
+                <option value="normal">Normal</option>
+                <option value="italic">Italic</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -388,11 +455,13 @@ function GridBuilder({
   onChange,
   lockExistingDeletes,
   lockedColumnIds,
+  compact = false,
 }: {
   grid: GridSection;
   onChange: (next: GridSection) => void;
   lockExistingDeletes?: boolean;
   lockedColumnIds?: Set<string>;
+  compact?: boolean;
 }) {
   const [activeColId, setActiveColId] = useState<string | null>(null);
   const [colEditor, setColEditor] = useState<{ colId: string; top: number; left: number } | null>(null);
@@ -538,7 +607,7 @@ function GridBuilder({
 
   function addColumn() {
     const colId = makeId("col");
-    const nextCol: SimpleFieldDef = { id: colId, type: "text", label: "Column", required: false } as any;
+  const nextCol: SimpleFieldDef = { id: colId, type: "text", label: "Add column name", required: false } as any;
     applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
     setActiveColId(colId);
   }
@@ -664,14 +733,14 @@ function GridBuilder({
   }
 
   return (
-    <div className="rounded-lg border border-foreground/20 bg-background p-4 flex flex-col h-full">
-      <div className="flex items-center justify-between gap-4 pb-4 border-b border-foreground/20">
+    <div className={"rounded-lg border border-foreground/20 bg-background flex flex-col h-full " + (compact ? "p-3" : "p-4")}>
+      <div className={"flex items-center justify-between gap-4 border-b border-foreground/20 " + (compact ? "pb-3" : "pb-4")}>
         <div>
           <div className="text-sm font-semibold">Data Log Table</div>
           <div className="text-xs text-foreground/70 mt-0.5">
             Click headers to edit columns
           </div>
-          <div className="text-[11px] text-foreground/55 mt-1">
+          <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
             Tip: Right-click or long-press cells/headers for contextual tools.
           </div>
         </div>
@@ -732,7 +801,13 @@ function GridBuilder({
                     "border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
                     (col.type === "checkbox" ? "w-16" : "")
                   }
-                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                  style={
+                    col.type === "checkbox"
+                      ? { width: 72, minWidth: 72 }
+                      : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                        : undefined
+                  }
                 >
                   <button
                     type="button"
@@ -781,7 +856,12 @@ function GridBuilder({
                     }}
                     title="Edit column"
                   >
-                    {col.label || "Click to edit / column name"}
+                    {col.label ? col.label : (
+                      <span className="inline-flex items-center gap-1 text-foreground/60">
+                        Add name / Add column name
+                        <PenLine className="h-3.5 w-3.5" />
+                      </span>
+                    )}
                   </button>
                 </th>
               ))}
@@ -810,7 +890,13 @@ function GridBuilder({
                         (col.type === "checkbox" ? "w-16 text-center" : "") +
                         (isSelected ? " bg-foreground/10" : " bg-background")
                       }
-                      style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                      style={
+                        col.type === "checkbox"
+                          ? { width: 72, minWidth: 72 }
+                          : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                            ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                            : undefined
+                      }
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
                         const merge = findMergeAt(rowIndex, colIndex);
@@ -1110,6 +1196,48 @@ function GridBuilder({
                 }}
               />
             </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Column width (px)</div>
+              <div className="grid grid-cols-[32px_1fr_32px] gap-2">
+                <button
+                  type="button"
+                  className="h-8 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                  onClick={() =>
+                    updateColumn(activeCol.id, {
+                      widthPx: Math.max(80, Number((activeCol as any).widthPx || 160) - 20),
+                    } as any)
+                  }
+                  title="Narrower column"
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  min={80}
+                  max={640}
+                  step={10}
+                  className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                  value={typeof (activeCol as any).widthPx === "number" ? Math.round((activeCol as any).widthPx) : 160}
+                  onChange={(e) => {
+                    const n = Number(e.target.value || 160);
+                    updateColumn(activeCol.id, { widthPx: Math.max(80, Math.min(640, n)) } as any);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="h-8 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                  onClick={() =>
+                    updateColumn(activeCol.id, {
+                      widthPx: Math.min(640, Number((activeCol as any).widthPx || 160) + 20),
+                    } as any)
+                  }
+                  title="Wider column"
+                >
+                  +
+                </button>
+              </div>
+              <div className="text-[11px] text-foreground/55">Use +/- for quick mobile-friendly resizing.</div>
+            </div>
 
             {activeCol.type === "temp" ? (
               <>
@@ -1251,6 +1379,11 @@ export function FormBuilder({
   const [insertTarget, setInsertTarget] = useState<"top" | "bottom">("top");
   const [questionLabel, setQuestionLabel] = useState("");
   const [questionType, setQuestionType] = useState<FieldType>(formType === "answer-sheet" ? "text" : "yesno");
+  const [compactBuilder, setCompactBuilder] = useState(false);
+  const [showHeaderSection, setShowHeaderSection] = useState(true);
+  const [showTableSection, setShowTableSection] = useState(true);
+  const [showFooterSection, setShowFooterSection] = useState(true);
+  const paletteItems = useMemo(() => palette(), []);
   const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
   const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
   useEffect(() => {
@@ -1267,7 +1400,7 @@ export function FormBuilder({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const computedSections = useMemo<FormSection[]>(() => {
-    const sections: FormSection[] = [{ type: "fields", title: "Fields", columns: state.topFieldsColumns, fields: state.topFields }];
+    const sections: FormSection[] = [{ type: "fields", title: "Metadata Header", columns: state.topFieldsColumns, fields: state.topFields }];
     if (state.grid) sections.push(state.grid);
     if (state.bottomFields.length) {
       sections.push({ type: "fields", title: "Footer", columns: state.bottomFieldsColumns, fields: state.bottomFields });
@@ -1277,7 +1410,7 @@ export function FormBuilder({
 
   function sync(next: BuilderState) {
     setState(next);
-    const sections: FormSection[] = [{ type: "fields", title: "Fields", columns: next.topFieldsColumns, fields: next.topFields }];
+    const sections: FormSection[] = [{ type: "fields", title: "Metadata Header", columns: next.topFieldsColumns, fields: next.topFields }];
     if (next.grid) sections.push(next.grid);
     if (next.bottomFields.length) {
       sections.push({ type: "fields", title: "Footer", columns: next.bottomFieldsColumns, fields: next.bottomFields });
@@ -1301,7 +1434,7 @@ export function FormBuilder({
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
-    const item = palette().find((p) => p.id === id) ?? null;
+    const item = paletteItems.find((p) => p.id === id) ?? null;
     setActiveDrag(item);
   }
 
@@ -1349,59 +1482,76 @@ export function FormBuilder({
       <div className="flex flex-col">
         {/* Ribbon */}
         <div className="border-b border-foreground/20 bg-background px-3 py-3 sm:px-6">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Insert</div>
-              <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
+          <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
+            <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Quick Add Fields</div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {paletteItems.map((item) => (
+                  <DraggablePaletteItem
+                    key={item.id}
+                    item={item}
+                    onClick={() => addItem(item.fieldType, insertTarget)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Placement</div>
+                <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
+                  <button
+                    type="button"
+                    className={
+                      "rounded px-2 py-1 " +
+                      (insertTarget === "top" ? "bg-foreground text-background" : "hover:bg-foreground/5")
+                    }
+                    onClick={() => setInsertTarget("top")}
+                  >
+                    Header
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      "rounded px-2 py-1 " +
+                      (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
+                    }
+                    onClick={() => setInsertTarget("bottom")}
+                  >
+                    Footer
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Builder View</div>
                 <button
                   type="button"
-                  className={
-                    "rounded px-2 py-1 " +
-                    (insertTarget === "top" ? "bg-foreground text-background" : "hover:bg-foreground/5")
-                  }
-                  onClick={() => setInsertTarget("top")}
+                  className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                  onClick={() => setCompactBuilder((v) => !v)}
                 >
-                  Add to top
-                </button>
-                <button
-                  type="button"
-                  className={
-                    "rounded px-2 py-1 " +
-                    (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
-                  }
-                  onClick={() => setInsertTarget("bottom")}
-                >
-                  Add to footer
+                  {compactBuilder ? "Expanded layout" : "Compact layout"}
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {palette().map((item) => (
-                <DraggablePaletteItem
-                  key={item.id}
-                  item={item}
-                  onClick={() => addItem(item.fieldType, insertTarget)}
-                />
-              ))}
-            </div>
-            <div className="rounded-md border border-foreground/15 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/70">
-              <span className="font-semibold">How to build your form:</span> Tap a field button to add it to the selected target (top/footer), or drag a field into either drop area.
-            </div>
+          </div>
+          <div className={"mt-2 rounded-md border border-foreground/15 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/70 " + (compactBuilder ? "hidden sm:block" : "")}>
+            <span className="font-semibold">Build flow:</span> Choose placement (header/footer), tap a field to add, then edit each field card. Long-press works on mobile.
           </div>
         </div>
 
         {/* Page Canvas */}
         <main className="overflow-visible">
           <CanvasDropSurface>
-            <div data-formbuilder-scroll="true" className="p-3 pb-44 sm:p-6 sm:pb-52">
+            <div data-formbuilder-scroll="true" className={compactBuilder ? "p-2 pb-36 sm:p-4 sm:pb-44" : "p-3 pb-44 sm:p-6 sm:pb-52"}>
               <div className="w-full">
-                <div className="rounded-lg border border-foreground/20 bg-background p-6">
+                <div className={"rounded-lg border-2 border-foreground/40 bg-background shadow-sm " + (compactBuilder ? "p-4" : "p-6")}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Page</div>
 
                   <div className="mt-4 flex justify-center">
                     <div className="w-full max-w-xl">
                       <label className="mb-1 block text-center text-xs font-medium uppercase tracking-wide text-foreground/70">
-                        Form Title
+                        Add form title
                       </label>
                       <input
                         className="h-11 w-full rounded-md border border-foreground/20 bg-background px-4 text-center text-lg font-semibold"
@@ -1460,14 +1610,48 @@ export function FormBuilder({
                     </div>
                   ) : null}
 
-                  <FieldDropArea id="drop_top_fields" label="Top fields">
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="text-xs text-foreground/60">Arrange the upper section in a multi-column flow.</div>
+                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left"
+                      onClick={() => setShowHeaderSection((v) => !v)}
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Metadata Header</span>
+                      {showHeaderSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
+                    </button>
+                  </div>
+                  {showHeaderSection ? (
+                  <FieldDropArea id="drop_top_fields" label="Metadata header">
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className={"text-xs text-foreground/60 " + (compactBuilder ? "hidden sm:block" : "")}>Brand/report metadata fields shown at the top of the form.</div>
                       <SectionColumnsSelect
                         label="Columns"
                         value={state.topFieldsColumns}
                         onChange={(columns) => sync({ ...state, topFieldsColumns: columns })}
                       />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                        onClick={() => addItem("text", "top")}
+                      >
+                        + Metadata text field
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                        onClick={() => sync({ ...state, topFields: defaultMetadataHeaderFields() })}
+                      >
+                        Reset metadata starter
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                        onClick={() => sync({ ...state, topFields: [] })}
+                      >
+                        Remove metadata header fields
+                      </button>
                     </div>
                     {state.topFields.length ? (
                       <div className={"mt-3 " + sectionColumnsClass(state.topFieldsColumns)}>
@@ -1501,8 +1685,20 @@ export function FormBuilder({
                       <div className="mt-2 text-xs text-foreground/60">Drag fields here to place them above the table.</div>
                     )}
                   </FieldDropArea>
+                  ) : null}
 
-                  <div className="mt-6">
+                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left"
+                      onClick={() => setShowTableSection((v) => !v)}
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Data Log Table</span>
+                      {showTableSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
+                    </button>
+                  </div>
+                  {showTableSection ? (
+                  <div className="mt-3">
                     {state.grid ? (
                       <div className="min-h-[420px]">
                         <GridBuilder
@@ -1510,6 +1706,7 @@ export function FormBuilder({
                           onChange={(next) => sync({ ...state, grid: next })}
                           lockExistingDeletes={lockExistingDeletes}
                           lockedColumnIds={lockedGridColumnIdSet}
+                          compact={compactBuilder}
                         />
                       </div>
                     ) : (
@@ -1518,8 +1715,20 @@ export function FormBuilder({
                       </div>
                     )}
                   </div>
+                  ) : null}
 
-                  <div className="mt-6">
+                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left"
+                      onClick={() => setShowFooterSection((v) => !v)}
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Footer Fields</span>
+                      {showFooterSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
+                    </button>
+                  </div>
+                  {showFooterSection ? (
+                  <div className="mt-3">
                     <FieldDropArea id="drop_bottom_fields" label="Footer fields">
                       <div className="mt-2 flex items-center justify-between gap-3">
                         <div className="text-xs text-foreground/60">Keep signatures, notes, and confirmations grouped in the footer.</div>
@@ -1607,6 +1816,7 @@ export function FormBuilder({
                       )}
                     </FieldDropArea>
                   </div>
+                  ) : null}
                 </div>
               </div>
             </div>

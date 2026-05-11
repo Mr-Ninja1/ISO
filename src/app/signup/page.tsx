@@ -77,7 +77,7 @@ export default function SignUpPage() {
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="email" className="text-sm font-medium text-slate-700">
             Email
           </label>
           <input
@@ -87,13 +87,13 @@ export default function SignUpPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder="your@email.com"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="password" className="text-sm font-medium text-slate-700">
             Password
           </label>
           <input
@@ -103,13 +103,13 @@ export default function SignUpPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder="••••••••"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">
             Confirm password
           </label>
           <input
@@ -119,21 +119,21 @@ export default function SignUpPage() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder="••••••••"
           />
         </div>
 
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
 
-        <p className="text-xs leading-5 text-foreground/60">
+        <p className="text-xs leading-5 text-slate-700">
           If email verification is enabled, we will send a confirmation link to your inbox before you can continue.
         </p>
 
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 to-slate-800 px-4 font-medium text-white shadow-lg shadow-slate-900/20 transition-all hover:shadow-xl hover:shadow-slate-900/30 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Creating..." : "Create Account"}

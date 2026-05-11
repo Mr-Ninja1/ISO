@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AlertTriangle, Eye, Laptop, Loader2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/components/AuthProvider";
 import { FormBuilder } from "@/components/forms/FormBuilder";
@@ -95,44 +95,6 @@ function flattenSections(sections: FormSection[]): FlatItem[] {
     }
   }
   return items;
-}
-
-function buildChangeLog(oldSections: FormSection[], nextSections: FormSection[]) {
-  const before = flattenSections(oldSections);
-  const after = flattenSections(nextSections);
-
-  const beforeById = new Map(before.map((i) => [i.id, i]));
-  const afterById = new Map(after.map((i) => [i.id, i]));
-
-  const changes: string[] = [];
-
-  for (const item of after) {
-    const prev = beforeById.get(item.id);
-    if (!prev) {
-      changes.push(`Added ${item.location} '${item.label}' (${item.type}).`);
-      continue;
-    }
-
-    if (prev.label !== item.label) {
-      changes.push(`Renamed ${item.location} '${prev.label}' to '${item.label}'.`);
-    }
-
-    if (prev.isActive && !item.isActive) {
-      changes.push(`Hid ${item.location} '${item.label}'.`);
-    }
-
-    if (!prev.isActive && item.isActive) {
-      changes.push(`Re-activated ${item.location} '${item.label}'.`);
-    }
-  }
-
-  for (const item of before) {
-    if (!afterById.has(item.id)) {
-      changes.push(`Removed ${item.location} '${item.label}'.`);
-    }
-  }
-
-  return changes;
 }
 
 function workspaceV1Key(tenantSlug: string, categoryId: string | null) {
@@ -263,6 +225,33 @@ function isSchemaEmpty(sections: FormSection[]) {
 }
 
 function buildPresetSections(formType: FormType): FormSection[] {
+  if (formType === "custom") {
+    return [
+      {
+        type: "fields",
+        title: "Metadata Header",
+        columns: 4,
+        fields: [
+          { id: buildId("week"), type: "text", label: "Week", required: false },
+          { id: buildId("month"), type: "text", label: "Month", required: false },
+          { id: buildId("year"), type: "text", label: "Year", required: false },
+          { id: buildId("issue_date"), type: "date", label: "Issue date", required: false },
+        ],
+      },
+      {
+        type: "grid",
+        id: "form_data",
+        title: "Log Sheet",
+        rows: 12,
+        columns: [
+          { id: buildId("item"), type: "text", label: "Item", required: false },
+          { id: buildId("status"), type: "yesno", label: "Status", required: false },
+          { id: buildId("notes"), type: "text", label: "Notes", required: false },
+          { id: buildId("signature"), type: "signature", label: "Verified by", required: false },
+        ],
+      },
+    ];
+  }
   if (formType === "questionnaire") {
     const q1: FieldDef = { id: buildId("q"), type: "yesno", label: "Question 1", required: false };
     return [{ type: "fields", title: "Questions", fields: [q1] }];
@@ -326,7 +315,7 @@ function buildPresetSections(formType: FormType): FormSection[] {
       },
     ];
   }
-  return [{ type: "fields", title: "Fields", fields: [] }];
+  return buildPresetSections("custom");
 }
 
 function convertSectionsToHandwritten(sections: FormSection[]): FormSection[] {
@@ -398,6 +387,126 @@ function cacheTemplateSchemaForOffline(
   });
 }
 
+function previewFieldInput(type: FieldDef["type"]) {
+  if (type === "yesno") {
+    return (
+      <select className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm">
+        <option>Yes / No</option>
+      </select>
+    );
+  }
+  if (type === "checkbox") {
+    return <input type="checkbox" className="h-5 w-5 accent-foreground" />;
+  }
+  if (type === "signature") {
+    return (
+      <div className="flex h-10 items-center rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 text-xs text-foreground/60">
+        Signature area
+      </div>
+    );
+  }
+  if (type === "photo") {
+    return (
+      <div className="flex h-10 items-center rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 text-xs text-foreground/60">
+        Photo capture
+      </div>
+    );
+  }
+  if (type === "date") {
+    return <input type="date" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
+  }
+  if (type === "time") {
+    return <input type="time" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
+  }
+  if (type === "number" || type === "temp") {
+    return <input type="number" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
+  }
+  return <input type="text" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
+}
+
+function FormStructurePreview({
+  open,
+  onClose,
+  title,
+  sections,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  sections: FormSection[];
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+      <div className="w-full max-w-5xl rounded-lg border border-foreground/20 bg-background shadow-xl">
+        <div className="flex items-center justify-between gap-3 border-b border-foreground/15 px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold">Form preview</div>
+            <div className="text-xs text-foreground/70">How your final form structure will look</div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="max-h-[78vh] overflow-auto p-4">
+          <div className="mx-auto w-full max-w-4xl rounded-lg border border-foreground/20 bg-background p-5">
+            <div className="text-center text-xl font-semibold">{title || "Untitled form"}</div>
+            <div className="mt-4 space-y-4">
+              {sections.map((section, idx) =>
+                section.type === "fields" ? (
+                  <section key={`pv-f-${idx}`} className="rounded-md border border-foreground/15 p-3">
+                    {section.title ? <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">{section.title}</div> : null}
+                    <div className={"grid gap-3 " + (section.columns === 4 ? "md:grid-cols-4" : section.columns === 3 ? "md:grid-cols-3" : section.columns === 2 ? "md:grid-cols-2" : "md:grid-cols-1")}>
+                      {section.fields.map((field) => (
+                        <div key={field.id} className="space-y-1">
+                          <div className="text-xs font-medium text-foreground/70">{field.label}</div>
+                          {previewFieldInput(field.type)}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : (
+                  <section key={`pv-g-${idx}`} className="rounded-md border border-foreground/15 p-3">
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">{section.title || "Log Sheet"}</div>
+                    <div className="overflow-x-auto rounded-md border border-foreground/15">
+                      <table className="w-full min-w-max border-collapse text-xs">
+                        <thead>
+                          <tr>
+                            {section.columns.map((col) => (
+                              <th key={col.id} className="border-b border-r border-foreground/15 px-2 py-2 text-left">
+                                {col.label || "Column"}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: Math.min(typeof section.rows === "number" ? section.rows : 3, 5) }).map((_, rowIdx) => (
+                            <tr key={`pv-row-${rowIdx}`}>
+                              {section.columns.map((col) => (
+                                <td key={`${rowIdx}-${col.id}`} className="border-b border-r border-foreground/10 px-2 py-2">
+                                  {col.type === "checkbox" ? "[ ]" : col.type === "signature" ? "Sign" : "..."}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function NewTemplatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -420,8 +529,8 @@ export default function NewTemplatePage() {
   const [categories, setCategories] = useState<CategorySummary[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
-  const [title, setTitle] = useState("Custom Form");
-  const [sections, setSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
+  const [title, setTitle] = useState("Add form title");
+  const [sections, setSections] = useState<FormSection[]>(() => buildPresetSections("custom"));
   const [formType, setFormType] = useState<FormType>("custom");
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
   const [cardIcon, setCardIcon] = useState("clipboard");
@@ -431,12 +540,13 @@ export default function NewTemplatePage() {
   const [showPhotoImportGuide, setShowPhotoImportGuide] = useState(false);
   const [headerActionsMount, setHeaderActionsMount] = useState<HTMLElement | null>(null);
   const [online, setOnline] = useState(true);
+  const [builderBlockedSmallScreen, setBuilderBlockedSmallScreen] = useState(false);
 
-  const [baseSections, setBaseSections] = useState<FormSection[]>([{ type: "fields", title: "Fields", fields: [] }]);
+  const [baseSections, setBaseSections] = useState<FormSection[]>(() => buildPresetSections("custom"));
   const [baseVersion, setBaseVersion] = useState(1);
   const [hasAudits, setHasAudits] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [showFormPreview, setShowFormPreview] = useState(false);
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
   const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
   const [offlineDraftTemplateId, setOfflineDraftTemplateId] = useState<string | null>(null);
@@ -461,17 +571,6 @@ export default function NewTemplatePage() {
       .map((i) => i.id.replace("column:", ""));
   }, [baseSections, hasAudits]);
 
-  const changeLog = useMemo(() => buildChangeLog(baseSections, sections), [baseSections, sections]);
-
-  const oldVisible = useMemo(
-    () => flattenSections(baseSections).filter((i) => i.isActive),
-    [baseSections]
-  );
-  const newVisible = useMemo(
-    () => flattenSections(sections).filter((i) => i.isActive),
-    [sections]
-  );
-
   useEffect(() => {
     setHeaderActionsMount(document.getElementById("tenant-header-actions"));
     setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -486,6 +585,19 @@ export default function NewTemplatePage() {
       window.removeEventListener("online", updateOnline);
       window.removeEventListener("offline", updateOnline);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(max-width: 960px)");
+    const update = () => setBuilderBlockedSmallScreen(mediaQuery.matches);
+    update();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", update);
+      return () => mediaQuery.removeEventListener("change", update);
+    }
+    mediaQuery.addListener(update);
+    return () => mediaQuery.removeListener(update);
   }, []);
 
   useEffect(() => {
@@ -588,7 +700,7 @@ export default function NewTemplatePage() {
         const nextMeta = data.template.schema?.meta && typeof data.template.schema.meta === "object"
           ? (data.template.schema.meta as Record<string, unknown>)
           : {};
-        setTitle(data.template.title || data.template.schema.title || "Custom Form");
+        setTitle(data.template.title || data.template.schema.title || "Add form title");
         setSelectedCategoryId(data.template.categoryId ?? null);
         setSections(loadedSections);
         setSchemaMeta(nextMeta);
@@ -698,6 +810,20 @@ export default function NewTemplatePage() {
         });
       }
 
+      // Clear all workspace caches for this tenant to force fresh data
+      try {
+        const userId = user?.id ?? null;
+        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // ignore cache clear failures
+      }
+
       writeWorkspaceNotice(isEditMode ? "Form changes saved." : "Form created successfully.", "success");
       const next = new URLSearchParams();
       next.set("tenantSlug", tenantSlug);
@@ -803,7 +929,7 @@ export default function NewTemplatePage() {
       setSchemaMeta({});
       setBaseSections(importedSections);
       setBuilderResetKey(`ocr-import-${Date.now()}`);
-      setPreviewOpen(false);
+      setShowFormPreview(false);
     } catch (err: any) {
       setError(err?.message || "Failed to import from photo");
     } finally {
@@ -811,7 +937,7 @@ export default function NewTemplatePage() {
     }
   }
 
-  const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim();
+  const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
 
   function handleFormTypeChange(next: FormType) {
     setFormType(next);
@@ -864,10 +990,10 @@ export default function NewTemplatePage() {
               <button
                 type="button"
                 className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
-                onClick={() => setPreviewOpen((v) => !v)}
+                onClick={() => setShowFormPreview(true)}
               >
-                {previewOpen ? <EyeOff className="mr-1 h-3.5 w-3.5" /> : <Eye className="mr-1 h-3.5 w-3.5" />}
-                {previewOpen ? "Hide panel" : "Show panel"}
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                Preview form
               </button>
               <Link
                 href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
@@ -924,7 +1050,7 @@ export default function NewTemplatePage() {
       ) : null}
 
       <div className="overflow-visible">
-        <div className={"grid grid-cols-1 " + (previewOpen ? "lg:grid-cols-[1fr_320px]" : "") }>
+        <div className="grid grid-cols-1">
           <div className="min-w-0">
             <div className="px-3 pt-3 sm:px-6">
               <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
@@ -978,6 +1104,14 @@ export default function NewTemplatePage() {
                   <option value="violet">Violet</option>
                   <option value="rose">Rose</option>
                 </select>
+                <button
+                  type="button"
+                  className="ml-2 inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                  onClick={() => setShowFormPreview(true)}
+                >
+                  <Eye className="mr-1 h-3.5 w-3.5" />
+                  Preview
+                </button>
                 <span className="text-foreground/50">
                   {formType === "inspection"
                     ? "Adds a starter log table (editable)."
@@ -1002,57 +1136,41 @@ export default function NewTemplatePage() {
               lockedGridColumnIds={lockedGridColumnIds}
               resetKey={builderResetKey}
             />
-          </div>
-
-          {previewOpen ? (
-            <aside className="border-l border-foreground/15 bg-background/90 p-3">
-              <div className="rounded-md border border-foreground/15 bg-background p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Change log</div>
-                <div className="mt-2 space-y-1 text-xs">
-                  {changeLog.length ? (
-                    changeLog.slice(0, 20).map((entry, idx) => (
-                      <div key={`chg-${idx}`} className="rounded border border-foreground/10 bg-foreground/[0.03] px-2 py-1">
-                        {entry}
+            {builderBlockedSmallScreen ? (
+              <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/45 p-4">
+                <div className="w-full max-w-md rounded-xl border border-foreground/20 bg-background p-5 shadow-xl">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-lg border border-foreground/20 bg-foreground/[0.03]">
+                      <Laptop className="h-5 w-5 text-foreground/70" />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold">Builder needs a bigger screen</div>
+                      <div className="mt-1 text-sm text-foreground/70">
+                        For accurate table/header editing, use a tablet or laptop. This keeps the builder simple and reliable for non-technical users.
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-foreground/60">No changes yet.</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-3 rounded-md border border-foreground/15 bg-background p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Preview</div>
-                <div className="mt-2 grid gap-3">
-                  <div className="rounded-md border border-foreground/15 p-2">
-                    <div className="text-xs font-semibold">Old version (v{baseVersion})</div>
-                    <div className="mt-1 text-xs text-foreground/70">{oldVisible.length} active items</div>
-                    <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs">
-                      {oldVisible.map((item) => (
-                        <div key={`old-${item.id}`} className="rounded border border-foreground/10 px-2 py-1">
-                          {item.label}
-                        </div>
-                      ))}
                     </div>
                   </div>
-
-                  <div className="rounded-md border border-foreground/15 p-2">
-                    <div className="text-xs font-semibold">New version ({hasAudits ? `v${baseVersion + 1}` : `v${baseVersion}`})</div>
-                    <div className="mt-1 text-xs text-foreground/70">{newVisible.length} active items</div>
-                    <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs">
-                      {newVisible.map((item) => (
-                        <div key={`new-${item.id}`} className="rounded border border-foreground/10 px-2 py-1">
-                          {item.label}
-                        </div>
-                      ))}
-                    </div>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <Link
+                      href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+                    >
+                      Back to forms
+                    </Link>
                   </div>
                 </div>
               </div>
-            </aside>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       </div>
+
+      <FormStructurePreview
+        open={showFormPreview}
+        onClose={() => setShowFormPreview(false)}
+        title={title}
+        sections={sections}
+      />
 
       {showSaveConfirm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
@@ -1066,6 +1184,17 @@ export default function NewTemplatePage() {
                   ? `This will create version v${baseVersion + 1} and keep v${baseVersion} for historical reports.`
                   : "No submissions found. This will overwrite the current version directly."
                 : "Confirm the category and form title before saving."}
+            </div>
+            <div className="mt-2">
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs"
+                onClick={() => setShowFormPreview(true)}
+                disabled={saving}
+              >
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                Preview current form
+              </button>
             </div>
 
             <div className="mt-4 space-y-3">

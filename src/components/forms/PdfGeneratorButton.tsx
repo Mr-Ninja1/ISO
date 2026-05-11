@@ -9,7 +9,7 @@ type Props = {
   orientation?: "portrait" | "landscape";
 };
 
-export function PdfGeneratorButton({ filename, orientation = "portrait" }: Props) {
+export function PdfGeneratorButton({ filename, orientation = "landscape" }: Props) {
   const [generating, setGenerating] = useState(false);
 
   const handleGeneratePdf = async () => {

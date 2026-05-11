@@ -43,36 +43,37 @@ export function NotificationModal({
 
   const toneClasses =
     tone === "success"
-      ? "border-green-200 bg-green-50 text-green-800"
+      ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-900"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-900"
+        ? "border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/50 text-amber-900"
         : tone === "error"
-          ? "border-red-200 bg-red-50 text-red-800"
-          : "border-foreground/20 bg-background text-foreground";
+          ? "border-red-200 bg-gradient-to-br from-red-50 to-red-100/50 text-red-900"
+          : "border-slate-200 bg-gradient-to-br from-white to-slate-50/80 text-slate-900";
   const actionButtonClasses =
     actionTone === "danger"
-      ? "h-10 rounded-md border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50"
-      : "h-10 rounded-md border border-current/20 px-4 text-sm font-medium hover:bg-black/5";
+      ? "h-10 rounded-xl border border-red-300 bg-red-50 px-4 text-sm font-medium text-red-700 shadow-sm transition-all hover:bg-red-100 hover:shadow-md"
+      : "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md";
+  const cancelButtonClasses = "h-10 rounded-xl border border-slate-200 bg-white/80 px-4 text-sm font-medium text-slate-600 shadow-sm transition-all hover:bg-white hover:shadow-md";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity"
         aria-label="Close notification"
         onClick={onClose}
       />
 
-      <div className={`relative w-full max-w-md rounded-lg border p-5 shadow-xl ${toneClasses}`}>
+      <div className={`relative w-full max-w-md rounded-2xl border p-6 shadow-2xl backdrop-blur-xl ${toneClasses}`}>
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">{title}</h2>
-            <p className="mt-1 text-sm leading-6 opacity-90">{message}</p>
+          <div className="flex-1">
+            <h2 className="text-lg font-bold">{title}</h2>
+            <p className="mt-2 text-sm leading-6 opacity-90">{message}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-current/20 p-2"
+            className="rounded-xl border border-current/20 bg-white/50 p-2 transition-all hover:bg-white hover:shadow-md"
             aria-label="Close"
             title="Close"
           >
@@ -80,12 +81,12 @@ export function NotificationModal({
           </button>
         </div>
 
-        <div className="mt-5 flex items-center justify-end gap-2">
+        <div className="mt-6 flex items-center justify-end gap-3">
           {onAction ? (
             <button
               type="button"
               onClick={onCancel || onClose}
-              className="h-10 rounded-md border border-current/20 px-4 text-sm font-medium hover:bg-black/5"
+              className={cancelButtonClasses}
             >
               {cancelLabel}
             </button>
@@ -103,7 +104,7 @@ export function NotificationModal({
             <button
               type="button"
               onClick={onClose}
-              className="h-10 rounded-md border border-current/20 px-4 text-sm font-medium hover:bg-black/5"
+              className={actionButtonClasses}
             >
               {actionLabel}
             </button>

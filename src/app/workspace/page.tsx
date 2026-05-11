@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Activity, Clock3, FileText, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
+import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
@@ -79,17 +79,17 @@ const THEME_STORAGE_KEY = "iso-theme-v1";
 function templateCardClasses(color: string | undefined) {
   switch (color) {
     case "emerald":
-      return "border-emerald-300/70 bg-emerald-50/70 hover:bg-emerald-100/60";
+      return "border-emerald-200/60 bg-gradient-to-br from-emerald-50/80 to-emerald-100/50 hover:shadow-lg hover:shadow-emerald-200/30 hover:-translate-y-0.5 transition-all duration-200";
     case "amber":
-      return "border-amber-300/70 bg-amber-50/70 hover:bg-amber-100/60";
+      return "border-amber-200/60 bg-gradient-to-br from-amber-50/80 to-amber-100/50 hover:shadow-lg hover:shadow-amber-200/30 hover:-translate-y-0.5 transition-all duration-200";
     case "sky":
-      return "border-sky-300/70 bg-sky-50/70 hover:bg-sky-100/60";
+      return "border-sky-200/60 bg-gradient-to-br from-sky-50/80 to-sky-100/50 hover:shadow-lg hover:shadow-sky-200/30 hover:-translate-y-0.5 transition-all duration-200";
     case "violet":
-      return "border-violet-300/70 bg-violet-50/70 hover:bg-violet-100/60";
+      return "border-violet-200/60 bg-gradient-to-br from-violet-50/80 to-violet-100/50 hover:shadow-lg hover:shadow-violet-200/30 hover:-translate-y-0.5 transition-all duration-200";
     case "rose":
-      return "border-rose-300/70 bg-rose-50/70 hover:bg-rose-100/60";
+      return "border-rose-200/60 bg-gradient-to-br from-rose-50/80 to-rose-100/50 hover:shadow-lg hover:shadow-rose-200/30 hover:-translate-y-0.5 transition-all duration-200";
     default:
-      return "border-foreground/20 bg-background hover:bg-foreground/5";
+      return "border-slate-200/60 bg-gradient-to-br from-white to-slate-50/50 hover:shadow-lg hover:shadow-slate-200/30 hover:-translate-y-0.5 transition-all duration-200";
   }
 }
 
@@ -1351,10 +1351,34 @@ function WorkspacePageInner() {
       if (!res.ok) throw new Error(data?.error || `Seed failed (${res.status})`);
 
       setSeedOpen(false);
+      setNotification({
+        title: "Categories created",
+        message: "Your new categories are ready. You can now start building forms.",
+        tone: "success",
+      });
 
-      // Force a refetch by reloading the current route
-      router.refresh();
-      router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`);
+      // Refresh workspace data in-place (no route change) so users see updates immediately.
+      const refreshUrl = new URL("/api/workspace", window.location.origin);
+      refreshUrl.searchParams.set("tenantSlug", tenantSlug);
+      if (categoryId) refreshUrl.searchParams.set("categoryId", categoryId);
+
+      const refreshRes = await fetch(refreshUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const refreshData = await refreshRes.json().catch(() => ({}));
+      if (refreshRes.ok && refreshData?.tenant) {
+        const nextWorkspace = refreshData as WorkspaceData;
+        setWorkspace(nextWorkspace);
+        setUiActiveCategoryId(null);
+        writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, nextWorkspace);
+        if (nextWorkspace.selectedCategoryId) {
+          writeWorkspaceCache(cacheUserId, tenantSlug, nextWorkspace.selectedCategoryId, nextWorkspace);
+        }
+      } else {
+        // Fallback: trigger existing revalidation flow if direct refresh fails.
+        forceWorkspaceNetworkRefetchRef.current = true;
+        setRevalidateTick((x) => x + 1);
+      }
     } catch (err: any) {
       setError(err?.message || "Seed failed");
     } finally {
@@ -1548,6 +1572,44 @@ function WorkspacePageInner() {
     setPrefetchProgress({ done: cachedCount, total });
   }, [tenantSlug, workspace]);
 
+  const workspaceRoleForTour = workspace?.role;
+  const canManageCategoriesForTour = workspace
+    ? (workspace.capabilities?.canManageCategories ??
+      (workspaceRoleForTour === "ADMIN" || workspaceRoleForTour === "MANAGER"))
+    : false;
+  const canCreateFormsForTour = workspace
+    ? (workspace.capabilities?.canCreateForms ??
+      (workspaceRoleForTour === "ADMIN" || workspaceRoleForTour === "MANAGER"))
+    : false;
+  const canStaffManageForTour = workspace
+    ? (workspace.capabilities?.canManageStaff ??
+      (workspaceRoleForTour === "ADMIN" || workspaceRoleForTour === "MANAGER"))
+    : false;
+  const categoryCountForTour = workspace?.categories.length ?? 0;
+  const templateCountForTour = workspace?.templates.length ?? 0;
+
+  useEffect(() => {
+    if (!workspace) return;
+    if (categoryCountForTour > 0 || templateCountForTour > 0) return;
+    if (!(canManageCategoriesForTour || canCreateFormsForTour || canStaffManageForTour)) return;
+
+    try {
+      if (workspaceTourSeenKey && localStorage.getItem(workspaceTourSeenKey) === "1") return;
+    } catch {
+      // ignore storage failures
+    }
+
+    setWorkspaceTourOpen(true);
+  }, [
+    workspace,
+    categoryCountForTour,
+    templateCountForTour,
+    canManageCategoriesForTour,
+    canCreateFormsForTour,
+    canStaffManageForTour,
+    workspaceTourSeenKey,
+  ]);
+
   if (authLoading && !workspace) return <WorkspaceSkeleton />;
   if (user && !session && !workspace) return <WorkspaceSkeleton />;
 
@@ -1675,28 +1737,6 @@ function WorkspacePageInner() {
 
   const hasCategories = categories.length > 0;
 
-  useEffect(() => {
-    const categoryCount = categories.length;
-    const templateCount = templates.length;
-    if (categoryCount > 0 || templateCount > 0) return;
-    if (!(canManageCategories || canCreateForms || canStaffManage)) return;
-
-    try {
-      if (workspaceTourSeenKey && localStorage.getItem(workspaceTourSeenKey) === "1") return;
-    } catch {
-      // ignore storage failures
-    }
-
-    setWorkspaceTourOpen(true);
-  }, [
-    categories.length,
-    templates.length,
-    canManageCategories,
-    canCreateForms,
-    canStaffManage,
-    workspaceTourSeenKey,
-  ]);
-
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
       <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background/95 shadow-sm backdrop-blur">
@@ -1812,6 +1852,16 @@ function WorkspacePageInner() {
 
                       </>
                     ) : null}
+
+                    <Link
+                      role="menuitem"
+                      href={`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <GraduationCap className="h-4 w-4" />
+                      Staff training
+                    </Link>
 
                     <div className="px-3 py-2">
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
@@ -2287,47 +2337,58 @@ function WorkspacePageInner() {
             </div>
 
             {!hasCategories ? (
-              <div className="rounded-lg border border-foreground/20 bg-background p-6">
-                <div className="inline-flex items-center rounded-full border border-foreground/20 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
+              <div className="rounded-lg border border-foreground/20 bg-background p-4 sm:p-5">
+                <div className="inline-flex items-center rounded-full border border-foreground/15 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/60">
                   Start here
                 </div>
-                <h2 className="mt-3 text-lg font-semibold">Your workspace is empty</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/70">
-                  Begin by creating categories so your forms have a home. Good first categories are Back of House,
-                  Front of House, Kitchen, PPE, and Storage. After that, add forms and invite staff to your brand.
+                <h2 className="mt-2 text-base font-semibold">Create categories to begin</h2>
+                <p className="mt-1 text-sm text-foreground/70">
+                  Categories keep forms organised. Create categories first, then build forms under each one.
                 </p>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
                     type="button"
                     onClick={openWorkspaceSeedFromTour}
-                    className="inline-flex h-11 items-center justify-center rounded-md bg-foreground px-4 text-background"
+                    className="inline-flex h-10 items-center justify-center rounded-md bg-foreground px-4 text-background"
                   >
                     Create categories
                   </button>
                   <button
                     type="button"
                     onClick={() => setWorkspaceTourOpen(true)}
-                    className="inline-flex h-11 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
                   >
-                    Show quick tour
+                    Why this matters
                   </button>
+                  <Link
+                    href={`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
+                  >
+                    Staff training
+                  </Link>
                 </div>
-                <p className="mt-3 text-xs text-foreground/50">
-                  You can add as many categories as you need. The workspace will grow with your brand.
-                </p>
               </div>
             ) : templates.length === 0 ? (
               <div className="rounded-lg border border-foreground/20 bg-background p-6">
                 <h2 className="text-lg font-semibold">No forms in this category yet.</h2>
                 <p className="mt-1 text-sm text-foreground/70">Add a form from the library to get started.</p>
-                <button
-                  type="button"
-                  onClick={() => setAddFormOpen(true)}
-                  className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-background"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add a form
-                </button>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => setAddFormOpen(true)}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-background"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add a form
+                  </button>
+                  <Link
+                    href={`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
+                  >
+                    <GraduationCap className="h-4 w-4" />
+                    Staff training
+                  </Link>
+                </div>
               </div>
             ) : (
               <div className="grid gap-3">

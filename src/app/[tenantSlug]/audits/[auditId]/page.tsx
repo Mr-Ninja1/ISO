@@ -68,15 +68,6 @@ function sectionColumnsClass(columns?: number) {
   return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]";
 }
 
-function shouldUseLandscape(schema: FormSchemaV1) {
-  const sections = visibleSections(schema);
-  const biggestGrid = sections
-    .filter((s): s is Extract<FormSection, { type: "grid" }> => s.type === "grid")
-    .map((g) => g.columns.length)
-    .sort((a, b) => b - a)[0] ?? 0;
-  return biggestGrid >= 7;
-}
-
 function renderFieldValue(field: FieldDef, payload: Record<string, unknown>) {
   const value = payload[field.id];
 
@@ -146,7 +137,7 @@ export default async function AuditReportPage({
     ? payloadTempMeta.correctiveAction
     : "";
   const trends = collectTemperatureSeries(schema, payload);
-  const resolvedOrientation = orientation || (shouldUseLandscape(schema) ? "landscape" : "portrait");
+  const resolvedOrientation = orientation || "landscape";
 
   const printCss = `
     @page { size: A4 ${resolvedOrientation}; margin: 10mm; }
@@ -315,7 +306,13 @@ export default async function AuditReportPage({
                               "border border-foreground/30 px-2 py-2 text-left font-semibold uppercase tracking-wide " +
                               (col.type === "checkbox" ? "w-16 text-center" : "")
                             }
-                            style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                            style={
+                              col.type === "checkbox"
+                                ? { width: 72, minWidth: 72 }
+                                : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                                  ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                                  : undefined
+                            }
                           >
                             {col.label || "Column"}
                           </th>
@@ -340,7 +337,13 @@ export default async function AuditReportPage({
                                     "h-8 border border-foreground/20 px-2 py-1 align-top " +
                                     (col.type === "checkbox" ? "w-16 text-center" : "")
                                   }
-                                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                                  style={
+                                    col.type === "checkbox"
+                                      ? { width: 72, minWidth: 72 }
+                                      : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                                        : undefined
+                                  }
                                 >
                                   {isDataUrl(value) ? (
                                     // eslint-disable-next-line @next/next/no-img-element

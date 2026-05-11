@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import SignatureCanvas from "react-signature-canvas";
+import type SignatureCanvas from "react-signature-canvas";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -178,7 +178,8 @@ function writeLocalDraft(
   tenantSlug: string,
   templateId: string,
   values: FormValues,
-  auditId?: string | null
+  auditId?: string | null,
+  options?: { durable?: boolean }
 ) {
   try {
     localStorage.setItem(
@@ -189,13 +190,15 @@ function writeLocalDraft(
     // ignore
   }
 
-  // Durable write (IndexedDB) – does not block UI.
-  void dbPutDraft({
-    tenantSlug,
-    templateId,
-    auditId: auditId || null,
-    payload: values as Record<string, unknown>,
-  });
+  if (options?.durable !== false) {
+    // Durable write (IndexedDB) – does not block UI.
+    void dbPutDraft({
+      tenantSlug,
+      templateId,
+      auditId: auditId || null,
+      payload: values as Record<string, unknown>,
+    });
+  }
 }
 
 function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string) {
@@ -460,8 +463,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
     localDraftWriteTimerRef.current = window.setTimeout(() => {
       const values = form.getValues();
-      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId);
-    }, 350);
+      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: false });
+    }, 700);
 
     return () => {
       if (localDraftWriteTimerRef.current !== null) {
@@ -643,7 +646,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     const timeoutId = window.setTimeout(async () => {
       if (autoSaveInFlightRef.current) return;
       const values = form.getValues();
-      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId);
+      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: false });
 
       autoSaveInFlightRef.current = true;
       setIsAutoSaving(true);
@@ -726,7 +729,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
               className={`flex flex-col rounded-lg border border-foreground/15 bg-background ${styleTokens.section}`}
             >
               {section.title ? (
-                section.title.trim().toLowerCase() !== "fields" ? (
+                section.title.trim().toLowerCase() !== "fields" && section.title.trim().toLowerCase() !== "metadata header" ? (
                   <div className="flex items-center justify-between gap-3 border-b border-foreground/10 pb-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
                       {section.title}
@@ -846,6 +849,12 @@ function Field({
   errors: FieldErrors<FormValues>;
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
+  const lineInputClass =
+    "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
+  const lineSelectClass =
+    "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
+  const lineTextareaClass =
+    "min-h-20 w-full resize-y border-0 border-b border-foreground/25 bg-transparent px-1 py-2 text-sm outline-none focus:border-foreground/60";
 
   if (field.type === "text") {
     return (
@@ -857,14 +866,14 @@ function Field({
         {field.multiline ? (
           <textarea
             id={field.id}
-            className="min-h-24 rounded-md border border-foreground/20 bg-background p-3"
+            className={lineTextareaClass}
             placeholder={(field as any).placeholder || undefined}
             {...register(field.id)}
           />
         ) : (
           <input
             id={field.id}
-            className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+            className={lineInputClass}
             placeholder={(field as any).placeholder || undefined}
             {...register(field.id)}
           />
@@ -889,7 +898,7 @@ function Field({
         <input
           id={field.id}
           type="date"
-          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          className={lineInputClass}
           placeholder={(field as any).placeholder || undefined}
           {...register(field.id)}
         />
@@ -910,7 +919,7 @@ function Field({
           type="number"
           inputMode="decimal"
           step={typeof (field as any).step === "number" ? String((field as any).step) : "any"}
-          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          className={lineInputClass}
           placeholder={(field as any).placeholder || undefined}
           {...register(field.id)}
         />
@@ -958,7 +967,7 @@ function Field({
         </label>
         <select
           id={field.id}
-          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          className={lineSelectClass}
           {...register(field.id)}
         >
           <option value="">Select…</option>
@@ -981,7 +990,7 @@ function Field({
         <input
           id={field.id}
           type="time"
-          className="h-12 rounded-md border border-foreground/20 bg-background px-3"
+          className={lineInputClass}
           {...register(field.id)}
         />
         {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
@@ -1006,6 +1015,7 @@ function TempFieldInput({
   errors: FieldErrors<FormValues>;
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
+  const lineTempClass = "h-10 w-full border-0 border-b px-1 bg-transparent outline-none";
 
   return (
     <div className="flex flex-col gap-2">
@@ -1035,8 +1045,7 @@ function TempFieldInput({
               id={field.id}
               inputMode="decimal"
               className={
-                "h-12 rounded-md border px-3 bg-background " +
-                (alert ? "border-red-700" : "border-foreground/20")
+                lineTempClass + " " + (alert ? "border-red-700" : "border-foreground/25")
               }
               value={typeof value === "number" ? String(value) : String(value ?? "")}
               onChange={(e) => rhfField.onChange(e.target.value)}
@@ -1060,7 +1069,24 @@ function SignatureFieldInput({
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
   const sigRef = useRef<SignatureCanvas | null>(null);
+  const [SignatureCanvasInput, setSignatureCanvasInput] = useState<React.ComponentType<any> | null>(null);
   const currentValue = useWatch({ control, name: field.id as never }) as unknown;
+
+  useEffect(() => {
+    let alive = true;
+    import("react-signature-canvas")
+      .then((mod) => {
+        if (!alive) return;
+        setSignatureCanvasInput(() => mod.default as unknown as React.ComponentType<any>);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setSignatureCanvasInput(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = sigRef.current;
@@ -1087,17 +1113,21 @@ function SignatureFieldInput({
         name={field.id as never}
         render={({ field: rhfField }) => (
           <div className="rounded-md border border-foreground/20 bg-background p-2">
-            <SignatureCanvas
-              ref={(ref) => {
-                sigRef.current = ref;
-              }}
-              penColor="black"
-              canvasProps={{ className: "h-20 w-full" }}
-              onEnd={() => {
-                const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";
-                rhfField.onChange(dataUrl);
-              }}
-            />
+            {SignatureCanvasInput ? (
+              <SignatureCanvasInput
+                ref={(ref: SignatureCanvas | null) => {
+                  sigRef.current = ref;
+                }}
+                penColor="black"
+                canvasProps={{ className: "h-20 w-full" }}
+                onEnd={() => {
+                  const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";
+                  rhfField.onChange(dataUrl);
+                }}
+              />
+            ) : (
+              <div className="h-20 animate-pulse rounded bg-foreground/5" />
+            )}
             <div className="mt-1 flex gap-2">
               <button
                 type="button"

@@ -138,7 +138,7 @@ export default function LoginPage() {
         ) : null}
 
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="email" className="text-sm font-medium text-slate-700">
             Email
           </label>
           <input
@@ -148,13 +148,13 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder="your@email.com"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="password" className="text-sm font-medium text-slate-700">
             Password
           </label>
           <input
@@ -164,7 +164,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
             placeholder="••••••••"
           />
         </div>
@@ -174,22 +174,22 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 to-slate-800 px-4 font-medium text-white shadow-lg shadow-slate-900/20 transition-all hover:shadow-xl hover:shadow-slate-900/30 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Signing in..." : "Sign In"}
         </button>
 
         <div className="flex items-center justify-between gap-3 text-sm">
-          <Link href="/forgot-password" className="font-medium text-foreground/70 underline underline-offset-4 hover:text-foreground">
+          <Link href="/forgot-password" className="font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
             Forgot password?
           </Link>
-          <Link href="/verify-email" className="font-medium text-foreground/70 underline underline-offset-4 hover:text-foreground">
+          <Link href="/verify-email" className="font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
             Need verification?
           </Link>
         </div>
 
-        <Link href="/developer-login" className="block text-center text-sm font-medium text-foreground/55 underline underline-offset-4 hover:text-foreground/80">
+        <Link href="/developer-login" className="block text-center text-sm font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
           Developer sign in
         </Link>
       </form>

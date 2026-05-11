@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import {
   type Control,
@@ -143,6 +143,27 @@ export function GridField({
   }, [grid.rows, fixedRows, fields.length]);
 
   const [sig, setSig] = useState<{ rowIndex: number; colId: string } | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(560);
+
+  const rowHeightPx = formStyle === "compact" ? 44 : 48;
+  const overscanRows = 8;
+  const renderWindowRows = Math.max(1, Math.ceil(viewportHeight / rowHeightPx) + overscanRows * 2);
+  const hasMergedCells = useMemo(
+    () =>
+      layout.rows.some((row) =>
+        row.some((cell) => !!cell && cell.kind !== "covered" && (cell.rowSpan > 1 || cell.colSpan > 1))
+      ),
+    [layout]
+  );
+  const shouldVirtualize = !hasMergedCells && fields.length > 40;
+  const startRow = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / rowHeightPx) - overscanRows) : 0;
+  const endRow = shouldVirtualize ? Math.min(fields.length, startRow + renderWindowRows) : fields.length;
+  const visibleRows = shouldVirtualize ? fields.slice(startRow, endRow) : fields;
+  const leadingSpacerHeight = shouldVirtualize ? startRow * rowHeightPx : 0;
+  const trailingSpacerHeight = shouldVirtualize ? Math.max(0, (fields.length - endRow) * rowHeightPx) : 0;
+  const tableColumnCount = 1 + layout.columns.length + (grid.rows === "dynamic" ? 1 : 0);
 
   function renderCell(col: SimpleFieldDef, rowIndex: number) {
     const cellName = `${name}.${rowIndex}.${col.id}`;
@@ -150,8 +171,8 @@ export function GridField({
       (errors as any)?.[name]?.[rowIndex]?.[col.id]?.message as string | undefined;
 
     const cellHeight = formStyle === "compact" ? "h-9" : "h-10";
-    const cellInputClass = `${cellHeight} w-full bg-transparent px-2 text-sm outline-none`;
-    const cellSelectClass = `${cellHeight} w-full bg-transparent px-2 text-sm outline-none`;
+    const cellInputClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
+    const cellSelectClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
 
     if (col.readOnly) {
       return (
@@ -282,7 +303,7 @@ export function GridField({
         <button
           type="button"
           className={
-            "h-10 w-full rounded-md border border-foreground/20 px-3 text-left text-sm " +
+            "h-10 w-full min-w-0 truncate rounded-md border border-foreground/20 px-3 text-left text-sm " +
             (current ? "bg-foreground/5" : "bg-background text-foreground/70")
           }
           onClick={() => setSig({ rowIndex, colId: col.id })}
@@ -311,6 +332,24 @@ export function GridField({
   const tableWrapClass = formStyle === "compact" ? "mt-3" : "mt-4";
   const sectionPadClass = formStyle === "compact" ? "p-3" : "p-4";
 
+  useEffect(() => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+
+    const updateMetrics = () => {
+      setScrollTop(el.scrollTop);
+      setViewportHeight(el.clientHeight || 560);
+    };
+
+    updateMetrics();
+    el.addEventListener("scroll", updateMetrics, { passive: true });
+    window.addEventListener("resize", updateMetrics);
+    return () => {
+      el.removeEventListener("scroll", updateMetrics);
+      window.removeEventListener("resize", updateMetrics);
+    };
+  }, [fields.length]);
+
   return (
     <section className={`rounded-lg border border-foreground/20 bg-background ${sectionPadClass}`}>
       <div className="flex items-start justify-between gap-4">
@@ -329,7 +368,10 @@ export function GridField({
         ) : null}
       </div>
 
-      <div className={`${tableWrapClass} overflow-x-auto rounded-md border border-foreground/20`}>
+      <div
+        ref={tableScrollRef}
+        className={`${tableWrapClass} overflow-x-auto overflow-y-auto rounded-md border border-foreground/20 max-h-[70vh]`}
+      >
         <table className="w-full min-w-max border-collapse text-sm">
           <thead>
             <tr>
@@ -343,7 +385,13 @@ export function GridField({
                     `sticky top-0 z-10 border-b border-r border-foreground/20 px-3 py-2 text-left text-xs font-semibold text-foreground/70 ${tableHeaderClass} ` +
                     (col.type === "checkbox" ? "w-16 text-center" : "")
                   }
-                  style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                  style={
+                    col.type === "checkbox"
+                      ? { width: 72, minWidth: 72 }
+                      : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                        : undefined
+                  }
                 >
                   {col.label}
                 </th>
@@ -354,7 +402,14 @@ export function GridField({
             </tr>
           </thead>
           <tbody>
-            {fields.map((row, rowIndex) => (
+            {leadingSpacerHeight > 0 ? (
+              <tr aria-hidden="true">
+                <td colSpan={tableColumnCount} style={{ height: leadingSpacerHeight, padding: 0, border: 0 }} />
+              </tr>
+            ) : null}
+            {visibleRows.map((row, visibleIndex) => {
+              const rowIndex = shouldVirtualize ? startRow + visibleIndex : visibleIndex;
+              return (
               <tr
                 key={row.id}
                 className={
@@ -380,7 +435,13 @@ export function GridField({
                         "border-b border-r border-foreground/10 px-1 py-1 align-middle " +
                         (col.type === "checkbox" ? "w-16" : "")
                       }
-                      style={col.type === "checkbox" ? { width: 72, minWidth: 72 } : undefined}
+                      style={
+                        col.type === "checkbox"
+                          ? { width: 72, minWidth: 72 }
+                          : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                            ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                            : undefined
+                      }
                     >
                       {renderCell(col, rowIndex)}
                     </td>
@@ -401,7 +462,13 @@ export function GridField({
                   </td>
                 ) : null}
               </tr>
-            ))}
+              );
+            })}
+            {trailingSpacerHeight > 0 ? (
+              <tr aria-hidden="true">
+                <td colSpan={tableColumnCount} style={{ height: trailingSpacerHeight, padding: 0, border: 0 }} />
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

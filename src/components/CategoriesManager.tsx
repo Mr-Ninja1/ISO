@@ -111,14 +111,30 @@ export function CategoriesManager({ tenant }: Props) {
       setNewCategoryName("");
       setMessage("Category created!");
       requestWorkspaceRevalidate(tenant.slug);
+      // Clear all workspace caches for this tenant to force fresh data
+      try {
+        const userId = session?.user?.id ?? null;
+        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenant.slug}:`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // ignore cache clear failures
+      }
       // Force a server-side refresh so `workspace` server data is re-fetched
       // and the new category is visible in server-rendered components.
-      try { 
+      try {
         router.refresh();
       } catch (e) {
         // ignore refresh failures in dev
       }
-      setTimeout(() => setMessage(""), 2000);
+      // Redirect to workspace so user can see the new category
+      setTimeout(() => {
+        router.push(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+      }, 500);
     } catch (error: any) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
@@ -194,6 +210,19 @@ export function CategoriesManager({ tenant }: Props) {
 
       setCategories(categories.filter((c) => c.id !== categoryId));
       requestWorkspaceRevalidate(tenant.slug);
+      // Clear all workspace caches for this tenant to force fresh data
+      try {
+        const userId = session?.user?.id ?? null;
+        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenant.slug}:`;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // ignore cache clear failures
+      }
     } catch (error: any) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;

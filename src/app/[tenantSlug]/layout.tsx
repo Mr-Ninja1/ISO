@@ -87,11 +87,11 @@ export default async function TenantLayout({
   }
 
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.04)_0%,rgba(23,23,23,0.02)_40%,rgba(23,23,23,0.05)_100%)]">
+    <div className="min-h-dvh bg-gradient-to-b from-slate-50 via-white to-slate-50">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
-      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-foreground/15 bg-background/95 p-3 shadow-sm backdrop-blur sm:items-center sm:gap-4 sm:p-4 print:hidden">
+      <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-white/60 bg-white/90 p-3 shadow-lg shadow-slate-200/40 backdrop-blur-xl sm:items-center sm:gap-4 sm:p-4 print:hidden">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm">
             {tenant.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -100,12 +100,12 @@ export default async function TenantLayout({
                 className="h-8 w-8 object-contain"
               />
             ) : (
-              <span className="text-sm font-semibold">{tenant.name[0]}</span>
+              <span className="text-sm font-bold text-slate-700">{tenant.name[0]}</span>
             )}
           </div>
           <div className="min-w-0 flex flex-col">
-            <h1 className="truncate text-base font-semibold sm:text-lg">{tenant.name}</h1>
-            <p className="text-sm text-foreground/70">/{tenant.slug}{dbUnavailable ? " (offline)" : ""}</p>
+            <h1 className="truncate text-base font-bold text-slate-900 sm:text-lg">{tenant.name}</h1>
+            <p className="text-sm text-slate-500">/{tenant.slug}{dbUnavailable ? " (offline)" : ""}</p>
           </div>
         </div>
 
@@ -121,7 +121,7 @@ export default async function TenantLayout({
         </div>
       </header>
 
-      <main className="flex flex-col gap-6 rounded-xl border border-foreground/10 bg-background/85 p-4 pb-20 shadow-sm sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
+      <main className="flex flex-col gap-6 rounded-2xl border border-white/60 bg-white/80 p-4 pb-20 shadow-lg shadow-slate-200/30 backdrop-blur-xl sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
         {children}
       </main>
       </div>
