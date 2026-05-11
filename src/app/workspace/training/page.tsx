@@ -1,12 +1,17 @@
-"use client";
-
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { GraduationCap, PlayCircle } from "lucide-react";
 
-export default function WorkspaceTrainingPage() {
-  const searchParams = useSearchParams();
-  const tenantSlug = searchParams.get("tenantSlug") || "";
+type WorkspaceTrainingPageProps = {
+  searchParams?: Promise<{
+    tenantSlug?: string | string[];
+  }>;
+};
+
+export default async function WorkspaceTrainingPage({ searchParams }: WorkspaceTrainingPageProps) {
+  const resolvedSearchParams = (await searchParams) || {};
+  const tenantSlug = Array.isArray(resolvedSearchParams.tenantSlug)
+    ? resolvedSearchParams.tenantSlug[0] || ""
+    : resolvedSearchParams.tenantSlug || "";
   const backHref = tenantSlug
     ? `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`
     : "/workspace";
