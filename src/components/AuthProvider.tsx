@@ -4,6 +4,50 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { createClient, ISO_MOBILE_SHELL_LS_KEY } from "@/lib/auth";
 
+const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
+
+type CachedAuthUser = {
+  id: string;
+  email: string;
+};
+
+function readCachedAuthUser(): CachedAuthUser | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = localStorage.getItem(LAST_AUTH_USER_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const candidate = parsed as Partial<CachedAuthUser>;
+    if (typeof candidate.id !== "string" || !candidate.id) return null;
+
+    return {
+      id: candidate.id,
+      email: typeof candidate.email === "string" ? candidate.email : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAuthUser(user: CachedAuthUser | null) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (!user) {
+      localStorage.removeItem(LAST_AUTH_USER_KEY);
+      return;
+    }
+
+    localStorage.setItem(LAST_AUTH_USER_KEY, JSON.stringify(user));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 type AuthContextType = {
   session: Session | null;
   user: { id: string; email: string } | null;
@@ -21,7 +65,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const [user, setUser] = useState<{ id: string; email: string } | null>(() => readCachedAuthUser());
   const [loading, setLoading] = useState(true);
   const supabase = useMemo(() => createClient(), []);
 
@@ -42,12 +86,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         setSession(session);
         if (session?.user) {
-          setUser({ id: session.user.id, email: session.user.email || "" });
+          const nextUser = { id: session.user.id, email: session.user.email || "" };
+          setUser(nextUser);
+          writeCachedAuthUser(nextUser);
         }
       } catch {
         if (cancelled) return;
-        setSession(null);
-        setUser(null);
+        // Keep any cached identity so offline launches can still open cached workspace data.
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -60,12 +105,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return;
       setSession(session);
       if (session?.user) {
-        setUser({ id: session.user.id, email: session.user.email || "" });
-      } else {
+        const nextUser = { id: session.user.id, email: session.user.email || "" };
+        setUser(nextUser);
+        writeCachedAuthUser(nextUser);
+      } else if (event === "SIGNED_OUT") {
         setUser(null);
         try {
           localStorage.removeItem("lastTenantSlug");
@@ -73,6 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // ignore
         }
+        writeCachedAuthUser(null);
       }
       setLoading(false);
     });
@@ -110,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("lastTenantSlug");
       localStorage.removeItem("active-staff-profile:v1");
       localStorage.removeItem(ISO_MOBILE_SHELL_LS_KEY);
+      localStorage.removeItem(LAST_AUTH_USER_KEY);
     } catch {
       // ignore
     }
