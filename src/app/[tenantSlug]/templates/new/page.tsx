@@ -7,6 +7,9 @@ import { AlertTriangle, Eye, Laptop, Loader2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/components/AuthProvider";
 import { FormBuilder } from "@/components/forms/FormBuilder";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { apiUrl } from "@/lib/client/apiBase";
 import type { FieldDef, FormSection, FormStyle, FormType } from "@/types/forms";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import {
@@ -14,6 +17,7 @@ import {
   flushTemplateSyncQueue,
   getPendingTemplateSyncCount,
 } from "@/lib/client/templateSyncQueue";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 
 type CategorySummary = {
   id: string;
@@ -508,6 +512,14 @@ function FormStructurePreview({
 }
 
 export default function NewTemplatePage() {
+  return (
+    <SearchParamsBoundary>
+      <NewTemplatePageInner />
+    </SearchParamsBoundary>
+  );
+}
+
+function NewTemplatePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = useParams<{ tenantSlug: string }>();
@@ -519,6 +531,7 @@ export default function NewTemplatePage() {
 
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
+  const offline = useAppOffline();
 
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -551,6 +564,17 @@ export default function NewTemplatePage() {
   const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
   const [offlineDraftTemplateId, setOfflineDraftTemplateId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Create form needs internet"
+        message="The form builder must load and sync schema data from the database before it can be used. Connect once to create forms, then the cached workspace can open them offline."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
 
   const categoryOptions = useMemo(
     () => categories.map((c) => ({ value: c.id, label: c.name })),
@@ -645,7 +669,7 @@ export default function NewTemplatePage() {
     setWorkspaceLoading(true);
     setError("");
 
-    const url = new URL("/api/workspace", window.location.origin);
+    const url = new URL(apiUrl("/api/workspace"));
     url.searchParams.set("tenantSlug", tenantSlug);
     if (requestedCategoryId) url.searchParams.set("categoryId", requestedCategoryId);
 
@@ -685,7 +709,7 @@ export default function NewTemplatePage() {
     setLoadingEditInfo(true);
     setError("");
 
-    const url = new URL("/api/templates/edit-info", window.location.origin);
+    const url = new URL(apiUrl("/api/templates/edit-info"));
     url.searchParams.set("tenantSlug", tenantSlug);
     url.searchParams.set("templateId", editTemplateId);
 
@@ -738,7 +762,7 @@ export default function NewTemplatePage() {
         },
       };
 
-      const endpoint = isEditMode ? "/api/templates/save-changes" : "/api/templates/create";
+      const endpoint = apiUrl(isEditMode ? "/api/templates/save-changes" : "/api/templates/create");
 
       const payload = {
         tenantSlug,
@@ -905,7 +929,7 @@ export default function NewTemplatePage() {
       formData.set("tenantSlug", tenantSlug);
       formData.set("file", file);
 
-      const res = await fetch("/api/templates/ocr-import", {
+      const res = await fetch(apiUrl("/api/templates/ocr-import"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

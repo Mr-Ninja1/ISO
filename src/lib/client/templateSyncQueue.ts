@@ -1,5 +1,6 @@
 "use client";
 
+import { apiUrl } from "@/lib/client/apiBase";
 type TemplateSyncMode = "create" | "save-changes";
 
 type TemplateSyncPayload = {
@@ -168,8 +169,9 @@ export async function flushTemplateSyncQueue(accessToken: string) {
         continue;
       }
 
-      const endpoint =
-        item.mode === "save-changes" ? "/api/templates/save-changes" : "/api/templates/create";
+      const endpoint = apiUrl(
+        item.mode === "save-changes" ? "/api/templates/save-changes" : "/api/templates/create"
+      );
 
       const res = await fetch(endpoint, {
         method: "POST",

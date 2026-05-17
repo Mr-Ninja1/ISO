@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { createClient, ISO_MOBILE_SHELL_LS_KEY } from "@/lib/auth";
+import { createClient, ISO_MOBILE_SHELL_LS_KEY, readPersistedSupabaseSession } from "@/lib/auth";
 
 const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
 
@@ -64,8 +64,16 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<{ id: string; email: string } | null>(() => readCachedAuthUser());
+  const [session, setSession] = useState<Session | null>(() => readPersistedSupabaseSession());
+  const [user, setUser] = useState<{ id: string; email: string } | null>(() => {
+    const cached = readCachedAuthUser();
+    if (cached) return cached;
+    const persisted = readPersistedSupabaseSession();
+    if (persisted?.user?.id) {
+      return { id: persisted.user.id, email: persisted.user.email || "" };
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(true);
   const supabase = useMemo(() => createClient(), []);
 
@@ -84,15 +92,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } = await supabase.auth.getSession();
 
         if (cancelled) return;
-        setSession(session);
-        if (session?.user) {
-          const nextUser = { id: session.user.id, email: session.user.email || "" };
+        const resolved = session ?? readPersistedSupabaseSession();
+        setSession(resolved);
+        if (resolved?.user) {
+          const nextUser = { id: resolved.user.id, email: resolved.user.email || "" };
           setUser(nextUser);
           writeCachedAuthUser(nextUser);
         }
       } catch {
         if (cancelled) return;
-        // Keep any cached identity so offline launches can still open cached workspace data.
+        const fallback = readPersistedSupabaseSession();
+        if (fallback) {
+          setSession(fallback);
+          if (fallback.user?.id) {
+            const nextUser = { id: fallback.user.id, email: fallback.user.email || "" };
+            setUser(nextUser);
+            writeCachedAuthUser(nextUser);
+          }
+        }
       } finally {
         if (cancelled) return;
         setLoading(false);

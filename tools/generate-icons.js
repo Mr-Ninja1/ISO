@@ -1,23 +1,28 @@
 const fs = require('fs');
 const path = require('path');
-
-// Small placeholder 1x1 PNG (transparent). Replace with real assets later.
-const placeholder = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
-
-const icons = {
-  'apple-touch-icon-180.png': placeholder,
-  'apple-touch-icon-152.png': placeholder,
-  'icon-192.png': placeholder,
-  'icon-512.png': placeholder,
-};
+const { Resvg } = require('@resvg/resvg-js');
 
 const outDir = path.join(__dirname, '..', 'public');
+const iconSource = fs.readFileSync(path.join(outDir, 'icon.svg'), 'utf8');
+
+const sizes = {
+  'apple-touch-icon-180.png': 180,
+  'apple-touch-icon-152.png': 152,
+  'icon-192.png': 192,
+  'icon-512.png': 512,
+};
+
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
-for (const [name, b64] of Object.entries(icons)) {
+for (const [name, size] of Object.entries(sizes)) {
+  const resvg = new Resvg(iconSource, {
+    fitTo: { mode: 'width', value: size },
+    background: 'rgba(0,0,0,0)',
+  });
+  const png = resvg.render().asPng();
   const file = path.join(outDir, name);
-  fs.writeFileSync(file, Buffer.from(b64, 'base64'));
+  fs.writeFileSync(file, png);
   console.log('Written', file);
 }
 
-console.log('Placeholder icons generated in', outDir);
+console.log('Icons generated in', outDir);

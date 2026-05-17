@@ -7,10 +7,14 @@ import { useAuth } from "@/components/AuthProvider";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { apiUrl } from "@/lib/client/apiBase";
 
 export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string }) {
   const router = useRouter();
   const { session } = useAuth();
+  const offline = useAppOffline();
 
   const accessToken = session?.access_token || "";
 
@@ -21,6 +25,17 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const suggestionsFetchedRef = useRef(false);
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Categories need internet"
+        message="Category changes update the brand's live form structure. Connect once to manage categories, then the cached workspace can keep using them offline."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
 
   useEffect(() => {
     if (!open) {
@@ -37,7 +52,7 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
     suggestionsFetchedRef.current = true;
     setSuggestionsLoading(true);
     const controller = new AbortController();
-    fetch("/api/workspace/suggestions", {
+    fetch(apiUrl("/api/workspace/suggestions"), {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: controller.signal,
     })
@@ -64,7 +79,7 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
     try {
       if (!navigator.onLine) {
         enqueueBackgroundMutation({
-          url: "/api/workspace/seed",
+          url: apiUrl("/api/workspace/seed"),
           method: "POST",
           body: { tenantSlug, names },
         });
@@ -73,7 +88,7 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
         return;
       }
 
-      const res = await fetch("/api/workspace/seed", {
+      const res = await fetch(apiUrl("/api/workspace/seed"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -93,7 +108,7 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
         enqueueBackgroundMutation({
-          url: "/api/workspace/seed",
+          url: apiUrl("/api/workspace/seed"),
           method: "POST",
           body: { tenantSlug, names },
         });

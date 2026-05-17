@@ -12,8 +12,9 @@ import {
   writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
-import { isAppOffline } from "@/lib/client/appOffline";
 import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
+import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
@@ -135,10 +136,13 @@ export function AuditsListClient({
   rows: CachedAuditRow[];
 }) {
   const { session, user } = useAuth();
+  const offline = useAppOffline();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [query, setQuery] = useState(initialQuery);
   const [allRows, setAllRows] = useState<CachedAuditRow[]>(rows);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
 
   useEffect(() => {
     const cached = readAuditsListCache(user?.id || null, tenantSlug);
@@ -175,52 +179,33 @@ export function AuditsListClient({
     };
   }, [tenantSlug, user?.id]);
 
-  useEffect(() => {
+  async function syncFromServer(fullHistory: boolean) {
     const token = session?.access_token || "";
-    if (!token || !tenantSlug) return;
-    if (isAppOffline()) return;
+    if (!token || !tenantSlug || offline) return;
 
-    const cached = readAuditsListCache(user?.id || null, tenantSlug);
-    const since = cached?.maxUpdatedAt || null;
-    const url = new URL("/api/audit/list", window.location.origin);
-    url.searchParams.set("tenantSlug", tenantSlug);
-    if (since) url.searchParams.set("since", since);
-
-    let cancelled = false;
     setSyncing(true);
-
-    fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || "Failed to sync audits list");
-        return data as { rows?: CachedAuditRow[]; maxUpdatedAt?: string | null };
-      })
-      .then((data) => {
-        if (cancelled) return;
-        const incoming = Array.isArray(data.rows) ? data.rows : [];
-        if (!incoming.length) return;
-
-        setAllRows((current) => {
-          const merged = mergeAuditsRows(current, incoming);
-          writeAuditsListCache(user?.id || null, tenantSlug, merged, data.maxUpdatedAt || null, { broadcast: false });
-          return merged;
-        });
-      })
-      .catch(() => {
-        // silent best-effort sync
-      })
-      .finally(() => {
-        if (!cancelled) setSyncing(false);
+    setSyncError("");
+    try {
+      const cached = readAuditsListCache(user?.id || null, tenantSlug);
+      const result = await fetchAndCacheAuditsList(token, user?.id || null, tenantSlug, {
+        since: fullHistory ? undefined : cached?.maxUpdatedAt || undefined,
+        limit: fullHistory ? 200 : 80,
+        merge: true,
       });
+      setAllRows(result.rows);
+      setHasLoadedFromServer(true);
+    } catch (err: unknown) {
+      setSyncError(err instanceof Error ? err.message : "Could not load saved forms");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.access_token, tenantSlug, user?.id]);
+  useEffect(() => {
+    if (!session?.access_token || !tenantSlug || offline) return;
+    void syncFromServer(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token, tenantSlug, user?.id, offline]);
 
   const draftCount = useMemo(() => allRows.filter((r) => r.status === "DRAFT").length, [allRows]);
   const submittedCount = useMemo(() => allRows.filter((r) => r.status === "SUBMITTED").length, [allRows]);
@@ -242,14 +227,37 @@ export function AuditsListClient({
 
   return (
     <>
+      {offline ? (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Showing saved forms stored on this device. Connect to the internet and tap Load from server to see the full
+          history.
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
         <AuditsExportButton tenantSlug={tenantSlug} status={exportStatus} query={exportQuery} />
+        {!offline ? (
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={() => void syncFromServer(true)}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+          >
+            {syncing ? "Loading…" : hasLoadedFromServer ? "Refresh from server" : "Load from server"}
+          </button>
+        ) : null}
         {syncing ? (
           <div className="inline-flex h-9 items-center rounded-md border border-foreground/20 px-3 text-xs text-foreground/70">
-            Syncing latest updates...
+            Syncing…
           </div>
         ) : null}
       </div>
+
+      {syncError ? (
+        <div className="rounded-md border border-foreground/20 bg-foreground/5 px-3 py-2 text-sm text-foreground">
+          {syncError}
+        </div>
+      ) : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button

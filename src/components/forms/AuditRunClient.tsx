@@ -13,6 +13,7 @@ import {
 } from "@/lib/client/auditTemplateCache";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
+import { apiUrl } from "@/lib/client/apiBase";
 
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
   return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
@@ -42,7 +43,7 @@ function scheduleBackgroundTask(task: () => void, delayMs: number) {
   let idleId: number | null = null;
   const timeoutId = window.setTimeout(() => {
     if ("requestIdleCallback" in window) {
-      idleId = (window as any).requestIdleCallback(task, { timeout: 1200 });
+      idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(task, { timeout: 1200 });
       return;
     }
     task();
@@ -51,7 +52,7 @@ function scheduleBackgroundTask(task: () => void, delayMs: number) {
   return () => {
     window.clearTimeout(timeoutId);
     if (idleId !== null && "cancelIdleCallback" in window) {
-      (window as any).cancelIdleCallback(idleId);
+      (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
     }
   };
 }
@@ -69,17 +70,14 @@ export function AuditRunClient({
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
 
-  // Important: avoid reading localStorage during initial render.
-  // Otherwise SSR renders "loading" but the client immediately renders the cached form,
-  // triggering a hydration mismatch warning.
   const [data, setData] = useState<AuditTemplatePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revalidateTick, setRevalidateTick] = useState(0);
-  /** Named distinctly from `isAppOffline()` to avoid TDZ/minifier/HMR edge cases. */
+  const [durableCacheChecked, setDurableCacheChecked] = useState(false);
   const offlineFromHook = useAppOffline();
 
-  // Fast path: show cached form schema immediately, even before auth/network settles.
+  // Hydrate from localStorage + IndexedDB before deciding the user must sign in again.
   useEffect(() => {
     if (!tenantSlug || !templateId) return;
     let alive = true;
@@ -88,17 +86,18 @@ export function AuditRunClient({
     if (cached) {
       setData(cached);
       setLoading(false);
-      return () => {
-        alive = false;
-      };
+      setError("");
     }
 
-    // Durable cache path (IndexedDB) – async after mount.
     (async () => {
       const fromDb = await readAuditTemplateCacheAsync(tenantSlug, templateId);
-      if (!alive || !fromDb) return;
-      setData(fromDb);
-      setLoading(false);
+      if (!alive) return;
+      if (fromDb) {
+        setData(fromDb);
+        setLoading(false);
+        setError("");
+      }
+      setDurableCacheChecked(true);
     })();
 
     return () => {
@@ -134,22 +133,42 @@ export function AuditRunClient({
   }, []);
 
   useEffect(() => {
-    if (authLoading || !user || !accessToken) return;
     if (!tenantSlug || !templateId) return;
 
-    const cached = readAuditTemplateCache(tenantSlug, templateId);
-    if (cached) {
-      // Stale-while-revalidate: keep cached schema visible while refreshing quietly.
-      setData(cached);
+    const cached = data ?? readAuditTemplateCache(tenantSlug, templateId);
+
+    if (authLoading) return;
+
+    if (!user) {
+      if (!cached && durableCacheChecked) {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Signed-in user with cached schema: open immediately without a live access token (offline / slow session restore).
+    if (!accessToken) {
+      if (cached || data) {
+        setLoading(false);
+        setError("");
+        return;
+      }
+      if (!durableCacheChecked) return;
       setLoading(false);
-      setError("");
-    } else {
+      if (offlineFromHook || isAppOffline()) {
+        setError("This form is not cached on this device yet. Open it once while online to use it offline.");
+      } else {
+        setError("Still restoring your session. Go back to workspace and try again, or sign in once while online.");
+      }
+      return;
+    }
+
+    if (!cached && !data) {
       setLoading(true);
     }
 
-    // Offline-first: never call the API while offline (browser or shell-forced).
-    if (offlineFromHook) {
-      if (!cached) {
+    if (offlineFromHook || isAppOffline()) {
+      if (!cached && !data) {
         setLoading(false);
         setError("This form is not cached on this device yet. Open it once while online to use it offline.");
       }
@@ -161,7 +180,7 @@ export function AuditRunClient({
     }
 
     const runRevalidate = () => {
-      const url = new URL("/api/audit/template", window.location.origin);
+      const url = new URL(apiUrl("/api/audit/template"));
       url.searchParams.set("tenantSlug", tenantSlug);
       url.searchParams.set("templateId", templateId);
 
@@ -174,7 +193,7 @@ export function AuditRunClient({
             if (res.status === 401 && cached) {
               return cached;
             }
-            throw new Error(json?.error || `Failed to load form (${res.status})`);
+            throw new Error((json as { error?: string })?.error || `Failed to load form (${res.status})`);
           }
           return json as AuditTemplatePayload;
         })
@@ -188,21 +207,42 @@ export function AuditRunClient({
           markTemplateRevalidated(tenantSlug, templateId);
           setError("");
         })
-        .catch((err: any) => {
-          if (!cached) {
-            setError(err?.message || "Unable to load form");
+        .catch((err: unknown) => {
+          if (!cached && !data) {
+            setError(err instanceof Error ? err.message : "Unable to load form");
           }
         })
         .finally(() => setLoading(false));
     };
 
-    if (cached) {
+    if (cached || data) {
       const cancel = scheduleBackgroundTask(runRevalidate, 900);
       return cancel;
     }
 
     runRevalidate();
-  }, [authLoading, user, accessToken, tenantSlug, templateId, revalidateTick, offlineFromHook]);
+  }, [
+    authLoading,
+    user,
+    accessToken,
+    tenantSlug,
+    templateId,
+    revalidateTick,
+    offlineFromHook,
+    data,
+    durableCacheChecked,
+  ]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const timeoutId = window.setTimeout(() => {
+      setLoading(false);
+      if (!data) {
+        setError((prev) => prev || "Form is taking longer than expected. Check your connection and try again.");
+      }
+    }, 12_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [loading, data, tenantSlug, templateId]);
 
   const content = useMemo(() => {
     if (loading) {

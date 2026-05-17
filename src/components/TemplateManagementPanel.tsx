@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type TemplateItem = {
   id: string;
@@ -52,7 +53,7 @@ export function TemplateManagementPanel({
     try {
       if (!navigator.onLine) {
         enqueueBackgroundMutation({
-          url: "/api/templates/delete",
+          url: apiUrl("/api/templates/delete"),
           method: "POST",
           body: { tenantSlug, templateId },
         });
@@ -60,7 +61,7 @@ export function TemplateManagementPanel({
         return;
       }
 
-      const res = await fetch("/api/templates/delete", {
+      const res = await fetch(apiUrl("/api/templates/delete"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -82,7 +83,7 @@ export function TemplateManagementPanel({
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
         enqueueBackgroundMutation({
-          url: "/api/templates/delete",
+          url: apiUrl("/api/templates/delete"),
           method: "POST",
           body: { tenantSlug, templateId },
         });

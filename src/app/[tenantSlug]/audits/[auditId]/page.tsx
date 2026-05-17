@@ -1,5 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { capacitorAuditStaticParams } from "@/lib/capacitor/staticExport";
+
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
+
+export function generateStaticParams() {
+  if (!isCapacitorBuild) return [];
+  return capacitorAuditStaticParams();
+}
 import { ssrAuditReportForPrint } from "@/lib/data/ssrQueries";
 import { PrintButton } from "@/components/PrintButton";
 import { AuditReportShareControls } from "@/components/forms/AuditShareControls";
@@ -102,6 +110,11 @@ export default async function AuditReportPage({
   searchParams: Promise<{ orientation?: "portrait" | "landscape" }>;
 }) {
   const { tenantSlug, auditId } = await params;
+
+  if (isCapacitorBuild) {
+    const { AuditReportFromCacheClient } = await import("@/components/forms/AuditReportFromCacheClient");
+    return <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />;
+  }
   const { orientation } = await searchParams;
   let audit:
     | {

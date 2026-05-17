@@ -3,6 +3,8 @@ export type NavCapabilities = {
   canCreateForms: boolean;
 };
 
+import { apiUrl } from "@/lib/client/apiBase";
+
 type CacheEntry = { ts: number; value: NavCapabilities };
 
 const TTL_MS = 5 * 60_000;
@@ -54,7 +56,7 @@ export async function fetchNavCapabilities(accessToken: string, tenantSlug: stri
   if (existing) return existing;
 
   const promise = (async () => {
-    const url = new URL("/api/workspace/capabilities", window.location.origin);
+    const url = new URL(apiUrl("/api/workspace/capabilities"));
     url.searchParams.set("tenantSlug", tenantSlug);
 
     const res = await fetch(url.toString(), {

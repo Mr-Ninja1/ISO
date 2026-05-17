@@ -6,12 +6,15 @@ import { useEffect, useState } from "react";
 import { MoreVertical, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchNavCapabilities, readCachedNavCapabilities, type NavCapabilities } from "@/lib/client/navCapabilities";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
 
 const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms: false };
 
 export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const { session } = useAuth();
   const pathname = usePathname();
+  const offline = useAppOffline();
   const settingsBase = `/${tenantSlug}/settings`;
   const auditsBase = `/${tenantSlug}/audits`;
   const dashboardBase = `/${tenantSlug}/dashboard`;
@@ -57,6 +60,11 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
     setTimeout(() => setLoadingPath(null), 500);
   };
 
+  const blockOffline = (label: string, e?: React.MouseEvent) => {
+    e?.preventDefault();
+    showRequiresInternetDialog(label);
+  };
+
   // Hide global tenant nav on the custom form builder page to free header space.
   if (pathname === `/${tenantSlug}/templates/new`) {
     return null;
@@ -81,7 +89,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canSeeAdminRoutes ? (
           <Link
             href={dashboardBase}
-            onClick={() => handleLinkClick(dashboardBase)}
+            onClick={(e) => {
+              if (offline) {
+                blockOffline("Dashboard", e);
+                return;
+              }
+              handleLinkClick(dashboardBase);
+            }}
             className={
               "rounded-xl border px-4 py-2 font-medium transition-all " +
               (onDashboard
@@ -96,7 +110,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canSeeAdminRoutes ? (
           <Link
             href={correctiveActionsBase}
-            onClick={() => handleLinkClick(correctiveActionsBase)}
+            onClick={(e) => {
+              if (offline) {
+                blockOffline("Corrective actions", e);
+                return;
+              }
+              handleLinkClick(correctiveActionsBase);
+            }}
             className={
               "rounded-xl border px-4 py-2 font-medium transition-all " +
               (onCorrectiveActions
@@ -116,7 +136,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             {caps.canSeeAdminRoutes ? (
               <Link
                 href={`/${tenantSlug}/activity`}
-                onClick={() => handleLinkClick(activityBase)}
+                onClick={(e) => {
+                  if (offline) {
+                    blockOffline("Activity", e);
+                    return;
+                  }
+                  handleLinkClick(activityBase);
+                }}
                 className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onActivity ? "bg-slate-900 text-white" : "text-slate-700")}
               >
                 {loadingPath === activityBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -126,7 +152,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             {caps.canCreateForms ? (
               <Link
                 href={`/${tenantSlug}/templates`}
-                onClick={() => handleLinkClick(`/${tenantSlug}/templates`)}
+                onClick={(e) => {
+                  if (offline) {
+                    e.preventDefault();
+                    blockOffline("Templates");
+                    return;
+                  }
+                  handleLinkClick(`/${tenantSlug}/templates`);
+                }}
                 className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onTemplates ? "bg-slate-900 text-white" : "text-slate-700")}
               >
                 {loadingPath === `/${tenantSlug}/templates` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -137,7 +170,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               <>
                 <Link
                   href={correctiveActionsBase}
-                  onClick={() => handleLinkClick(correctiveActionsBase)}
+                  onClick={(e) => {
+                    if (offline) {
+                      blockOffline("Corrective actions", e);
+                      return;
+                    }
+                    handleLinkClick(correctiveActionsBase);
+                  }}
                   className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onCorrectiveActions ? "bg-slate-900 text-white" : "text-slate-700")}
                 >
                   {loadingPath === correctiveActionsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -145,7 +184,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
                 </Link>
                 <Link
                   href={settingsBase}
-                  onClick={() => handleLinkClick(settingsBase)}
+                  onClick={(e) => {
+                    if (offline) {
+                      e.preventDefault();
+                      blockOffline("Settings");
+                      return;
+                    }
+                    handleLinkClick(settingsBase);
+                  }}
                   className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onSettings ? "bg-slate-900 text-white" : "text-slate-700")}
                 >
                   {loadingPath === settingsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -153,7 +199,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
                 </Link>
                 <Link
                   href={`/${tenantSlug}/categories`}
-                  onClick={() => handleLinkClick(`/${tenantSlug}/categories`)}
+                  onClick={(e) => {
+                    if (offline) {
+                      e.preventDefault();
+                      blockOffline("Categories");
+                      return;
+                    }
+                    handleLinkClick(`/${tenantSlug}/categories`);
+                  }}
                   className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onCategories ? "bg-slate-900 text-white" : "text-slate-700")}
                 >
                   {loadingPath === `/${tenantSlug}/categories` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -169,9 +222,15 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               {loadingPath === `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Workspace
             </Link>
-            <Link 
-              href="/dashboard" 
-              onClick={() => handleLinkClick("/dashboard")}
+            <Link
+              href="/dashboard"
+              onClick={(e) => {
+                if (offline) {
+                  blockOffline("Brand lobby", e);
+                  return;
+                }
+                handleLinkClick("/dashboard");
+              }}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
             >
               {loadingPath === "/dashboard" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -197,7 +256,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           {caps.canSeeAdminRoutes ? (
             <Link
               href={correctiveActionsBase}
-              onClick={() => handleLinkClick(correctiveActionsBase)}
+              onClick={(e) => {
+                if (offline) {
+                  blockOffline("Corrective actions", e);
+                  return;
+                }
+                handleLinkClick(correctiveActionsBase);
+              }}
               className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onCorrectiveActions ? "bg-slate-900 text-white" : "text-slate-700")}
             >
               {loadingPath === correctiveActionsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -207,7 +272,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           {caps.canSeeAdminRoutes ? (
             <Link
               href={`/${tenantSlug}/activity`}
-              onClick={() => handleLinkClick(activityBase)}
+              onClick={(e) => {
+                if (offline) {
+                  blockOffline("Activity", e);
+                  return;
+                }
+                handleLinkClick(activityBase);
+              }}
               className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onActivity ? "bg-slate-900 text-white" : "text-slate-700")}
             >
               {loadingPath === activityBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -217,7 +288,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           {caps.canCreateForms ? (
             <Link
               href={`/${tenantSlug}/templates`}
-              onClick={() => handleLinkClick(`/${tenantSlug}/templates`)}
+              onClick={(e) => {
+                if (offline) {
+                  e.preventDefault();
+                  blockOffline("Templates");
+                  return;
+                }
+                handleLinkClick(`/${tenantSlug}/templates`);
+              }}
               className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onTemplates ? "bg-slate-900 text-white" : "text-slate-700")}
             >
               {loadingPath === `/${tenantSlug}/templates` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -228,7 +306,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             <>
               <Link
                 href={settingsBase}
-                onClick={() => handleLinkClick(settingsBase)}
+                onClick={(e) => {
+                  if (offline) {
+                    e.preventDefault();
+                    blockOffline("Settings");
+                    return;
+                  }
+                  handleLinkClick(settingsBase);
+                }}
                 className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onSettings ? "bg-slate-900 text-white" : "text-slate-700")}
               >
                 {loadingPath === settingsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -236,7 +321,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               </Link>
               <Link
                 href={`/${tenantSlug}/categories`}
-                onClick={() => handleLinkClick(`/${tenantSlug}/categories`)}
+                onClick={(e) => {
+                  if (offline) {
+                    e.preventDefault();
+                    blockOffline("Categories");
+                    return;
+                  }
+                  handleLinkClick(`/${tenantSlug}/categories`);
+                }}
                 className={"flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all hover:bg-slate-100 " + (onCategories ? "bg-slate-900 text-white" : "text-slate-700")}
               >
                 {loadingPath === `/${tenantSlug}/categories` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -252,9 +344,15 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
             {loadingPath === `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Workspace
           </Link>
-          <Link 
-            href="/dashboard" 
-            onClick={() => handleLinkClick("/dashboard")}
+          <Link
+            href="/dashboard"
+            onClick={(e) => {
+              if (offline) {
+                blockOffline("Brand lobby", e);
+                return;
+              }
+              handleLinkClick("/dashboard");
+            }}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
           >
             {loadingPath === "/dashboard" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

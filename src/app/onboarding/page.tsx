@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
+import { apiUrl } from "@/lib/client/apiBase";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function OnboardingPage() {
       if (!accessToken) {
         throw new Error("Your session isn’t ready yet. Please wait a moment and try again.");
       }
-      const response = await fetch("/api/tenants/create", {
+      const response = await fetch(apiUrl("/api/tenants/create"), {
         method: "POST",
         headers: {
           "content-type": "application/json",

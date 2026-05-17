@@ -6,6 +6,9 @@ import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/auth";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type Props = {
   tenant?: {
@@ -19,6 +22,7 @@ type Props = {
 
 export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
   const router = useRouter();
+  const offline = useAppOffline();
   const [resolvedTenant, setResolvedTenant] = useState<{ id: string; name: string; logoUrl: string | null } | null>(
     tenant ? { id: tenant.id, name: tenant.name, logoUrl: tenant.logoUrl ?? null } : null
   );
@@ -29,6 +33,17 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmRemoveLogoOpen, setConfirmRemoveLogoOpen] = useState(false);
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Settings needs internet"
+        message="Brand settings update live database records. Connect once to manage the brand, then those details will be cached for offline viewing."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug || tenant?.slug || "")}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
 
   // If server didn't provide `tenant`, try to resolve tenant from local workspace cache v2
   // so the Settings page can open even when the server DB is temporarily unreachable.
@@ -138,7 +153,7 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
       const accessToken = await getAccessToken();
       const tenantId2 = resolvedTenant?.id || tenant?.id;
       if (!tenantId2) throw new Error("Tenant information not available");
-      const response = await fetch(`/api/tenants/${tenantId2}/update`, {
+      const response = await fetch(apiUrl(`/api/tenants/${tenantId2}/update`), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -183,7 +198,7 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
         // No tenant id yet - queue a pending update keyed by slug so background sync
         // can attempt to resolve the tenant later.
         enqueueBackgroundMutation({
-          url: `/api/tenants/update-pending`,
+          url: apiUrl(`/api/tenants/update-pending`),
           method: "POST",
           body: { tenantSlug: tenantSlug || (tenant as any)?.slug, logoUrl: null, name },
         });
@@ -194,7 +209,7 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
 
       if (!navigator.onLine) {
         enqueueBackgroundMutation({
-          url: `/api/tenants/${tenantId}/update`,
+          url: apiUrl(`/api/tenants/${tenantId}/update`),
           method: "POST",
           body: { logoUrl: null, name },
           dedupeKey: `tenant-update:${tenantId}`,
@@ -204,7 +219,7 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
         return;
       }
 
-      const response = await fetch(`/api/tenants/${tenantId}/update`, {
+      const response = await fetch(apiUrl(`/api/tenants/${tenantId}/update`), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -236,14 +251,14 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
         const tenantId = resolvedTenant?.id || tenant?.id;
         if (tenantId) {
           enqueueBackgroundMutation({
-            url: `/api/tenants/${tenantId}/update`,
+            url: apiUrl(`/api/tenants/${tenantId}/update`),
             method: "POST",
             body: { logoUrl: null, name },
             dedupeKey: `tenant-update:${tenantId}`,
           });
         } else {
           enqueueBackgroundMutation({
-            url: `/api/tenants/update-pending`,
+            url: apiUrl(`/api/tenants/update-pending`),
             method: "POST",
             body: { tenantSlug: tenantSlug || (tenant as any)?.slug, logoUrl: null, name },
           });
@@ -269,14 +284,14 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
       if (!navigator.onLine) {
         if (tenantId) {
           enqueueBackgroundMutation({
-            url: `/api/tenants/${tenantId}/update`,
+            url: apiUrl(`/api/tenants/${tenantId}/update`),
             method: "POST",
             body: { name, logoUrl },
             dedupeKey: `tenant-update:${tenantId}`,
           });
         } else {
           enqueueBackgroundMutation({
-            url: `/api/tenants/update-pending`,
+            url: apiUrl(`/api/tenants/update-pending`),
             method: "POST",
             body: { tenantSlug: tenantSlug || (tenant as any)?.slug, name, logoUrl },
           });
@@ -287,7 +302,7 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
 
       if (!tenantId) throw new Error("Tenant information not available");
 
-      const response = await fetch(`/api/tenants/${tenantId}/update`, {
+      const response = await fetch(apiUrl(`/api/tenants/${tenantId}/update`), {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -319,14 +334,14 @@ export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
         const tenantId = resolvedTenant?.id || tenant?.id;
         if (tenantId) {
           enqueueBackgroundMutation({
-            url: `/api/tenants/${tenantId}/update`,
+            url: apiUrl(`/api/tenants/${tenantId}/update`),
             method: "POST",
             body: { name, logoUrl },
             dedupeKey: `tenant-update:${tenantId}`,
           });
         } else {
           enqueueBackgroundMutation({
-            url: `/api/tenants/update-pending`,
+            url: apiUrl(`/api/tenants/update-pending`),
             method: "POST",
             body: { tenantSlug: tenantSlug || (tenant as any)?.slug, name, logoUrl },
           });

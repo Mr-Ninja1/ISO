@@ -1,10 +1,13 @@
+"use client";
+
+import { use } from "react";
 import { TenantDashboardClient } from "@/components/dashboard/TenantDashboardClient";
 
-export default async function TenantDashboardPage({
+export default function TenantDashboardPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = await params;
+  const { tenantSlug } = use(params);
   return <TenantDashboardClient tenantSlug={tenantSlug} />;
 }

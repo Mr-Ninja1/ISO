@@ -14,6 +14,7 @@
     "cap:open-android": "npx cap open android",
     "cap:sync-android": "npx cap sync android",
     "cap:build-native": "npx cap copy android && npx cap open android",
+    "build:capacitor": "node tools/capacitor-build.mjs",
     "lint": "eslint"
   },
   "dependencies": {
@@ -38,6 +39,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

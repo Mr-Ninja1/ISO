@@ -8,6 +8,7 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { readAuditsListCache, writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type WorkspaceResponse = {
   tenant: { id: string; name: string; slug: string; logoUrl: string | null };
@@ -231,20 +232,20 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     };
 
     const load = async () => {
-      const workspaceUrl = new URL("/api/workspace", window.location.origin);
+      const workspaceUrl = new URL(apiUrl("/api/workspace"));
       workspaceUrl.searchParams.set("tenantSlug", tenantSlug);
 
-      const auditsUrl = new URL("/api/audit/list", window.location.origin);
+      const auditsUrl = new URL(apiUrl("/api/audit/list"));
       auditsUrl.searchParams.set("tenantSlug", tenantSlug);
 
-      const activityUrl = new URL("/api/activity", window.location.origin);
+      const activityUrl = new URL(apiUrl("/api/activity"));
       activityUrl.searchParams.set("tenantSlug", tenantSlug);
       activityUrl.searchParams.set("limit", "300");
 
-      const metricsUrl = new URL("/api/dashboard/metrics", window.location.origin);
+      const metricsUrl = new URL(apiUrl("/api/dashboard/metrics"));
       metricsUrl.searchParams.set("tenantSlug", tenantSlug);
 
-      const staffUrl = new URL("/api/staff", window.location.origin);
+      const staffUrl = new URL(apiUrl("/api/staff"));
       staffUrl.searchParams.set("tenantSlug", tenantSlug);
 
       const [workspaceResult, auditsResult, activityResult, staffResult, metricsResult] = await Promise.allSettled([

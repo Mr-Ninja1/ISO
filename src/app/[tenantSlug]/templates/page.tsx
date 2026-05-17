@@ -12,12 +12,19 @@ type TemplateRow = {
   updatedAt: string;
 };
 
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
+
 export default async function TemplatesPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
+
+  if (isCapacitorBuild) {
+    const { CapacitorOfflineAdminGate } = await import("@/components/capacitor/CapacitorOfflineAdminGate");
+    return <CapacitorOfflineAdminGate tenantSlug={tenantSlug} title="Template admin needs internet" />;
+  }
   const tenant = await ssrTenantBySlug(tenantSlug);
   if (!tenant) {
     return <div>Tenant not found</div>;

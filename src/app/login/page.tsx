@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { AuthPageShell } from "@/components/AuthPageShell";
+import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -56,57 +57,19 @@ export default function LoginPage() {
 
       const accessToken = session?.access_token || "";
       if (accessToken) {
-        const developerRes = await fetch("/api/admin/metrics", {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        if (developerRes.ok) {
-          router.push("/admin");
-          return;
-        }
-
-        const verifyRes = await fetch("/api/staff/verify-pin", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "content-type": "application/json",
-          },
-            body: JSON.stringify({}),
-        });
-
-        const verifyJson = await verifyRes.json().catch(() => ({}));
-        if (!verifyRes.ok) {
-          throw new Error(verifyJson?.error || "PIN verification failed");
-        }
-
-        try {
-          localStorage.setItem(
-            "active-staff-profile:v1",
-            JSON.stringify({
-              tenantSlug: verifyJson?.tenantSlug || null,
-              name: verifyJson?.staffName || null,
-              email: verifyJson?.staffEmail || email,
-              userId: session?.user?.id || null,
-              ts: Date.now(),
-            })
-          );
-        } catch {
-          // ignore local storage failures
-        }
-
-        const tenantSlug = typeof verifyJson?.tenantSlug === "string" ? verifyJson.tenantSlug : "";
-        if (tenantSlug) {
-          router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`);
-          return;
-        }
+        const route = await resolvePostLoginRoute(accessToken, email, session?.user?.id || null);
+        router.push(route.path);
+        return;
       }
 
-      // Redirect to workspace after login
-      router.push("/workspace/forms");
-    } catch (err: any) {
-      setError(err.message || "Sign in failed");
+      router.push("/workspace");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Sign in failed";
+      if (/failed to fetch|networkerror|network request failed/i.test(message)) {
+        setError("Cannot reach the server. Check your internet connection and try again.");
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

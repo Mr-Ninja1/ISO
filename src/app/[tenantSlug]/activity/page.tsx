@@ -1,11 +1,18 @@
-import { ActivityDashboardClient } from "@/components/activity/ActivityDashboardClient";
+"use client";
 
-export default async function ActivityPage({
+import { use } from "react";
+import { ActivityDashboardClient } from "@/components/activity/ActivityDashboardClient";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+
+export default function ActivityPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = await params;
-
-  return <ActivityDashboardClient tenantSlug={tenantSlug} />;
+  const { tenantSlug } = use(params);
+  return (
+    <SearchParamsBoundary>
+      <ActivityDashboardClient tenantSlug={tenantSlug} />
+    </SearchParamsBoundary>
+  );
 }

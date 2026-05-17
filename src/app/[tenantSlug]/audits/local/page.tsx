@@ -1,14 +1,18 @@
-import { OfflineSubmittedFormsClient } from "@/components/forms/OfflineSubmittedFormsClient";
+"use client";
 
-export default async function LocalAuditsPage({
+import { use } from "react";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { LocalAuditsPageClient } from "@/components/forms/LocalAuditsPageClient";
+
+export default function LocalAuditsPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ tenantSlug: string }>;
-  searchParams: Promise<{ notice?: string }>;
 }) {
-  const { tenantSlug } = await params;
-  const { notice } = await searchParams;
-
-  return <OfflineSubmittedFormsClient tenantSlug={tenantSlug} notice={notice} />;
+  const { tenantSlug } = use(params);
+  return (
+    <SearchParamsBoundary>
+      <LocalAuditsPageClient tenantSlug={tenantSlug} />
+    </SearchParamsBoundary>
+  );
 }

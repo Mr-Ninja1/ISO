@@ -6,6 +6,7 @@ import { Activity, AlertTriangle, ArrowUpRight, Clock3, Filter, Loader2, Search,
 import { useAuth } from "@/components/AuthProvider";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type ActivityRow = {
   id: string;
@@ -160,7 +161,7 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
     setLoading(true);
     setError("");
 
-    const url = new URL("/api/activity", window.location.origin);
+    const url = new URL(apiUrl("/api/activity"));
     url.searchParams.set("tenantSlug", tenantSlug);
     url.searchParams.set("limit", "300");
 

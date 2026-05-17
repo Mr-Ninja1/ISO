@@ -7,7 +7,9 @@ import { TemplateManagementPanel } from "@/components/TemplateManagementPanel";
 import { StaffManagementPanel } from "@/components/StaffManagementPanel";
 import { DeferredDetailsSection } from "@/components/DeferredDetailsSection";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
-import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { RouteOfflineGate } from "@/components/RouteOfflineGate";
+
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 export default async function TenantSettingsPage({
   params,
@@ -17,6 +19,11 @@ export default async function TenantSettingsPage({
   searchParams?: Promise<{ focus?: string }>;
 }) {
   const { tenantSlug } = await params;
+
+  if (isCapacitorBuild) {
+    const { CapacitorOfflineAdminGate } = await import("@/components/capacitor/CapacitorOfflineAdminGate");
+    return <CapacitorOfflineAdminGate tenantSlug={tenantSlug} title="Brand settings need internet" />;
+  }
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const focusSection = resolvedSearchParams.focus;
 
@@ -40,7 +47,14 @@ export default async function TenantSettingsPage({
     }));
 
     return (
-      <div className="flex flex-col gap-6">
+      <RouteOfflineGate
+        title="Settings needs internet"
+        message="Brand settings, staff, categories, and template management are live-sync features. Open this page online so the route can load and keep its data cached for later offline use."
+        hint="The individual controls stay blocked offline so changes cannot drift out of sync."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+        backLabel="Back to workspace"
+      >
+        <div className="flex flex-col gap-6">
         <FeatureSyncNotice
           title="Live database sync"
           message="Brand settings, staff, categories, and template management are live-sync features. They can show cached data while offline, but changes need internet so they can update the database and stay in sync across devices."
@@ -91,11 +105,19 @@ export default async function TenantSettingsPage({
           <StaffManagementPanel tenantSlug={tenant.slug} />
         </DeferredDetailsSection>
       </div>
+      </RouteOfflineGate>
     );
   } catch (err) {
     // Fall back to client-side rendering: allow the page to open quickly and
     // let client components hydrate from local cache or attempt live fetches.
     return (
+      <RouteOfflineGate
+        title="Settings needs internet"
+        message="Brand settings, staff, categories, and template management are live-sync features. Open this page online so the route can load and keep its data cached for later offline use."
+        hint="The individual controls stay blocked offline so changes cannot drift out of sync."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      >
       <div className="flex flex-col gap-6">
         <FeatureSyncNotice
           title="Live database sync"
@@ -139,6 +161,7 @@ export default async function TenantSettingsPage({
           <StaffManagementPanel tenantSlug={tenantSlug} />
         </DeferredDetailsSection>
       </div>
+      </RouteOfflineGate>
     );
   }
 }

@@ -7,6 +7,8 @@ import { BrandOversightPanel } from "@/components/admin/BrandOversightPanel";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type AdminMetrics = {
   totalBrands: number;
@@ -18,6 +20,7 @@ type AdminMetrics = {
 
 export default function AdminPage() {
   const { user, session, loading: authLoading } = useAuth();
+  const offline = useAppOffline();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [showBrands, setShowBrands] = useState(false);
@@ -34,7 +37,7 @@ export default function AdminPage() {
         const token = session?.access_token || "";
         if (!token) return;
 
-        const res = await fetch("/api/admin/metrics", {
+        const res = await fetch(apiUrl("/api/admin/metrics"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -56,6 +59,17 @@ export default function AdminPage() {
 
   if (authLoading || loading) {
     return <AppLoadingScreen title="Loading admin console" subtitle="Checking permissions and loading system metrics..." />;
+  }
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Admin console offline"
+        message="The developer dashboard needs internet because it reads live metrics and brand controls from the database."
+        backHref="/dashboard"
+        backLabel="Back to lobby"
+      />
+    );
   }
 
   if (!user) {

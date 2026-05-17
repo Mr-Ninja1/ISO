@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { createClient } from "@/lib/auth";
+import { apiUrl } from "@/lib/client/apiBase";
 
 export default function DeveloperLoginPage() {
   const router = useRouter();
@@ -46,7 +47,7 @@ export default function DeveloperLoginPage() {
         throw new Error("Unable to start a developer session.");
       }
 
-      const developerRes = await fetch("/api/admin/metrics", {
+      const developerRes = await fetch(apiUrl("/api/admin/metrics"), {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 

@@ -28,6 +28,7 @@ import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
+import { apiUrl } from "@/lib/client/apiBase";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { dbClearDraft, dbGetDraft, dbPutDraft } from "@/lib/client/formsDb";
 import { dbEnqueueOutbox } from "@/lib/client/formsDb";
@@ -288,6 +289,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
   const zodSchema = useMemo(() => buildZodSchema(effectiveSchema), [effectiveSchema]);
   const defaultValues = useMemo(() => buildDefaultValues(effectiveSchema), [effectiveSchema]);
+  const defaultValuesRef = useRef(defaultValues);
+  defaultValuesRef.current = defaultValues;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(zodSchema),
@@ -347,12 +350,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
   useEffect(() => {
     let alive = true;
+    const baseValues = defaultValuesRef.current;
 
     const local = readLocalDraft(currentUserId, tenantSlug, templateId);
     if (local) {
       if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
       setDraftAuditId(local.auditId || null);
-      safeReset({ ...defaultValues, ...local.values });
+      safeReset({ ...baseValues, ...local.values });
       return;
     }
 
@@ -362,30 +366,37 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (!alive || !fromDb) return;
       if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) return;
       setDraftAuditId(fromDb.auditId || null);
-      safeReset({ ...defaultValues, ...fromDb.values });
+      safeReset({ ...defaultValuesRef.current, ...fromDb.values });
     })();
 
     return () => {
       alive = false;
     };
-  }, [defaultValues, form, templateId, tenantSlug, currentUserId, initialAuditId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId, tenantSlug, currentUserId, initialAuditId]);
 
   useEffect(() => {
     const accessToken = session?.access_token;
     if (!accessToken || !tenantSlug || !templateId) return;
-    if (isAppOffline()) return;
+    if (isAppOffline()) {
+      setIsLoadingDraft(false);
+      return;
+    }
 
     const local = readLocalDraft(currentUserId, tenantSlug, templateId);
     if (local && shouldSkipDraftFetch(currentUserId, tenantSlug, templateId, 5 * 60_000)) {
+      setIsLoadingDraft(false);
       return;
     }
 
     let controller: AbortController | null = null;
     let timeout: number | null = null;
+    let hardStop: number | null = null;
 
     const runFetch = () => {
-      setIsLoadingDraft(true);
-      const url = new URL("/api/audit/draft", window.location.origin);
+      const showBlockingSpinner = !local;
+      if (showBlockingSpinner) setIsLoadingDraft(true);
+      const url = new URL(apiUrl("/api/audit/draft"));
       url.searchParams.set("tenantSlug", tenantSlug);
       url.searchParams.set("templateId", templateId);
       if (initialAuditId) url.searchParams.set("auditId", initialAuditId);
@@ -428,9 +439,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         })
         .finally(() => {
           if (timeout !== null) window.clearTimeout(timeout);
+          if (hardStop !== null) window.clearTimeout(hardStop);
           setIsLoadingDraft(false);
         });
     };
+
+    hardStop = window.setTimeout(() => {
+      setIsLoadingDraft(false);
+    }, 4000);
 
     const cancelDeferred = local
       ? scheduleBackgroundTask(runFetch, 900)
@@ -444,9 +460,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     return () => {
       cancelDeferred();
       if (timeout !== null) window.clearTimeout(timeout);
+      if (hardStop !== null) window.clearTimeout(hardStop);
       controller?.abort();
+      setIsLoadingDraft(false);
     };
-  }, [defaultValues, form, session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
+  }, [session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
 
   // Persist local draft quickly on edits (helps when mobile camera/file picker reloads the page).
   useEffect(() => {
@@ -523,7 +541,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 8000);
 
-      const res = await fetch("/api/audit/submit", {
+      const res = await fetch(apiUrl("/api/audit/submit"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

@@ -1,5 +1,6 @@
 "use client";
 
+import { apiUrl } from "@/lib/client/apiBase";
 type QueueMode = "draft" | "submit";
 import { dbDeleteOutbox, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
 
@@ -109,7 +110,7 @@ export async function flushAuditSyncQueue(accessToken: string) {
     const outbox = await dbListOutboxAll();
     for (const item of outbox) {
       try {
-        const res = await fetch("/api/audit/submit", {
+        const res = await fetch(apiUrl("/api/audit/submit"), {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -151,7 +152,7 @@ export async function flushAuditSyncQueue(accessToken: string) {
 
   for (const item of queue) {
     try {
-      const res = await fetch("/api/audit/submit", {
+      const res = await fetch(apiUrl("/api/audit/submit"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

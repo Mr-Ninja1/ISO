@@ -6,6 +6,8 @@ import { AuditsListClient } from "@/components/forms/AuditsListClient";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { AdminBackButton } from "@/components/forms/AdminBackButton";
 
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
+
 export default async function AuditsPage({
   params,
   searchParams,
@@ -14,6 +16,17 @@ export default async function AuditsPage({
   searchParams: Promise<{ status?: "DRAFT" | "SUBMITTED"; q?: string; notice?: string; auditId?: string }>;
 }) {
   const { tenantSlug } = await params;
+
+  if (isCapacitorBuild) {
+    const { AuditsPageCapacitor } = await import("@/components/capacitor/AuditsPageCapacitor");
+    const { SearchParamsBoundary } = await import("@/components/SearchParamsBoundary");
+    return (
+      <SearchParamsBoundary>
+        <AuditsPageCapacitor tenantSlug={tenantSlug} />
+      </SearchParamsBoundary>
+    );
+  }
+
   const { status, q, notice, auditId } = await searchParams;
 
   let tenant:

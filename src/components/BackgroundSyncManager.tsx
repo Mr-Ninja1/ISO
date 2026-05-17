@@ -11,9 +11,11 @@ import {
   getPendingBackgroundMutationCount,
 } from "@/lib/client/backgroundMutationQueue";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
-import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
+import { prefetchRecentDraftAudits } from "@/lib/client/auditsListSync";
+import { cacheAllTenantTemplatesFromApi, isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
 import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
+import { apiUrl } from "@/lib/client/apiBase";
 
 function readPendingCount() {
   return (
@@ -34,11 +36,6 @@ type WorkspaceData = {
     canManageCategories?: boolean;
     canManageStaff?: boolean;
   };
-};
-
-type TemplatesCacheResponse = {
-  tenant?: { slug: string; name: string; logoUrl: string | null };
-  templates?: Array<{ id: string; title: string; schema: any; updatedAt: string }>;
 };
 
 type ActivityResponse = {
@@ -162,7 +159,7 @@ export function BackgroundSyncManager() {
       void (async () => {
         for (const categoryId of categoryIds) {
           if (!active) return;
-          const categoryUrl = new URL("/api/workspace", window.location.origin);
+          const categoryUrl = new URL(apiUrl("/api/workspace"));
           categoryUrl.searchParams.set("tenantSlug", tenantSlug);
           categoryUrl.searchParams.set("categoryId", categoryId);
           try {
@@ -186,7 +183,7 @@ export function BackgroundSyncManager() {
       setBootstrapRunning(true);
       try {
         setBootstrapStage("Loading workspace");
-        const wsUrl = new URL("/api/workspace", window.location.origin);
+        const wsUrl = new URL(apiUrl("/api/workspace"));
         wsUrl.searchParams.set("tenantSlug", tenantSlug);
         const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
         writeWorkspaceCache(user?.id || null, tenantSlug, null, workspace);
@@ -198,36 +195,18 @@ export function BackgroundSyncManager() {
         preloadCategoryViews(workspace);
 
         setBootstrapStage("Loading templates and schemas");
-        const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
-        templatesUrl.searchParams.set("tenantSlug", tenantSlug);
-        const templatesJson = await fetchJson<TemplatesCacheResponse>(templatesUrl.toString());
-        if (templatesJson.tenant && Array.isArray(templatesJson.templates)) {
-          for (const t of templatesJson.templates) {
-            writeAuditTemplateCache(tenantSlug, t.id, {
-              tenant: templatesJson.tenant,
-              template: {
-                id: t.id,
-                title: t.title,
-                schema: t.schema,
-                updatedAt: t.updatedAt,
-              },
-            });
-          }
+        if (!isTenantTemplateBulkCached(tenantSlug)) {
+          await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
         }
 
-        setBootstrapStage("Loading saved forms");
-        const auditsUrl = new URL("/api/audit/list", window.location.origin);
-        auditsUrl.searchParams.set("tenantSlug", tenantSlug);
-        const auditsJson = await fetchJson<{ rows?: CachedAuditRow[]; maxUpdatedAt?: string | null }>(auditsUrl.toString());
-        if (Array.isArray(auditsJson.rows)) {
-          writeAuditsListCache(user?.id || null, tenantSlug, auditsJson.rows, auditsJson.maxUpdatedAt || null);
-        }
+        setBootstrapStage("Saving recent drafts");
+        await prefetchRecentDraftAudits(accessToken, user?.id || null, tenantSlug, 40);
 
         setBootstrapStage("Loading activity");
         const role = workspace.role || (workspace.capabilities?.canAccessSettings ? "ADMIN" : "MEMBER");
         if (role === "ADMIN" || role === "MANAGER") {
           try {
-            const activityUrl = new URL("/api/activity", window.location.origin);
+            const activityUrl = new URL(apiUrl("/api/activity"));
             activityUrl.searchParams.set("tenantSlug", tenantSlug);
             activityUrl.searchParams.set("limit", "200");
             const activityJson = await fetchJson<ActivityResponse>(activityUrl.toString());
@@ -254,7 +233,7 @@ export function BackgroundSyncManager() {
 
       pullRunning = true;
       try {
-        const wsUrl = new URL("/api/workspace", window.location.origin);
+        const wsUrl = new URL(apiUrl("/api/workspace"));
         wsUrl.searchParams.set("tenantSlug", tenantSlug);
         const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
         writeWorkspaceCache(user?.id || null, tenantSlug, null, workspace);
@@ -264,29 +243,12 @@ export function BackgroundSyncManager() {
 
         preloadCategoryViews(workspace);
 
-        const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
-        templatesUrl.searchParams.set("tenantSlug", tenantSlug);
-        const templatesJson = await fetchJson<{
-          tenant?: { slug: string; name: string; logoUrl: string | null };
-          templates?: Array<{ id: string; title: string; schema: any; updatedAt: string }>;
-        }>(templatesUrl.toString());
-
-        if (templatesJson.tenant && Array.isArray(templatesJson.templates)) {
-          for (const t of templatesJson.templates) {
-            writeAuditTemplateCache(tenantSlug, t.id, {
-              tenant: templatesJson.tenant,
-              template: {
-                id: t.id,
-                title: t.title,
-                schema: t.schema,
-                updatedAt: t.updatedAt,
-              },
-            });
-          }
+        if (!isTenantTemplateBulkCached(tenantSlug)) {
+          await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
         }
 
         const existingAudits = readAuditsListCache(user?.id || null, tenantSlug);
-        const auditsUrl = new URL("/api/audit/list", window.location.origin);
+        const auditsUrl = new URL(apiUrl("/api/audit/list"));
         auditsUrl.searchParams.set("tenantSlug", tenantSlug);
         if (existingAudits?.maxUpdatedAt) {
           auditsUrl.searchParams.set("since", existingAudits.maxUpdatedAt);

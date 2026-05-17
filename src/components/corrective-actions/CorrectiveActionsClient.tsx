@@ -6,6 +6,7 @@ import { AlertTriangle, Archive, CheckCircle2, Clock3, Loader2, Plus, RotateCcw,
 import { useAuth } from "@/components/AuthProvider";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type CorrectiveActionStatus = "OPEN" | "IN_PROGRESS" | "CLOSED";
 
@@ -126,7 +127,7 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
     setLoading(true);
     setError("");
     try {
-      const url = new URL("/api/corrective-actions", window.location.origin);
+      const url = new URL(apiUrl("/api/corrective-actions"));
       url.searchParams.set("tenantSlug", tenantSlug);
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },
@@ -177,7 +178,7 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
       setUploading(Boolean(files && files.length));
       const evidencePhotos = await filesToDataUrls(files);
 
-      const res = await fetch("/api/corrective-actions", {
+      const res = await fetch(apiUrl("/api/corrective-actions"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -222,7 +223,7 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
       const row = data?.actions.find((action) => action.id === actionId);
       if (!row) return;
 
-      const res = await fetch("/api/corrective-actions", {
+      const res = await fetch(apiUrl("/api/corrective-actions"), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,

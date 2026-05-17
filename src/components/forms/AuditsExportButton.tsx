@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type Props = {
   tenantSlug: string;
@@ -20,7 +21,7 @@ export function AuditsExportButton({ tenantSlug, status, query }: Props) {
 
     setLoading(true);
     try {
-      const url = new URL("/api/audit/export", window.location.origin);
+      const url = new URL(apiUrl("/api/audit/export"));
       url.searchParams.set("tenantSlug", tenantSlug);
       if (status) url.searchParams.set("status", status);
       if (query) url.searchParams.set("q", query);

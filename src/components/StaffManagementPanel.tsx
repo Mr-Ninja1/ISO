@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { NotificationModal } from "@/components/NotificationModal";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type StaffRow = {
   userId: string;
@@ -35,6 +38,7 @@ type PatchStaffResponse = {
 
 export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
   const { session } = useAuth();
+  const offline = useAppOffline();
   const accessToken = session?.access_token || "";
 
   const [rows, setRows] = useState<StaffRow[]>([]);
@@ -53,13 +57,24 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Staff management needs internet"
+        message="Staff access changes update live brand permissions, so this section is disabled offline. Connect once to manage staff and keep the data cached locally."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
+
   async function load() {
     if (!accessToken || !tenantSlug) return;
     setLoading(true);
     setError("");
 
     try {
-      const url = new URL("/api/staff", window.location.origin);
+      const url = new URL(apiUrl("/api/staff"));
       url.searchParams.set("tenantSlug", tenantSlug);
 
       const res = await fetch(url.toString(), {
@@ -101,7 +116,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
     setError("");
     setMessage("");
     try {
-      const res = await fetch("/api/staff", {
+      const res = await fetch(apiUrl("/api/staff"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -133,7 +148,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
     setError("");
     setMessage("");
     try {
-      const res = await fetch("/api/staff", {
+      const res = await fetch(apiUrl("/api/staff"), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -161,7 +176,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
     setMessage("");
 
     try {
-      const res = await fetch("/api/staff", {
+      const res = await fetch(apiUrl("/api/staff"), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -202,7 +217,7 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
     setMessage("");
 
     try {
-      const res = await fetch("/api/staff", {
+      const res = await fetch(apiUrl("/api/staff"), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${accessToken}`,

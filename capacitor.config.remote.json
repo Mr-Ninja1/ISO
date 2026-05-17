@@ -1,0 +1,11 @@
+{
+  "appId": "com.isopro.app",
+  "appName": "ISO Pro",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "cleartext": false,
+    "url": "https://isopro.me/",
+    "allowNavigation": ["isopro.me", "*.isopro.me"]
+  }
+}

@@ -1,11 +1,12 @@
 import { createBrowserClient } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type Session } from "@supabase/supabase-js";
+import { isCapacitorNativeApp, markCapacitorShell } from "@/lib/capacitor/runtime";
 
 /** Set by iso-mobile WebView before load — session lives in localStorage (`sb-*-auth-token`). */
 export const ISO_MOBILE_SHELL_LS_KEY = "__ISO_MOBILE_SHELL__";
 
 /** Same rule as mobile `getSupabaseAuthStorageKey()` so injected tokens are read by the web client. */
-function browserSupabaseAuthStorageKey(): string {
+export function browserSupabaseAuthStorageKey(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   try {
     const u = new URL(url);
@@ -30,7 +31,11 @@ export function createClient() {
 
   if (typeof window !== "undefined") {
     try {
-      if (window.localStorage.getItem(ISO_MOBILE_SHELL_LS_KEY) === "1") {
+      if (isCapacitorNativeApp()) {
+        markCapacitorShell();
+      }
+      const shell = window.localStorage.getItem(ISO_MOBILE_SHELL_LS_KEY);
+      if (shell === "1" || shell === "capacitor") {
         return createSupabaseClient(url, anon, {
           auth: {
             persistSession: true,
@@ -54,4 +59,27 @@ export function createClient() {
       detectSessionInUrl: true,
     },
   });
+}
+
+/** Read Supabase session JSON persisted in localStorage (Capacitor / mobile shell). */
+export function readPersistedSupabaseSession(): Session | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(browserSupabaseAuthStorageKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      currentSession?: Session | null;
+      session?: Session | null;
+      access_token?: string;
+      user?: Session["user"];
+    };
+    if (parsed?.currentSession?.access_token) return parsed.currentSession;
+    if (parsed?.session?.access_token) return parsed.session;
+    if (parsed?.access_token && parsed?.user) {
+      return parsed as Session;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

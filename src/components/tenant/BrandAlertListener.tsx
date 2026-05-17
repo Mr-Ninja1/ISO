@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAuth } from "@/components/AuthProvider";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type TenantAlert = {
   id: string;
@@ -43,7 +44,7 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
 
     // Also mark as read on the server
     try {
-      const url = new URL(`/api/tenant/${tenantSlug}/announcements/${alertId}/read`, window.location.origin);
+      const url = new URL(apiUrl(`/api/tenant/${tenantSlug}/announcements/${alertId}/read`));
       await fetch(url.toString(), {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -60,7 +61,7 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
 
     async function loadAlerts() {
       try {
-        const url = new URL("/api/tenant-alerts", window.location.origin);
+        const url = new URL(apiUrl("/api/tenant-alerts"));
         url.searchParams.set("tenantSlug", tenantSlug);
 
         const res = await fetch(url.toString(), {

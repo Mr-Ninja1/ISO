@@ -1,10 +1,13 @@
+"use client";
+
+import { use } from "react";
 import { OfflineLastReportClient } from "@/components/forms/OfflineLastReportClient";
 
-export default async function OfflineLastReportPage({
+export default function OfflineLastReportPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = await params;
+  const { tenantSlug } = use(params);
   return <OfflineLastReportClient tenantSlug={tenantSlug} />;
 }

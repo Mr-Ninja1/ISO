@@ -6,6 +6,10 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Loader2, Plus } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { apiUrl } from "@/lib/client/apiBase";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 
 type CategorySummary = {
   id: string;
@@ -101,6 +105,14 @@ function writeWorkspaceNotice(message: string, tone: "default" | "success" | "wa
 }
 
 export default function TemplatesLibraryPage() {
+  return (
+    <SearchParamsBoundary>
+      <TemplatesLibraryPageInner />
+    </SearchParamsBoundary>
+  );
+}
+
+function TemplatesLibraryPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = useParams<{ tenantSlug: string }>();
@@ -111,6 +123,7 @@ export default function TemplatesLibraryPage() {
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
   const cacheUserId = user?.id || null;
+  const offline = useAppOffline();
 
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(false);
@@ -118,6 +131,17 @@ export default function TemplatesLibraryPage() {
 
   const [categories, setCategories] = useState<CategorySummary[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Template library needs internet"
+        message="Importing from the library syncs shared form schemas from the database. Connect once so the library can cache the available forms locally."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
   const [canImportForms, setCanImportForms] = useState(false);
 
   const [templates, setTemplates] = useState<LibraryTemplateSummary[]>([]);
@@ -173,7 +197,7 @@ export default function TemplatesLibraryPage() {
     setWorkspaceLoading(true);
     setError("");
 
-    const url = new URL("/api/workspace", window.location.origin);
+    const url = new URL(apiUrl("/api/workspace"));
     url.searchParams.set("tenantSlug", tenantSlug);
     if (requestedCategoryId) url.searchParams.set("categoryId", requestedCategoryId);
 
@@ -224,7 +248,7 @@ export default function TemplatesLibraryPage() {
     setLibraryLoading(true);
     setError("");
 
-    fetch("/api/template-library", { headers: { Authorization: `Bearer ${accessToken}` } })
+    fetch(apiUrl("/api/template-library"), { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || `Failed to load template library (${res.status})`);
@@ -257,7 +281,7 @@ export default function TemplatesLibraryPage() {
       if (!navigator.onLine) {
         const dedupeKey = `template-import:${tenantSlug}:${libraryTemplateId}:${selectedCategoryId || "uncategorized"}`;
         enqueueBackgroundMutation({
-          url: "/api/templates/import",
+          url: apiUrl("/api/templates/import"),
           method: "POST",
           body: {
             tenantSlug,
@@ -271,7 +295,7 @@ export default function TemplatesLibraryPage() {
         return;
       }
 
-      const res = await fetch("/api/templates/import", {
+      const res = await fetch(apiUrl("/api/templates/import"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -303,7 +327,7 @@ export default function TemplatesLibraryPage() {
       if (isNetwork) {
         const dedupeKey = `template-import:${tenantSlug}:${libraryTemplateId}:${selectedCategoryId || "uncategorized"}`;
         enqueueBackgroundMutation({
-          url: "/api/templates/import",
+          url: apiUrl("/api/templates/import"),
           method: "POST",
           body: {
             tenantSlug,

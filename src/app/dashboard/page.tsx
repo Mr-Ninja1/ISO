@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { isPlatformAdminEmail } from "@/lib/adminAccess";
+import { apiUrl } from "@/lib/client/apiBase";
 
 type Tenant = {
   id: string;
@@ -56,7 +57,7 @@ export default function DashboardPage() {
       }
 
       setError("");
-      fetch("/api/tenants", {
+      fetch(apiUrl("/api/tenants"), {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
         .then(async (res) => {

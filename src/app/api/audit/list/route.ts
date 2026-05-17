@@ -39,6 +39,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const tenantSlug = (searchParams.get("tenantSlug") || "").trim();
   const since = parseSince(searchParams.get("since"));
+  const statusParam = (searchParams.get("status") || "").trim().toUpperCase();
+  const statusFilter =
+    statusParam === "DRAFT" || statusParam === "SUBMITTED" ? (statusParam as "DRAFT" | "SUBMITTED") : null;
+  const limitParam = Number(searchParams.get("limit") || "");
+  const rowLimit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 200) : null;
 
   if (!tenantSlug) {
     return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
@@ -69,9 +74,15 @@ export async function GET(req: Request) {
     .eq("tenant_id", tenant.id)
     .order("updated_at", { ascending: false });
 
+  if (statusFilter) {
+    q = q.eq("status", statusFilter);
+  }
+
   if (since) {
     q = q.gt("updated_at", since.toISOString());
-    q = q.limit(1000);
+    q = q.limit(rowLimit ?? 1000);
+  } else if (rowLimit) {
+    q = q.limit(rowLimit);
   } else {
     q = q.limit(2000);
   }

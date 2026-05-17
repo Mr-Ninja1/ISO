@@ -7,6 +7,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 
 type CategoryRow = {
   id: string;
@@ -36,11 +38,23 @@ type CategoryItem = Pick<CategoryRow, "id" | "name" | "sortOrder">;
 export function CategoriesManager({ tenant }: Props) {
   const { session } = useAuth();
   const router = useRouter();
+  const offline = useAppOffline();
   const [categories, setCategories] = useState<CategoryItem[]>(tenant.categories);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
+
+  if (offline) {
+    return (
+      <OfflineRouteBlock
+        title="Categories need internet"
+        message="Category changes update live brand forms, so this screen is disabled offline. Connect once to manage categories and keep them cached locally."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
 
   async function handleAddCategory(e: React.FormEvent) {
     e.preventDefault();

@@ -1,10 +1,13 @@
+"use client";
+
+import { use } from "react";
 import { CorrectiveActionsClient } from "@/components/corrective-actions/CorrectiveActionsClient";
 
-export default async function CorrectiveActionsPage({
+export default function CorrectiveActionsPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = await params;
+  const { tenantSlug } = use(params);
   return <CorrectiveActionsClient tenantSlug={tenantSlug} />;
 }

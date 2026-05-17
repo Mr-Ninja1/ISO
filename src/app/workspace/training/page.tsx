@@ -1,17 +1,21 @@
+"use client";
+
 import Link from "next/link";
-import { GraduationCap, PlayCircle } from "lucide-react";
+import { GraduationCap } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 
-type WorkspaceTrainingPageProps = {
-  searchParams?: Promise<{
-    tenantSlug?: string | string[];
-  }>;
-};
+export default function WorkspaceTrainingPage() {
+  return (
+    <SearchParamsBoundary>
+      <WorkspaceTrainingPageInner />
+    </SearchParamsBoundary>
+  );
+}
 
-export default async function WorkspaceTrainingPage({ searchParams }: WorkspaceTrainingPageProps) {
-  const resolvedSearchParams = (await searchParams) || {};
-  const tenantSlug = Array.isArray(resolvedSearchParams.tenantSlug)
-    ? resolvedSearchParams.tenantSlug[0] || ""
-    : resolvedSearchParams.tenantSlug || "";
+function WorkspaceTrainingPageInner() {
+  const searchParams = useSearchParams();
+  const tenantSlug = searchParams.get("tenantSlug") || "";
   const backHref = tenantSlug
     ? `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`
     : "/workspace";
@@ -28,33 +32,14 @@ export default async function WorkspaceTrainingPage({ searchParams }: WorkspaceT
           <h1 className="mt-3 text-xl font-semibold">Training courses coming soon</h1>
           <p className="mt-2 text-sm leading-6 text-foreground/75">
             We are preparing short practical videos to help staff and beginners learn how to create
-            categories, build forms, and manage auditing workflows with confidence.
+            forms, run audits, and stay compliant in the field.
           </p>
 
-          <div className="mt-4 rounded-md border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/75">
-            Soon you will be able to watch step-by-step onboarding videos directly from this page.
-          </div>
-
-          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              disabled
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 text-sm text-foreground/60"
-              title="Coming soon"
-            >
-              <PlayCircle className="h-4 w-4" />
-              Watch training videos
-            </button>
-            <Link
-              href={backHref}
-              className="inline-flex h-10 items-center justify-center rounded-md bg-foreground px-4 text-sm text-background"
-            >
-              Back to workspace
-            </Link>
-          </div>
+          <Link href={backHref} className="mt-5 inline-flex text-sm underline">
+            Back to workspace
+          </Link>
         </div>
       </div>
     </main>
   );
 }
-

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
+import { apiUrl } from "@/lib/client/apiBase";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function SignUpPage() {
         process.env.NEXT_PUBLIC_DEV_BYPASS_EMAIL_CONFIRMATION === "true";
 
       if (bypassEmailConfirm) {
-        const confirmRes = await fetch("/api/dev/confirm-email", {
+        const confirmRes = await fetch(apiUrl("/api/dev/confirm-email"), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ email, userId }),

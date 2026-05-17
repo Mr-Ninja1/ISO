@@ -1,16 +1,18 @@
-import { notFound } from "next/navigation";
-import { AuditRunClient } from "@/components/forms/AuditRunClient";
+"use client";
 
-export default async function NewAuditPage({
+import { use } from "react";
+import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { NewAuditPageClient } from "@/components/forms/NewAuditPageClient";
+
+export default function NewAuditPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ tenantSlug: string }>;
-  searchParams: Promise<{ templateId?: string; auditId?: string }>;
 }) {
-  const { tenantSlug } = await params;
-  const { templateId, auditId } = await searchParams;
-  if (!templateId) notFound();
-
-  return <AuditRunClient tenantSlug={tenantSlug} templateId={templateId} auditId={auditId || undefined} />;
+  const { tenantSlug } = use(params);
+  return (
+    <SearchParamsBoundary>
+      <NewAuditPageClient tenantSlug={tenantSlug} />
+    </SearchParamsBoundary>
+  );
 }

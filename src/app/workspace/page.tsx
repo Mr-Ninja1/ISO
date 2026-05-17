@@ -16,12 +16,22 @@ import { WorkspaceTourModal } from "@/components/WorkspaceTourModal";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import {
   readAuditTemplateCache,
+  readAuditTemplateCacheAsync,
   writeAuditTemplateCache,
 } from "@/lib/client/auditTemplateCache";
 import { writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft } from "@/lib/client/formsDb";
+import { apiUrl } from "@/lib/client/apiBase";
+import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
+import {
+  cacheAllTenantTemplatesFromApi,
+  clearTenantTemplateBulkCached,
+  isTenantTemplateBulkCached,
+} from "@/lib/client/offlineTemplateWarmup";
+import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
+import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 
 type TenantSummary = {
   id: string;
@@ -133,6 +143,15 @@ function readWorkspaceCacheEnvelope(userId: string | null, tenantSlug: string, c
 
 function readWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null): WorkspaceData | null {
   return readWorkspaceCacheEnvelope(userId, tenantSlug, categoryId)?.data || null;
+}
+
+/** Prefer category snapshot, then tenant-wide cache saved during warmup or tab switches. */
+function readWorkspaceCacheResolved(
+  userId: string | null,
+  tenantSlug: string,
+  categoryId: string | null
+): WorkspaceData | null {
+  return readWorkspaceCache(userId, tenantSlug, categoryId) ?? readWorkspaceCache(userId, tenantSlug, null);
 }
 
 function isWorkspaceCacheFresh(userId: string | null, tenantSlug: string, categoryId: string | null, ttlMs: number) {
@@ -253,6 +272,50 @@ function WorkspaceSkeleton() {
           <div className="mt-4 text-xs text-foreground/55">
             You can continue to use the app once the cache is ready. Live sync features will still need internet for fresh updates.
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceUnavailable({
+  tenantSlug,
+  message,
+  onRetry,
+  onLobby,
+}: {
+  tenantSlug: string;
+  message: string;
+  onRetry: () => void;
+  onLobby: () => void;
+}) {
+  return (
+    <div className="min-h-dvh bg-background">
+      <div className="mx-auto max-w-4xl p-6">
+        <h1 className="text-xl font-semibold">Workspace</h1>
+        <div className="mt-4 rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">{message}</div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" className="h-10 rounded-md bg-foreground px-4 text-background" onClick={onRetry}>
+            Retry
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
+            onClick={onLobby}
+          >
+            Back to Lobby
+          </button>
+          {tenantSlug ? (
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
+              onClick={() => {
+                window.location.href = `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}&refresh=1`;
+              }}
+            >
+              Reload workspace
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -488,6 +551,7 @@ function WorkspacePageInner() {
   const [offlinePreparedAt, setOfflinePreparedAt] = useState<string | null>(null);
   const [prefetchingSchemas, setPrefetchingSchemas] = useState(false);
   const [prefetchProgress, setPrefetchProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const [templateHydrationTick, setTemplateHydrationTick] = useState(0);
   const [templateQuery, setTemplateQuery] = useState("");
   const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -509,6 +573,7 @@ function WorkspacePageInner() {
   const forceWorkspaceNetworkRefetchRef = useRef(false);
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
+  const { blockIfOffline, pushIfOnline } = useRequiresInternet();
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
@@ -573,6 +638,10 @@ function WorkspacePageInner() {
       localStorage.removeItem(key);
     }
 
+    clearTenantTemplateBulkCached(tenantSlug);
+    clearOfflineBootstrapComplete(cacheUserId, tenantSlug);
+    setOfflinePreparedAt(null);
+
     setRecentTemplateIds([]);
     setMenuOpen(false);
     setNotification({
@@ -586,7 +655,7 @@ function WorkspacePageInner() {
     if (!accessToken || !tenantSlug) return;
     if (readAuditTemplateCache(tenantSlug, templateId)) return;
 
-    const url = new URL("/api/audit/template", window.location.origin);
+    const url = new URL(apiUrl("/api/audit/template"));
     url.searchParams.set("tenantSlug", tenantSlug);
     url.searchParams.set("templateId", templateId);
 
@@ -609,7 +678,7 @@ function WorkspacePageInner() {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
       for (const cid of targets) {
-        const url = new URL("/api/workspace", window.location.origin);
+        const url = new URL(apiUrl("/api/workspace"));
         url.searchParams.set("tenantSlug", tenantSlug);
         if (cid) url.searchParams.set("categoryId", cid);
 
@@ -621,42 +690,7 @@ function WorkspacePageInner() {
         writeWorkspaceCache(cacheUserId, tenantSlug, cid, data as WorkspaceData);
       }
 
-      const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
-      templatesUrl.searchParams.set("tenantSlug", tenantSlug);
-      const templatesRes = await fetch(templatesUrl.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const templatesJson = await templatesRes.json().catch(() => ({}));
-      if (!templatesRes.ok) {
-        throw new Error(templatesJson?.error || `Template prep failed (${templatesRes.status})`);
-      }
-
-      for (const t of templatesJson.templates || []) {
-        writeAuditTemplateCache(tenantSlug, t.id, {
-          tenant: templatesJson.tenant,
-          template: {
-            id: t.id,
-            title: t.title,
-            schema: t.schema,
-            updatedAt: t.updatedAt,
-          },
-        });
-      }
-
-      const auditsUrl = new URL("/api/audit/list", window.location.origin);
-      auditsUrl.searchParams.set("tenantSlug", tenantSlug);
-      const auditsRes = await fetch(auditsUrl.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const auditsJson = await auditsRes.json().catch(() => ({}));
-      if (auditsRes.ok && Array.isArray(auditsJson.rows)) {
-        writeAuditsListCache(
-          cacheUserId,
-          tenantSlug,
-          auditsJson.rows as CachedAuditRow[],
-          typeof auditsJson.maxUpdatedAt === "string" ? auditsJson.maxUpdatedAt : null
-        );
-      }
+      await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
 
       const now = new Date().toISOString();
       localStorage.setItem("offlineModeEnabled", "1");
@@ -664,7 +698,7 @@ function WorkspacePageInner() {
       setOfflinePreparedAt(now);
       setNotification({
         title: "Offline mode prepared",
-        message: "Forms and workspace data are cached for faster loading and offline use.",
+        message: "Workspace and form schemas are cached. Open Saved forms while online to sync history.",
         tone: "success",
       });
     } catch (err: any) {
@@ -678,11 +712,24 @@ function WorkspacePageInner() {
   async function primeOfflineCachesInBackground() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
+    const schemasReady = isTenantTemplateBulkCached(tenantSlug);
+    if (schemasReady && offlinePreparedAt) return;
 
     setNativeWarmupRunning(true);
+    const timeoutId = window.setTimeout(() => {
+      setNativeWarmupRunning(false);
+      if (
+        tenantSlug &&
+        readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId) &&
+        isTenantTemplateBulkCached(tenantSlug)
+      ) {
+        setOfflinePreparedAt((prev) => prev ?? "cached");
+      }
+    }, 45_000);
+
     try {
       // One workspace snapshot only — parallel GET /api/workspace per category hammers Prisma and causes 503s + infinite retry UX on mobile shells.
-      const url = new URL("/api/workspace", window.location.origin);
+      const url = new URL(apiUrl("/api/workspace"));
       url.searchParams.set("tenantSlug", tenantSlug);
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -697,41 +744,8 @@ function WorkspacePageInner() {
         }
       }
 
-      const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
-      templatesUrl.searchParams.set("tenantSlug", tenantSlug);
-      const templatesRes = await fetch(templatesUrl.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (templatesRes.ok) {
-        const templatesJson = await templatesRes.json().catch(() => ({}));
-        for (const t of templatesJson.templates || []) {
-          writeAuditTemplateCache(tenantSlug, t.id, {
-            tenant: templatesJson.tenant,
-            template: {
-              id: t.id,
-              title: t.title,
-              schema: t.schema,
-              updatedAt: t.updatedAt,
-            },
-          });
-        }
-      }
-
-      const auditsUrl = new URL("/api/audit/list", window.location.origin);
-      auditsUrl.searchParams.set("tenantSlug", tenantSlug);
-      const auditsRes = await fetch(auditsUrl.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (auditsRes.ok) {
-        const auditsJson = await auditsRes.json().catch(() => ({}));
-        if (Array.isArray(auditsJson.rows)) {
-          writeAuditsListCache(
-            cacheUserId,
-            tenantSlug,
-            auditsJson.rows as CachedAuditRow[],
-            typeof auditsJson.maxUpdatedAt === "string" ? auditsJson.maxUpdatedAt : null
-          );
-        }
+      if (!schemasReady) {
+        await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
       }
 
       const now = new Date().toISOString();
@@ -741,6 +755,7 @@ function WorkspacePageInner() {
     } catch {
       // silent background warm-up
     } finally {
+      window.clearTimeout(timeoutId);
       setNativeWarmupRunning(false);
     }
   }
@@ -759,44 +774,41 @@ function WorkspacePageInner() {
 
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
-    setOpeningSettings(true);
     setMenuOpen(false);
-    router.push(`/${targetTenantSlug}/settings`);
+    pushIfOnline("Settings", `/${targetTenantSlug}/settings`);
   }
 
   function handleOpenStaffManagement(targetTenantSlug: string) {
     if (openingSettings) return;
-    setOpeningSettings(true);
     setMenuOpen(false);
-    router.push(`/${targetTenantSlug}/settings?focus=staff`);
+    pushIfOnline("Staff management", `/${targetTenantSlug}/settings?focus=staff`);
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
-    setOpeningActivity(true);
-    router.push(`/${targetTenantSlug}/activity`);
+    pushIfOnline("Activity monitor", `/${targetTenantSlug}/activity`);
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
-    setOpeningAdminDashboard(true);
-    router.push(`/${targetTenantSlug}/dashboard`);
+    pushIfOnline("Admin dashboard", `/${targetTenantSlug}/dashboard`);
   }
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
     setOpeningAudits(true);
     router.push(`/${targetTenantSlug}/audits`);
+    window.setTimeout(() => setOpeningAudits(false), 500);
   }
 
   function handleOpenLobby() {
     if (openingLobby) return;
-    setOpeningLobby(true);
-    router.push("/dashboard");
+    pushIfOnline("Brand lobby", "/dashboard");
   }
 
   function handleAddFromTemplates(selectedCategoryId: string | null) {
     if (!workspace) return;
+    if (blockIfOffline("Template library")) return;
     setAddFormOpen(false);
     const qs = new URLSearchParams();
     if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
@@ -806,6 +818,7 @@ function WorkspacePageInner() {
 
   function handleCreateCustomForm(selectedCategoryId: string | null) {
     if (!workspace) return;
+    if (blockIfOffline("Create custom form")) return;
     setAddFormOpen(false);
     const qs = new URLSearchParams();
     if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
@@ -820,7 +833,7 @@ function WorkspacePageInner() {
     setCardMenuTemplateId(null);
 
     try {
-      const url = new URL("/api/templates/edit-info", window.location.origin);
+      const url = new URL(apiUrl("/api/templates/edit-info"));
       url.searchParams.set("tenantSlug", tenantSlug);
       url.searchParams.set("templateId", template.id);
 
@@ -874,7 +887,7 @@ function WorkspacePageInner() {
     setQuickSettingsError("");
 
     try {
-      const infoUrl = new URL("/api/templates/edit-info", window.location.origin);
+      const infoUrl = new URL(apiUrl("/api/templates/edit-info"));
       infoUrl.searchParams.set("tenantSlug", tenantSlug);
       infoUrl.searchParams.set("templateId", quickSettingsTemplate.id);
 
@@ -906,7 +919,7 @@ function WorkspacePageInner() {
         },
       };
 
-      const saveRes = await fetch("/api/templates/save-changes", {
+      const saveRes = await fetch(apiUrl("/api/templates/save-changes"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -974,7 +987,17 @@ function WorkspacePageInner() {
     [tenantSlug, tenantChoices.length]
   );
 
-  const offlineWarmupBlocking = Boolean(workspace && !offlinePreparedAt && (nativeWarmupRunning || offlinePreparing));
+  const cachedWorkspaceForUi =
+    workspace ?? (tenantSlug ? readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId) : null);
+  const hasLocalWorkspaceCache = Boolean(
+    tenantSlug && readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId)
+  );
+  const offlineWarmupBlocking = Boolean(
+    !offlineFromHook &&
+      !hasLocalWorkspaceCache &&
+      !offlinePreparedAt &&
+      (nativeWarmupRunning || offlinePreparing)
+  );
 
   const filteredTemplates = useMemo(() => {
     if (!workspace) return [];
@@ -1016,7 +1039,7 @@ function WorkspacePageInner() {
   // Hydrate instantly from local cache, independent of auth/network timing.
   useEffect(() => {
     if (!tenantSlug) return;
-    const cached = readWorkspaceCache(cacheUserId, tenantSlug, categoryId);
+    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
     if (!cached) return;
 
     setWorkspace(cached);
@@ -1089,7 +1112,7 @@ function WorkspacePageInner() {
     setTenantChoiceLoading(true);
     setError("");
 
-    fetch("/api/tenants", { headers: { Authorization: `Bearer ${accessToken}` } })
+    fetch(apiUrl("/api/tenants"), { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || `Failed to load brands (${res.status})`);
@@ -1128,7 +1151,7 @@ function WorkspacePageInner() {
       workspaceBusyRetriesRef.current = 0;
     }
 
-    const cached = readWorkspaceCache(cacheUserId, tenantSlug, categoryId);
+    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
     const hasCached = Boolean(cached);
     if (cached) {
       setWorkspace(cached);
@@ -1141,13 +1164,15 @@ function WorkspacePageInner() {
 
     if (workspace && !hasCached) {
       setSwitchingCategory(true);
-    } else if (!hasCached) {
+    } else if (!hasCached && !cached) {
       setWorkspaceLoading(true);
+    } else if (cached) {
+      setWorkspaceLoading(false);
     }
 
     setError("");
 
-    const url = new URL("/api/workspace", window.location.origin);
+    const url = new URL(apiUrl("/api/workspace"));
     url.searchParams.set("tenantSlug", tenantSlug);
     if (categoryId) url.searchParams.set("categoryId", categoryId);
 
@@ -1302,8 +1327,10 @@ function WorkspacePageInner() {
             }
             // Keep the first-time download panel visible and retry shortly instead of flashing an error state.
             keepLoading = true;
-            setWorkspace(null);
-            setUiActiveCategoryId(null);
+            if (!hasCached) {
+              setWorkspace(null);
+              setUiActiveCategoryId(null);
+            }
             setError("");
             if (workspaceRetryTimerRef.current !== null) {
               window.clearTimeout(workspaceRetryTimerRef.current);
@@ -1338,7 +1365,7 @@ function WorkspacePageInner() {
     setSeedBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/workspace/seed", {
+      const res = await fetch(apiUrl("/api/workspace/seed"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -1358,7 +1385,7 @@ function WorkspacePageInner() {
       });
 
       // Refresh workspace data in-place (no route change) so users see updates immediately.
-      const refreshUrl = new URL("/api/workspace", window.location.origin);
+      const refreshUrl = new URL(apiUrl("/api/workspace"));
       refreshUrl.searchParams.set("tenantSlug", tenantSlug);
       if (categoryId) refreshUrl.searchParams.set("categoryId", categoryId);
 
@@ -1388,8 +1415,42 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     const ts = localStorage.getItem("offlinePreparedAt");
-    if (ts) setOfflinePreparedAt(ts);
+    if (ts) {
+      setOfflinePreparedAt(ts);
+      return;
+    }
+    if (tenantSlug && readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId) && isTenantTemplateBulkCached(tenantSlug)) {
+      setOfflinePreparedAt("cached");
+    }
+  }, [tenantSlug, categoryId, cacheUserId]);
+
+  useEffect(() => {
+    return () => {
+      setNativeWarmupRunning(false);
+      setOfflinePreparing(false);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!offlineFromHook) return;
+    setNativeWarmupRunning(false);
+    setOfflinePreparing(false);
+    setWorkspaceLoading(false);
+    setSwitchingCategory(false);
+  }, [offlineFromHook]);
+
+  // Recover from stuck loading after visiting online-only routes (e.g. settings) without cache.
+  useEffect(() => {
+    if (!tenantSlug) return;
+    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
+    if (!cached) return;
+    setWorkspace((prev) => prev ?? cached);
+    setWorkspaceLoading(false);
+    setSwitchingCategory(false);
+    setNativeWarmupRunning(false);
+    setOfflinePreparing(false);
+    setOfflinePreparedAt((prev) => prev ?? "cached");
+  }, [tenantSlug, categoryId, cacheUserId]);
 
   useEffect(() => {
     try {
@@ -1418,11 +1479,12 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     if (!workspace || !tenantSlug || !accessToken) return;
-    if (offlinePreparedAt) return;
+    if (offlineFromHook) return;
+    if (offlinePreparedAt && isTenantTemplateBulkCached(tenantSlug)) return;
 
     primeOfflineCachesInBackground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, tenantSlug, accessToken, offlinePreparedAt]);
+  }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook]);
 
   useEffect(() => {
     if (!tenantSlug) return;
@@ -1432,37 +1494,19 @@ function WorkspacePageInner() {
   useEffect(() => {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
+    if (isTenantTemplateBulkCached(tenantSlug)) return;
 
     let active = true;
-    const key = `template-bulk-warm:v1:${tenantSlug}`;
-    const last = Number(localStorage.getItem(key) || "0");
-    // Avoid hammering API while still keeping cache fresh enough for snappy opens.
-    if (Date.now() - last < 60 * 1000) return;
-
     (async () => {
       try {
-        const templatesUrl = new URL("/api/audit/templates-cache", window.location.origin);
-        templatesUrl.searchParams.set("tenantSlug", tenantSlug);
-        const templatesRes = await fetch(templatesUrl.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!templatesRes.ok || !active) return;
-
-        const templatesJson = await templatesRes.json().catch(() => ({}));
-        for (const t of templatesJson.templates || []) {
-          writeAuditTemplateCache(tenantSlug, t.id, {
-            tenant: templatesJson.tenant,
-            template: {
-              id: t.id,
-              title: t.title,
-              schema: t.schema,
-              updatedAt: t.updatedAt,
-            },
-          });
-        }
-        localStorage.setItem(key, String(Date.now()));
+        await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+        if (!active) return;
+        const now = new Date().toISOString();
+        localStorage.setItem("offlineModeEnabled", "1");
+        localStorage.setItem("offlinePreparedAt", now);
+        setOfflinePreparedAt(now);
       } catch {
-        // best-effort warm-up
+        // primeOfflineCachesInBackground also attempts this
       }
     })();
 
@@ -1541,7 +1585,7 @@ function WorkspacePageInner() {
     suggestionsFetchedRef.current = true;
     setSuggestionsLoading(true);
     const controller = new AbortController();
-    fetch("/api/workspace/suggestions", {
+    fetch(apiUrl("/api/workspace/suggestions"), {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: controller.signal,
     })
@@ -1571,6 +1615,38 @@ function WorkspacePageInner() {
     setPrefetchingSchemas(false);
     setPrefetchProgress({ done: cachedCount, total });
   }, [tenantSlug, workspace]);
+
+  useEffect(() => {
+    if (!tenantSlug || !workspace?.templates?.length) return;
+    if (isAppOffline()) return;
+
+    let cancelled = false;
+
+    const hydrateTemplateCache = async () => {
+      let hydratedCount = 0;
+
+      for (const template of workspace.templates) {
+        if (cancelled) return;
+        if (readAuditTemplateCache(tenantSlug, template.id)) continue;
+
+        const fromDb = await readAuditTemplateCacheAsync(tenantSlug, template.id);
+        if (!fromDb || cancelled) continue;
+
+        writeAuditTemplateCache(tenantSlug, template.id, fromDb);
+        hydratedCount += 1;
+      }
+
+      if (hydratedCount > 0 && !cancelled) {
+        setTemplateHydrationTick((x) => x + 1);
+      }
+    };
+
+    void hydrateTemplateCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantSlug, workspaceTemplatesPrefetchKey, templateHydrationTick]);
 
   const workspaceRoleForTour = workspace?.role;
   const canManageCategoriesForTour = workspace
@@ -1610,12 +1686,12 @@ function WorkspacePageInner() {
     workspaceTourSeenKey,
   ]);
 
-  if (authLoading && !workspace) return <WorkspaceSkeleton />;
-  if (user && !session && !workspace) return <WorkspaceSkeleton />;
+  if (authLoading && !cachedWorkspaceForUi) return <WorkspaceSkeleton />;
+  if (user && !session && !cachedWorkspaceForUi) return <WorkspaceSkeleton />;
 
   // Only show the full skeleton for first paint / initial checks.
   if (tenantChoiceLoading) return <WorkspaceSkeleton />;
-  if (!workspace && workspaceLoading) return <WorkspaceSkeleton />;
+  if (!cachedWorkspaceForUi && workspaceLoading) return <WorkspaceSkeleton />;
 
   if (showTenantPicker) {
     return (
@@ -1683,7 +1759,7 @@ function WorkspacePageInner() {
     return <WorkspaceSkeleton />;
   }
 
-  if (error && !workspace) {
+  if (error && !cachedWorkspaceForUi) {
     const offline = offlineFromHook;
     return (
       <div className="min-h-dvh bg-background">
@@ -1711,29 +1787,45 @@ function WorkspacePageInner() {
             >
               Retry
             </button>
-            <Link
-              href="/dashboard"
+            <button
+              type="button"
               className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
+              onClick={() => pushIfOnline("Brand lobby", "/dashboard")}
             >
               Back to Lobby
-            </Link>
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  if (!workspace) return <WorkspaceSkeleton />;
+  if (!cachedWorkspaceForUi) {
+    if (workspaceLoading || tenantChoiceLoading) return <WorkspaceSkeleton />;
+    return (
+      <WorkspaceUnavailable
+        tenantSlug={tenantSlug}
+        message={error || "Workspace data is not available yet. Connect to the internet and try again."}
+        onRetry={() => {
+          forceWorkspaceNetworkRefetchRef.current = true;
+          setRevalidateTick((x) => x + 1);
+        }}
+        onLobby={() => pushIfOnline("Brand lobby", "/dashboard")}
+      />
+    );
+  }
 
-  const { tenant, categories, selectedCategoryId, templates } = workspace;
+  const workspaceForRender = cachedWorkspaceForUi;
+  const { tenant, categories, selectedCategoryId, templates } = workspaceForRender;
   const role = workspaceRole;
   const canManageCategories =
-    workspace.capabilities?.canManageCategories ?? (role === "ADMIN" || role === "MANAGER");
+    workspaceForRender.capabilities?.canManageCategories ?? (role === "ADMIN" || role === "MANAGER");
   const canCreateForms =
-    workspace.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
+    workspaceForRender.capabilities?.canCreateForms ?? (role === "ADMIN" || role === "MANAGER");
   const canAccessSettings =
-    workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
-  const canStaffManage = workspace.capabilities?.canManageStaff ?? (role === "ADMIN" || role === "MANAGER");
+    workspaceForRender.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
+  const canStaffManage =
+    workspaceForRender.capabilities?.canManageStaff ?? (role === "ADMIN" || role === "MANAGER");
 
   const hasCategories = categories.length > 0;
 
@@ -1779,9 +1871,16 @@ function WorkspacePageInner() {
                 Preloading forms {prefetchProgress.done}/{prefetchProgress.total}
               </span>
             ) : null}
-            {offlinePreparedAt ? (
+            {isOfflineBootstrapComplete(cacheUserId, tenant.slug) ? (
               <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
                 Offline ready
+              </span>
+            ) : null}
+            {nativeWarmupRunning ||
+            (!isOfflineBootstrapComplete(cacheUserId, tenant.slug) && !offlineFromHook) ? (
+              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Caching form schemas...
               </span>
             ) : null}
             {openingSettings ? (
@@ -1830,6 +1929,7 @@ function WorkspacePageInner() {
                         className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                         onClick={() => {
                           setMenuOpen(false);
+                          if (blockIfOffline("Categories")) return;
                           setSeedOpen(true);
                         }}
                       >
@@ -1840,28 +1940,39 @@ function WorkspacePageInner() {
 
                     {canCreateForms ? (
                       <>
-                        <Link
+                        <button
+                          type="button"
                           role="menuitem"
-                          href={`/${tenant.slug}/templates/new${workspace.selectedCategoryId ? `?categoryId=${encodeURIComponent(workspace.selectedCategoryId)}` : ""}`}
-                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-                          onClick={() => setMenuOpen(false)}
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            if (blockIfOffline("Create custom form")) return;
+                            const qs = workspaceForRender.selectedCategoryId
+                              ? `?categoryId=${encodeURIComponent(workspaceForRender.selectedCategoryId)}`
+                              : "";
+                            router.push(`/${tenant.slug}/templates/new${qs}`);
+                          }}
                         >
                           <Plus className="h-4 w-4" />
                           Create custom form
-                        </Link>
+                        </button>
 
                       </>
                     ) : null}
 
-                    <Link
+                    <button
+                      type="button"
                       role="menuitem"
-                      href={`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`}
-                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-foreground/5"
-                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (blockIfOffline("Staff training")) return;
+                        router.push(`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+                      }}
                     >
                       <GraduationCap className="h-4 w-4" />
                       Staff training
-                    </Link>
+                    </button>
 
                     <div className="px-3 py-2">
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
@@ -1883,7 +1994,11 @@ function WorkspacePageInner() {
                       type="button"
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                      onClick={() => setConfirmOfflineOpen(true)}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (blockIfOffline("Prepare offline mode")) return;
+                        setConfirmOfflineOpen(true);
+                      }}
                       disabled={offlinePreparing}
                     >
                       {offlinePreparing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -1998,7 +2113,7 @@ function WorkspacePageInner() {
       </div>
 
       <div className="mx-auto max-w-4xl p-4 pb-8">
-        {workspace && offlineWarmupBlocking ? (
+        {offlineWarmupBlocking ? (
           <div className="mb-4">
             <FeatureSyncNotice
               title="Preparing offline cache"
@@ -2070,7 +2185,10 @@ function WorkspacePageInner() {
                 {canManageCategories ? (
                   <button
                     type="button"
-                    onClick={() => setSeedOpen(true)}
+                    onClick={() => {
+                      if (blockIfOffline("Categories")) return;
+                      setSeedOpen(true);
+                    }}
                     className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
                   >
                     <Plus className="h-4 w-4" />
@@ -2081,7 +2199,10 @@ function WorkspacePageInner() {
                 {canCreateForms ? (
                   <button
                     type="button"
-                    onClick={() => setAddFormOpen(true)}
+                    onClick={() => {
+                      if (blockIfOffline("Create forms")) return;
+                      setAddFormOpen(true);
+                    }}
                     className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
                   >
                     <FileText className="h-4 w-4" />
@@ -2135,7 +2256,10 @@ function WorkspacePageInner() {
 
               <button
                 type="button"
-                onClick={() => handleOpenActivity(tenant.slug)}
+                onClick={() => {
+                  if (blockIfOffline("Activity monitor")) return;
+                  handleOpenActivity(tenant.slug);
+                }}
                 disabled={openingActivity}
                 className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -2639,6 +2763,7 @@ function WorkspacePageInner() {
 export default function WorkspacePage() {
   return (
     <Suspense fallback={<WorkspaceSkeleton />}>
+      <BackgroundSyncManager />
       <WorkspacePageInner />
     </Suspense>
   );
