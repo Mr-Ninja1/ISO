@@ -7,6 +7,13 @@ export type PostLoginRoute = {
   usedOfflineFallback?: boolean;
 };
 
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = (value || "").trim();
+  if (!slug || slug === "_" || slug === "workspace") return "";
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
+  return slug;
+}
+
 function isNetworkFetchError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /failed to fetch|networkerror|network request failed|load failed/i.test(message);
@@ -76,7 +83,7 @@ export async function resolvePostLoginRoute(
     if (!isNetworkFetchError(error)) throw error;
 
     const lastTenant =
-      typeof window !== "undefined" ? localStorage.getItem("lastTenantSlug") || "" : "";
+      typeof window !== "undefined" ? normalizeTenantSlug(localStorage.getItem("lastTenantSlug")) : "";
     if (lastTenant) {
       return {
         path: `/workspace?tenantSlug=${encodeURIComponent(lastTenant)}`,

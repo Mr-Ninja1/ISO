@@ -7,12 +7,30 @@ import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
 import { shareAuditLink } from "@/components/forms/AuditShareControls";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  mergeAuditsRows,
   readAuditsListCache,
+  writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
 import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
+
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = (value || "").trim();
+  if (!slug || slug === "_" || slug === "workspace") return "";
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
+  return slug;
+}
+
+function resolveTenantSlug(value: string) {
+  const normalized = normalizeTenantSlug(value);
+  if (normalized) return normalized;
+  if (typeof window !== "undefined") {
+    return normalizeTenantSlug(localStorage.getItem("lastTenantSlug"));
+  }
+  return "";
+}
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
@@ -135,6 +153,7 @@ export function AuditsListClient({
 }) {
   const { session, user } = useAuth();
   const offline = useAppOffline();
+  const activeTenantSlug = resolveTenantSlug(tenantSlug);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [query, setQuery] = useState(initialQuery);
   const [allRows, setAllRows] = useState<CachedAuditRow[]>(rows);
@@ -143,23 +162,32 @@ export function AuditsListClient({
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
 
   useEffect(() => {
-    const cached = readAuditsListCache(user?.id || null, tenantSlug);
+    if (!activeTenantSlug) return;
+    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
     if (cached?.rows?.length) {
       setAllRows((current) => {
         const next = current.length >= cached.rows.length ? current : cached.rows;
         return rowsAreEqual(current, next) ? current : next;
       });
     }
-  }, [tenantSlug, user?.id]);
+  }, [activeTenantSlug, user?.id]);
+
+  useEffect(() => {
+    if (allRows.length === 0) return;
+    if (!activeTenantSlug) return;
+    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+    if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
+    writeAuditsListCache(user?.id || null, activeTenantSlug, allRows, undefined, { broadcast: false });
+  }, [allRows, activeTenantSlug, user?.id]);
 
   useEffect(() => {
     const onCacheUpdate = (event: Event) => {
       const custom = event as CustomEvent<{ tenantSlug?: string }>;
-      if (custom.detail?.tenantSlug !== tenantSlug) return;
-      const cached = readAuditsListCache(user?.id || null, tenantSlug);
+      if (custom.detail?.tenantSlug !== activeTenantSlug) return;
+      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
       if (!cached?.rows?.length) return;
       setAllRows((current) => {
-        const merged = rowsAreEqual(current, cached.rows) ? current : cached.rows;
+        const merged = mergeAuditsRows(current, cached.rows);
         return rowsAreEqual(current, merged) ? current : merged;
       });
     };
@@ -168,21 +196,20 @@ export function AuditsListClient({
     return () => {
       window.removeEventListener("audits-cache-updated", onCacheUpdate as EventListener);
     };
-  }, [tenantSlug, user?.id]);
+  }, [activeTenantSlug, user?.id]);
 
   async function syncFromServer(fullHistory: boolean) {
     const token = session?.access_token || "";
-    if (!token || !tenantSlug || offline) return;
+    if (!token || !activeTenantSlug || offline) return;
 
     setSyncing(true);
     setSyncError("");
     try {
-      const cached = readAuditsListCache(user?.id || null, tenantSlug);
-      const result = await fetchAndCacheAuditsList(token, user?.id || null, tenantSlug, {
+      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+      const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
         since: fullHistory ? undefined : cached?.maxUpdatedAt || undefined,
         limit: fullHistory ? 200 : 80,
         merge: true,
-        persistCache: false,
       });
       setAllRows(result.rows);
       setHasLoadedFromServer(true);
@@ -192,6 +219,12 @@ export function AuditsListClient({
       setSyncing(false);
     }
   }
+
+  useEffect(() => {
+    if (!session?.access_token || !activeTenantSlug || offline) return;
+    void syncFromServer(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token, activeTenantSlug, user?.id, offline]);
 
   const draftCount = useMemo(() => allRows.filter((r) => r.status === "DRAFT").length, [allRows]);
   const submittedCount = useMemo(() => allRows.filter((r) => r.status === "SUBMITTED").length, [allRows]);
@@ -221,7 +254,7 @@ export function AuditsListClient({
       ) : null}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
-        <AuditsExportButton tenantSlug={tenantSlug} status={exportStatus} query={exportQuery} />
+        <AuditsExportButton tenantSlug={activeTenantSlug} status={exportStatus} query={exportQuery} />
         {!offline ? (
           <button
             type="button"
@@ -277,7 +310,7 @@ export function AuditsListClient({
           Submitted ({submittedCount})
         </button>
         <Link
-          href={`/${tenantSlug}/templates`}
+          href={`/${activeTenantSlug}/templates`}
           className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
         >
           Run new form
@@ -324,7 +357,7 @@ export function AuditsListClient({
                       </div>
                       <div className="flex w-full items-center gap-2 sm:w-auto">
                         <Link
-                          href={`/${tenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}&auditId=${encodeURIComponent(row.id)}`}
+                          href={`/${activeTenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}&auditId=${encodeURIComponent(row.id)}`}
                           className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
                         >
                           <FileText className="h-4 w-4" />
@@ -365,7 +398,7 @@ export function AuditsListClient({
                             type="button"
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
                             onClick={() => {
-                              const reportUrl = `${window.location.origin}/${tenantSlug}/audits/${row.id}`;
+                              const reportUrl = `${window.location.origin}/${activeTenantSlug}/audits/${row.id}`;
                               void shareAuditLink(reportUrl, row.template.title);
                             }}
                           >
@@ -376,7 +409,7 @@ export function AuditsListClient({
                             type="button"
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
                             onClick={() => {
-                              const reportUrl = `/${tenantSlug}/audits/${row.id}`;
+                              const reportUrl = `/${activeTenantSlug}/audits/${row.id}`;
                               window.open(reportUrl, "_blank");
                             }}
                           >
@@ -386,7 +419,7 @@ export function AuditsListClient({
                         </div>
                         <div className="flex sm:hidden">
                           <CardMenu
-                            tenantSlug={tenantSlug}
+                            tenantSlug={activeTenantSlug}
                             auditId={row.id}
                             templateTitle={row.template.title}
                             status={row.status}

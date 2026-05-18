@@ -1,36 +1,47 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
-import { isAppOffline } from "@/lib/client/appOffline";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/components/AuthProvider';
+import { isAppOffline } from '@/lib/client/appOffline';
 import {
   isOfflineBootstrapComplete,
   runOfflineBootstrap,
   type OfflineBootstrapProgress,
-} from "@/lib/client/offlineBootstrap";
+} from '@/lib/client/offlineBootstrap';
 
-const SKIP_PREFIXES = ["/login", "/signup", "/developer-login", "/onboarding", "/admin", "/offline"];
+const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
+
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = (value || '').trim();
+  if (!slug || slug === '_' || slug === 'workspace') return null;
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return null;
+  return slug;
+}
 
 function shouldSkipBootstrap(pathname: string | null) {
   if (!pathname) return true;
-  return SKIP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (SKIP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
+  // Skip audit routes (cached forms should open without the first-time gate)
+  if (/^\/[^/]+\/audits(\/|$)/.test(pathname)) return true;
+  return false;
 }
 
 function tenantSlugFromRoute(pathname: string | null, querySlug: string | null) {
-  if (querySlug) return querySlug;
-  if (typeof window !== "undefined") {
-    const last = localStorage.getItem("lastTenantSlug");
+  const normalizedQuerySlug = normalizeTenantSlug(querySlug);
+  if (normalizedQuerySlug) return normalizedQuerySlug;
+  if (typeof window !== 'undefined') {
+    const last = normalizeTenantSlug(localStorage.getItem('lastTenantSlug'));
     if (last) return last;
   }
   if (!pathname) return null;
-  const parts = pathname.split("/").filter(Boolean);
+  const parts = pathname.split('/').filter(Boolean);
   if (!parts.length) return null;
   const first = parts[0];
-  const reserved = new Set(["workspace", "dashboard", "login", "signup", "onboarding", "offline", "admin", "_"]);
+  const reserved = new Set(['workspace', 'dashboard', 'login', 'signup', 'onboarding', 'offline', 'admin', '_']);
   if (reserved.has(first)) return null;
-  return first;
+  return normalizeTenantSlug(first);
 }
 
 function FirstTimeDownloadScreen({
@@ -45,60 +56,60 @@ function FirstTimeDownloadScreen({
   onRetry: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[9998] flex min-h-dvh items-center justify-center bg-background px-4 py-8">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-foreground/20 bg-background p-6 shadow-sm sm:p-8">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-foreground/15 bg-foreground/[0.03]">
-            <Loader2 className="h-5 w-5 animate-spin text-foreground/70" />
+    <div className='fixed inset-0 z-[9998] flex min-h-dvh items-center justify-center bg-background px-4 py-8'>
+      <div className='w-full max-w-lg overflow-hidden rounded-2xl border border-foreground/20 bg-background p-6 shadow-sm sm:p-8'>
+        <div className='flex items-start gap-3'>
+          <div className='flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-foreground/15 bg-foreground/[0.03]'>
+            <Loader2 className='h-5 w-5 animate-spin text-foreground/70' />
           </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold sm:text-xl">Preparing your brand for offline use</h1>
-            <p className="mt-1 text-sm text-foreground/70">
+          <div className='min-w-0'>
+            <h1 className='text-lg font-semibold sm:text-xl'>Preparing your brand for offline use</h1>
+            <p className='mt-1 text-sm text-foreground/70'>
               First-time setup downloads your workspace, categories, and every form schema so you can start audits
               offline. Full saved-form history loads when you open Saved forms while online.
             </p>
           </div>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-full bg-foreground/10">
+        <div className='mt-6 overflow-hidden rounded-full bg-foreground/10'>
           <div
-            className="h-2 rounded-full bg-foreground transition-all duration-300 ease-out"
-            style={{ width: `${progress.percent}%` }}
+            className='h-2 rounded-full bg-foreground transition-all duration-300 ease-out'
+            style={{ width: progress.percent + '%' }}
           />
         </div>
-        <p className="mt-2 text-sm font-medium text-foreground">{progress.label}</p>
-        {progress.detail ? <p className="text-xs text-foreground/60">{progress.detail}</p> : null}
+        <p className='mt-2 text-sm font-medium text-foreground'>{progress.label}</p>
+        {progress.detail ? <p className='text-xs text-foreground/60'>{progress.detail}</p> : null}
 
-        <div className="mt-5 grid gap-2 text-sm text-foreground/75 sm:grid-cols-2">
-          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3">
+        <div className='mt-5 grid gap-2 text-sm text-foreground/75 sm:grid-cols-2'>
+          <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
             Categories, form cards, and checklists are saved on this device.
           </div>
-          <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3">
+          <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
             After this you can open forms and continue drafts offline. Recent server drafts are saved as a preview.
           </div>
         </div>
 
         {error ? (
-          <div className="mt-4 space-y-3">
-            <p className="rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm text-foreground">{error}</p>
+          <div className='mt-4 space-y-3'>
+            <p className='rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm text-foreground'>{error}</p>
             {offline ? (
-              <p className="text-xs text-foreground/60">
+              <p className='text-xs text-foreground/60'>
                 Connect to the internet to complete first-time download. Offline use is available after this step.
               </p>
             ) : null}
             <button
-              type="button"
-              className="h-10 w-full rounded-md bg-foreground px-4 text-sm font-medium text-background sm:w-auto"
+              type='button'
+              className='h-10 w-full rounded-md bg-foreground px-4 text-sm font-medium text-background sm:w-auto'
               onClick={onRetry}
             >
               Try again
             </button>
           </div>
         ) : (
-          <p className="mt-4 text-xs text-foreground/55">
+          <p className='mt-4 text-xs text-foreground/55'>
             {offline
-              ? "Waiting for internet to start download…"
-              : "Do not close the app — large brands may take several minutes."}
+              ? 'Waiting for internet to start download...'
+              : 'Do not close the app - large brands may take several minutes.'}
           </p>
         )}
       </div>
@@ -114,15 +125,15 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading } = useAuth();
-  const accessToken = session?.access_token || "";
+  const accessToken = session?.access_token || '';
   const userId = user?.id || session?.user?.id || null;
 
   const tenantSlug = useMemo(
-    () => tenantSlugFromRoute(pathname, searchParams.get("tenantSlug")),
+    () => tenantSlugFromRoute(pathname, searchParams.get('tenantSlug')),
     [pathname, searchParams]
   );
 
-  const forceBootstrap = searchParams.get("forceBootstrap") === "1";
+  const forceBootstrap = searchParams.get('forceBootstrap') === '1';
   const skip = shouldSkipBootstrap(pathname);
   const needsBootstrap =
     !skip &&
@@ -132,11 +143,11 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
 
   const [ready, setReady] = useState(!needsBootstrap);
   const [progress, setProgress] = useState<OfflineBootstrapProgress>({
-    stage: "workspace",
-    label: "Starting download…",
+    stage: 'workspace',
+    label: 'Starting download...',
     percent: 0,
   });
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
   const runIdRef = useRef(0);
 
@@ -144,9 +155,9 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     if (!tenantSlug || !accessToken) return;
 
     const runId = ++runIdRef.current;
-    setError("");
+    setError('');
     setReady(false);
-    setProgress({ stage: "workspace", label: "Starting download…", percent: 0 });
+    setProgress({ stage: 'workspace', label: 'Starting download...', percent: 0 });
 
     try {
       await runOfflineBootstrap({
@@ -162,19 +173,33 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       setReady(true);
     } catch (err: unknown) {
       if (runId !== runIdRef.current) return;
-      setError(err instanceof Error ? err.message : "Download failed");
+      const message = err instanceof Error ? err.message : 'Download failed';
+      if (/tenant not found/i.test(message)) {
+        try {
+          localStorage.removeItem('lastTenantSlug');
+        } catch {
+          // ignore localStorage errors
+        }
+        if (pathname?.startsWith('/workspace')) {
+          setReady(true);
+          setError('');
+          router.replace('/workspace');
+          return;
+        }
+      }
+      setError(message);
       setReady(false);
     }
-  }, [accessToken, tenantSlug, userId]);
+  }, [accessToken, pathname, router, tenantSlug, userId]);
 
   useEffect(() => {
     const update = () => setOffline(isAppOffline());
     update();
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
     return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
     };
   }, []);
 
@@ -194,12 +219,12 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     }
     if (!accessToken) {
       setReady(false);
-      setError("Sign in is required before downloading offline data.");
+      setError('Sign in is required before downloading offline data.');
       return;
     }
     if (offline) {
       setReady(false);
-      setError("Internet is required for first-time setup. Connect and tap Try again.");
+      setError('Internet is required for first-time setup. Connect and tap Try again.');
       return;
     }
 
@@ -218,7 +243,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
         offline={offline}
         onRetry={() => {
           if (!accessToken) {
-            router.push("/login");
+            router.push('/login');
             return;
           }
           if (offline) return;

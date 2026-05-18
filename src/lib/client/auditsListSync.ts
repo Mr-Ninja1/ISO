@@ -17,8 +17,6 @@ export type FetchAuditsListOptions = {
   since?: string | null;
   /** Merge into existing device cache instead of replacing. */
   merge?: boolean;
-  /** Skip writing the returned rows back into the device cache. */
-  persistCache?: boolean;
 };
 
 export type FetchAuditsListResult = {
@@ -58,15 +56,11 @@ export async function fetchAndCacheAuditsList(
   if (options.merge !== false) {
     const existing = readAuditsListCache(userId, tenantSlug);
     const merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
-    if (options.persistCache !== false) {
-      writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
-    }
+    writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
     return { rows: merged, maxUpdatedAt, mergedIntoCache: true };
   }
 
-  if (options.persistCache !== false) {
-    writeAuditsListCache(userId, tenantSlug, incoming, maxUpdatedAt);
-  }
+  writeAuditsListCache(userId, tenantSlug, incoming, maxUpdatedAt);
   return { rows: incoming, maxUpdatedAt, mergedIntoCache: true };
 }
 

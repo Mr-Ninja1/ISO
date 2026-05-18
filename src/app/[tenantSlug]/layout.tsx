@@ -1,4 +1,4 @@
-﻿import { notFound } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ssrTenantBySlug } from "@/lib/data/ssrQueries";
 import { isSupabaseServiceRoleConfigured } from "@/lib/supabase/serviceRole";
 import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
@@ -55,27 +55,16 @@ export default async function TenantLayout({
   let tenant: TenantHeaderMeta | null = null;
   let dbUnavailable = false;
 
-  if (!tenant) {
-    try {
-      const dbTenant = await findTenantWithTimeout(tenantSlug, 1200);
-      if (dbTenant) {
-        tenant = {
-          name: dbTenant.name,
-          slug: dbTenant.slug,
-          logoUrl: dbTenant.logoUrl ?? null,
-          isActive: dbTenant.isActive,
-        };
-      } else if (process.env.NODE_ENV === "development" && !isSupabaseServiceRoleConfigured()) {
-        tenant = {
-          name: displayNameFromSlug(tenantSlug),
-          slug: tenantSlug,
-          logoUrl: null,
-          isActive: true,
-        };
-      } else {
-        notFound();
-      }
-    } catch {
+  try {
+    const dbTenant = await findTenantWithTimeout(tenantSlug, 1200);
+    if (dbTenant) {
+      tenant = {
+        name: dbTenant.name,
+        slug: dbTenant.slug,
+        logoUrl: dbTenant.logoUrl ?? null,
+        isActive: dbTenant.isActive,
+      };
+    } else {
       dbUnavailable = true;
       tenant = {
         name: displayNameFromSlug(tenantSlug),
@@ -84,6 +73,14 @@ export default async function TenantLayout({
         isActive: true,
       };
     }
+  } catch {
+    dbUnavailable = true;
+    tenant = {
+      name: displayNameFromSlug(tenantSlug),
+      slug: tenantSlug,
+      logoUrl: null,
+      isActive: true,
+    };
   }
 
   if (tenant.isActive === false) {

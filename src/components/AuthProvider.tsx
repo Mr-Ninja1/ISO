@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { createClient, ISO_MOBILE_SHELL_LS_KEY, readPersistedSupabaseSession } from "@/lib/auth";
+import { browserSupabaseAuthStorageKey, createClient, ISO_MOBILE_SHELL_LS_KEY, readPersistedSupabaseSession } from "@/lib/auth";
+import { apiUrl } from "@/lib/client/apiBase";
 
 const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
 
@@ -57,11 +58,23 @@ type AuthContextType = {
     password: string,
     options?: { emailRedirectTo?: string }
   ) => Promise<{ userId: string | null }>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ session: Session; user: { id: string; email: string } }>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+function persistNativeSession(session: Session) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const payload = JSON.stringify({ currentSession: session });
+    localStorage.setItem(browserSupabaseAuthStorageKey(), payload);
+    localStorage.setItem(ISO_MOBILE_SHELL_LS_KEY, "1");
+  } catch {
+    // ignore storage failures
+  }
+}
+
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => readPersistedSupabaseSession());
@@ -160,11 +173,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const res = await fetch(apiUrl("/api/auth/sign-in"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
     });
-    if (error) throw error;
+
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(payload?.error || "Sign in failed");
+    }
+
+    const session = payload?.session as Session | undefined;
+    const user = payload?.user as { id?: string; email?: string } | undefined;
+    if (!session || !user?.id) {
+      throw new Error("Sign in failed");
+    }
+
+    setSession(session);
+    const nextUser = { id: user.id, email: user.email || "" };
+    setUser(nextUser);
+    writeCachedAuthUser(nextUser);
+    persistNativeSession(session);
+
+    return { session, user: nextUser };
   };
 
   const signOut = async () => {

@@ -7,7 +7,6 @@ import { type WorkspaceData, writeWorkspaceCache } from "@/lib/client/workspaceC
 import { apiUrl } from "@/lib/client/apiBase";
 
 const BOOTSTRAP_KEY_PREFIX = "offline-full-bootstrap:v1:";
-const OFFLINE_RUNTIME_STATE_KEYS = ["offlineModeEnabled", "offlinePreparedAt"] as const;
 
 export type OfflineBootstrapStage =
   | "workspace"
@@ -65,24 +64,6 @@ export function clearOfflineBootstrapComplete(userId: string | null, tenantSlug:
     localStorage.removeItem(bootstrapStorageKey(userId, tenantSlug));
   } catch {
     // ignore
-  }
-}
-
-export function clearOfflineRuntimeState() {
-  try {
-    for (const key of OFFLINE_RUNTIME_STATE_KEYS) {
-      localStorage.removeItem(key);
-    }
-  } catch {
-    // ignore
-  }
-}
-
-export function hasOfflineRuntimeState() {
-  try {
-    return OFFLINE_RUNTIME_STATE_KEYS.some((key) => Boolean(localStorage.getItem(key)));
-  } catch {
-    return false;
   }
 }
 

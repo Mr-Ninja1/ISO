@@ -15,6 +15,22 @@ import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = (value || "").trim();
+  if (!slug || slug === "_" || slug === "workspace") return "";
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
+  return slug;
+}
+
+function resolveTenantSlug(value: string) {
+  const normalized = normalizeTenantSlug(value);
+  if (normalized) return normalized;
+  if (typeof window !== "undefined") {
+    return normalizeTenantSlug(localStorage.getItem("lastTenantSlug"));
+  }
+  return "";
+}
+
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
   return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
 }
@@ -69,6 +85,7 @@ export function AuditRunClient({
   const router = useRouter();
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
+  const activeTenantSlug = resolveTenantSlug(tenantSlug);
 
   const [data, setData] = useState<AuditTemplatePayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,10 +96,10 @@ export function AuditRunClient({
 
   // Hydrate from localStorage + IndexedDB before deciding the user must sign in again.
   useEffect(() => {
-    if (!tenantSlug || !templateId) return;
+    if (!activeTenantSlug || !templateId) return;
     let alive = true;
 
-    const cached = readAuditTemplateCache(tenantSlug, templateId);
+    const cached = readAuditTemplateCache(activeTenantSlug, templateId);
     if (cached) {
       setData(cached);
       setLoading(false);
@@ -90,7 +107,7 @@ export function AuditRunClient({
     }
 
     (async () => {
-      const fromDb = await readAuditTemplateCacheAsync(tenantSlug, templateId);
+      const fromDb = await readAuditTemplateCacheAsync(activeTenantSlug, templateId);
       if (!alive) return;
       if (fromDb) {
         setData(fromDb);
@@ -103,7 +120,7 @@ export function AuditRunClient({
     return () => {
       alive = false;
     };
-  }, [tenantSlug, templateId]);
+  }, [activeTenantSlug, templateId]);
 
   useEffect(() => {
     if (!authLoading && !user && !data) {
@@ -133,9 +150,9 @@ export function AuditRunClient({
   }, []);
 
   useEffect(() => {
-    if (!tenantSlug || !templateId) return;
+    if (!activeTenantSlug || !templateId) return;
 
-    const cached = data ?? readAuditTemplateCache(tenantSlug, templateId);
+    const cached = data ?? readAuditTemplateCache(activeTenantSlug, templateId);
 
     if (authLoading) return;
 
@@ -175,13 +192,13 @@ export function AuditRunClient({
       return;
     }
 
-    if (cached && shouldSkipTemplateRevalidate(tenantSlug, templateId, 5 * 60_000)) {
+    if (cached && shouldSkipTemplateRevalidate(activeTenantSlug, templateId, 5 * 60_000)) {
       return;
     }
 
     const runRevalidate = () => {
       const url = new URL(apiUrl("/api/audit/template"));
-      url.searchParams.set("tenantSlug", tenantSlug);
+      url.searchParams.set("tenantSlug", activeTenantSlug);
       url.searchParams.set("templateId", templateId);
 
       fetch(url.toString(), {
@@ -203,8 +220,8 @@ export function AuditRunClient({
             cached.template.updatedAt !== next.template.updatedAt ||
             cached.template.title !== next.template.title;
           if (shouldUpdate) setData(next);
-          writeAuditTemplateCache(tenantSlug, templateId, next);
-          markTemplateRevalidated(tenantSlug, templateId);
+          writeAuditTemplateCache(activeTenantSlug, templateId, next);
+          markTemplateRevalidated(activeTenantSlug, templateId);
           setError("");
         })
         .catch((err: unknown) => {
@@ -225,7 +242,7 @@ export function AuditRunClient({
     authLoading,
     user,
     accessToken,
-    tenantSlug,
+    activeTenantSlug,
     templateId,
     revalidateTick,
     offlineFromHook,
@@ -242,7 +259,7 @@ export function AuditRunClient({
       }
     }, 12_000);
     return () => window.clearTimeout(timeoutId);
-  }, [loading, data, tenantSlug, templateId]);
+  }, [loading, data, activeTenantSlug, templateId]);
 
   const content = useMemo(() => {
     if (loading) {
@@ -266,7 +283,7 @@ export function AuditRunClient({
 
     return (
       <FormRenderer
-        tenantSlug={tenantSlug}
+        tenantSlug={activeTenantSlug}
         tenantName={data.tenant.name}
         tenantLogoUrl={data.tenant.logoUrl}
         templateId={data.template.id}

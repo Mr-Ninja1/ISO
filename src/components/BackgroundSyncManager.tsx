@@ -14,8 +14,7 @@ import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow
 import { prefetchRecentDraftAudits } from "@/lib/client/auditsListSync";
 import { cacheAllTenantTemplatesFromApi, isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
-import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT, notifyOfflineModeChanged } from "@/lib/client/appOffline";
-import { clearOfflineRuntimeState, hasOfflineRuntimeState } from "@/lib/client/offlineBootstrap";
+import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 
 function readPendingCount() {
@@ -68,14 +67,15 @@ function writeWorkspaceCache(userId: string | null, tenantSlug: string, category
 }
 
 function tenantSlugFromPath(pathname: string | null, fallback: string | null): string {
-  if (fallback) return fallback;
+  const normalizedFallback = fallback && fallback !== "_" && fallback !== "workspace" ? fallback : "";
+  if (normalizedFallback) return normalizedFallback;
   const current = pathname || "";
   const parts = current.split("/").filter(Boolean);
   if (!parts.length) return "";
   const first = parts[0];
-  const reserved = new Set(["workspace", "dashboard", "login", "signup", "onboarding", "offline"]);
+  const reserved = new Set(["workspace", "dashboard", "login", "signup", "onboarding", "offline", "_"]);
   if (reserved.has(first)) return "";
-  return first;
+  return /^[a-z0-9][a-z0-9-]*$/i.test(first) ? first : "";
 }
 
 function bootstrapKey(userId: string | null, tenantSlug: string) {
@@ -113,9 +113,6 @@ export function BackgroundSyncManager() {
   const [bootstrapRunning, setBootstrapRunning] = useState(false);
   const [bootstrapStage, setBootstrapStage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
-  const reconnectRecoveryKey = useMemo(() => {
-    return `iso-offline-recovered:v1:${user?.id || "anon"}:${tenantSlug || "none"}`;
-  }, [tenantSlug, user?.id]);
 
   useEffect(() => {
     const updateOnline = () => setOnline(!isAppOffline());
@@ -349,23 +346,14 @@ export function BackgroundSyncManager() {
   }, [accessToken, online, tenantSlug, user?.id]);
 
   useEffect(() => {
-    if (!online || !tenantSlug) return;
-    if (!hasOfflineRuntimeState()) return;
-
-    try {
-      if (typeof window !== "undefined" && sessionStorage.getItem(reconnectRecoveryKey) === "1") return;
-      clearOfflineRuntimeState();
-      notifyOfflineModeChanged();
-      sessionStorage.setItem(reconnectRecoveryKey, "1");
-      setBootstrapRunning(false);
-      setBootstrapStage("");
-    } catch {
-      // ignore recovery failures
-    }
-  }, [online, tenantSlug, reconnectRecoveryKey]);
+    if (!online || !accessToken || tenantSlug) return;
+    // Auto-sync when internet is restored
+    void runPullSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   const label = useMemo(() => {
-    if (bootstrapRunning) return bootstrapStage ? `Preparing offline cache: ${bootstrapStage}` : "Preparing offline cache...";
+    if (bootstrapRunning) return bootstrapStage ? `Downloading workspace: ${bootstrapStage}` : "Downloading workspace...";
     if (!online) return "Offline mode";
     if (syncing) return "Syncing updates...";
     if (pendingCount > 0) return `${pendingCount} update${pendingCount === 1 ? "" : "s"} pending`;

@@ -239,43 +239,15 @@ function writeRecentTemplateIds(tenantSlug: string, ids: string[]) {
   }
 }
 
+function normalizeTenantSlug(value: string | null | undefined) {
+  const slug = (value || "").trim();
+  if (!slug || slug === "_" || slug === "workspace") return "";
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
+  return slug;
+}
+
 function WorkspaceSkeleton() {
-  return (
-    <div className="workspace-shell min-h-dvh">
-      <div className="mx-auto flex min-h-dvh max-w-4xl items-center px-4 py-8 sm:px-6">
-        <div className="w-full overflow-hidden rounded-2xl border border-foreground/20 bg-background p-5 shadow-sm sm:p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-foreground/15 bg-foreground/[0.03]">
-              <Loader2 className="h-5 w-5 animate-spin text-foreground/70" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold sm:text-xl">Preparing offline cache</h2>
-              <p className="text-sm text-foreground/70">
-                First-time load can take a moment while we download workspace data, categories, form schemas, and saved forms.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 overflow-hidden rounded-full bg-foreground/10">
-            <div className="h-2 w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-foreground" />
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm">
-              We are loading what can run offline first, so the app feels native once this finishes.
-            </div>
-            <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm">
-              Leave this page open if you want the full workspace, schemas, and saved forms cached locally.
-            </div>
-          </div>
-
-          <div className="mt-4 text-xs text-foreground/55">
-            You can continue to use the app once the cache is ready. Live sync features will still need internet for fresh updates.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 function WorkspaceUnavailable({
@@ -514,7 +486,7 @@ function WorkspacePageInner() {
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading, signOut } = useAuth();
 
-  const tenantSlug = searchParams.get("tenantSlug") || "";
+  const tenantSlug = normalizeTenantSlug(searchParams.get("tenantSlug"));
   const categoryId = searchParams.get("categoryId");
   const forceRefresh = searchParams.get("refresh") === "1";
   const requestedView = searchParams.get("view");
@@ -1103,7 +1075,11 @@ function WorkspacePageInner() {
 
     if (tenantSlug) return;
 
-    const last = localStorage.getItem("lastTenantSlug") || "";
+    const lastRaw = localStorage.getItem("lastTenantSlug") || "";
+    const last = normalizeTenantSlug(lastRaw);
+    if (!last && lastRaw) {
+      localStorage.removeItem("lastTenantSlug");
+    }
     if (last) {
       router.replace(`/workspace?tenantSlug=${encodeURIComponent(last)}`);
       return;
@@ -2067,14 +2043,7 @@ function WorkspacePageInner() {
                     key={c.id}
                     type="button"
                     onClick={() => {
-                      if (offlineWarmupBlocking) {
-                        setNotification({
-                          title: "Preparing offline cache",
-                          message: "Please wait a moment while the app finishes caching your workspace for offline use.",
-                          tone: "warning",
-                        });
-                        return;
-                      }
+                      if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
                       const cachedCategoryData = readWorkspaceCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {
@@ -2113,16 +2082,6 @@ function WorkspacePageInner() {
       </div>
 
       <div className="mx-auto max-w-4xl p-4 pb-8">
-        {offlineWarmupBlocking ? (
-          <div className="mb-4">
-            <FeatureSyncNotice
-              title="Preparing offline cache"
-              message="Keep this page open while we download your workspace, categories, templates, and saved forms. Category switching will be much faster once this finishes and the app will keep working offline."
-              tone="warning"
-            />
-          </div>
-        ) : null}
-
         {error ? (
           <div className="mb-4 rounded-md border border-foreground/20 bg-background p-3 text-sm">
             {error}

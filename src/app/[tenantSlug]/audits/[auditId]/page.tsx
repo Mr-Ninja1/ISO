@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { capacitorAuditStaticParams } from "@/lib/capacitor/staticExport";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
@@ -17,6 +16,7 @@ import { buildGridLayout } from "@/lib/gridLayout";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
+import { AuditReportFromCacheClient } from "@/components/forms/AuditReportFromCacheClient";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -112,7 +112,6 @@ export default async function AuditReportPage({
   const { tenantSlug, auditId } = await params;
 
   if (isCapacitorBuild) {
-    const { AuditReportFromCacheClient } = await import("@/components/forms/AuditReportFromCacheClient");
     return <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />;
   }
   const { orientation } = await searchParams;
@@ -129,7 +128,19 @@ export default async function AuditReportPage({
 
   audit = await ssrAuditReportForPrint(auditId, tenantSlug);
 
-  if (!audit) notFound();
+  if (!audit) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
+          The live report could not be loaded right now. If you opened this form before, the cached snapshot should still be available on this device.
+        </div>
+        <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />
+        <Link href={`/${tenantSlug}/audits`} className="text-sm underline">
+          Back to stored forms
+        </Link>
+      </div>
+    );
+  }
 
   const tenant = audit.tenant;
   const schema = audit.template.schema as FormSchemaV1;

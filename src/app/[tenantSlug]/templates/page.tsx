@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { ssrTenantBySlug } from "@/lib/data/ssrQueries";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
@@ -27,12 +27,24 @@ export default async function TemplatesPage({
   }
   const tenant = await ssrTenantBySlug(tenantSlug);
   if (!tenant) {
-    return <div>Tenant not found</div>;
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
+          This brand is still loading or could not be resolved right now. Open the workspace once the brand finishes syncing, then return here.
+        </div>
+        <Link
+          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+          href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        >
+          Back to workspace
+        </Link>
+      </div>
+    );
   }
 
   const svc = createServiceRoleSupabase();
   if (!svc) {
-    return <div className="p-4 text-sm text-foreground/70">Server configuration incomplete (SUPABASE_SERVICE_ROLE_KEY).</div>;
+    return <div className="p-4 text-sm text-foreground/70">Brand templates are temporarily unavailable. Try again after the brand sync finishes.</div>;
   }
 
   const { data: catRows } = await svc

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
-import { createClient } from "@/lib/auth";
 import { apiUrl } from "@/lib/client/apiBase";
 
 export default function DeveloperLoginPage() {
@@ -35,14 +34,8 @@ export default function DeveloperLoginPage() {
     setLoading(true);
 
     try {
-      await signIn(email, password);
-
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const accessToken = session?.access_token || "";
+      const { session } = await signIn(email, password);
+      const accessToken = session.access_token || "";
       if (!accessToken) {
         throw new Error("Unable to start a developer session.");
       }

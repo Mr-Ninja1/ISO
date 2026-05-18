@@ -4,12 +4,16 @@
  */
 
 export const OFFLINE_MODE_CHANGED_EVENT = "iso-offline-mode-changed";
+export const INTERNET_RESTORED_EVENT = "iso-internet-restored";
 
 declare global {
   interface Window {
     __ISO_FORCE_OFFLINE__?: boolean;
+    __ISO_IS_NATIVE__?: boolean;
   }
 }
+
+let lastOnlineStatus = typeof navigator !== "undefined" ? navigator.onLine : true;
 
 export function isAppOffline(): boolean {
   if (typeof window === "undefined") return false;
@@ -21,6 +25,15 @@ export function isAppOffline(): boolean {
   return typeof navigator !== "undefined" ? !navigator.onLine : false;
 }
 
+export function isNativeApp(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.__ISO_IS_NATIVE__ === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Called from embedded shell after toggling `__ISO_FORCE_OFFLINE__`. */
 export function notifyOfflineModeChanged(): void {
   if (typeof window === "undefined") return;
@@ -29,4 +42,29 @@ export function notifyOfflineModeChanged(): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Monitor online/offline transitions and notify when internet is restored. */
+export function initInternetStatusMonitor(): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleOnline = () => {
+    const wasOffline = lastOnlineStatus === false;
+    lastOnlineStatus = true;
+    if (wasOffline) {
+      window.dispatchEvent(new CustomEvent(INTERNET_RESTORED_EVENT));
+    }
+  };
+
+  const handleOffline = () => {
+    lastOnlineStatus = false;
+  };
+
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
+
+  return () => {
+    window.removeEventListener("online", handleOnline);
+    window.removeEventListener("offline", handleOffline);
+  };
 }

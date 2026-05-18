@@ -47,7 +47,7 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      router.replace("/workspace");
+      router.push("/workspace");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign in failed";
       if (/failed to fetch|networkerror|network request failed/i.test(message)) {

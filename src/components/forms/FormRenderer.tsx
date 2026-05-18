@@ -241,7 +241,10 @@ async function readLocalDraftAsync(
 function isNetworkFailure(error: unknown) {
   if (isAppOffline()) return true;
   if (error instanceof TypeError) return true;
-  return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to fetch|networkerror|network request failed|load failed|unable to resolve host|cannot resolve host|name or service not known|temporary failure in name resolution|etimedout|econnreset/i.test(
+    message
+  );
 }
 
 function isTimedOutRequest(error: unknown) {

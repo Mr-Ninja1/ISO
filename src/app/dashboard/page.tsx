@@ -69,7 +69,19 @@ export default function DashboardPage() {
           return data;
         })
         .then((data) => {
-          setTenants(data.tenants || []);
+          const nextTenants: Tenant[] = Array.isArray(data.tenants) ? data.tenants : [];
+          setTenants(nextTenants);
+
+          const lastTenantSlug = typeof window !== "undefined" ? localStorage.getItem("lastTenantSlug") || "" : "";
+          const preferredTenant =
+            (lastTenantSlug && nextTenants.find((tenant) => tenant.slug === lastTenantSlug)) ||
+            (nextTenants.length === 1 ? nextTenants[0] : null);
+
+          if (preferredTenant) {
+            router.replace(`/workspace/forms?tenantSlug=${encodeURIComponent(preferredTenant.slug)}`);
+            return;
+          }
+
           setLoading(false);
         })
         .catch((err) => {
@@ -112,6 +124,10 @@ export default function DashboardPage() {
 
   if (loading) {
     return <AppLoadingScreen title="Preparing lobby" subtitle="Fetching your brands and account context..." />;
+  }
+
+  if (tenants.length === 1) {
+    return <AppLoadingScreen title="Opening workspace" subtitle="Loading your brand workspace..." />;
   }
 
   return (
