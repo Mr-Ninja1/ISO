@@ -14,7 +14,8 @@ import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow
 import { prefetchRecentDraftAudits } from "@/lib/client/auditsListSync";
 import { cacheAllTenantTemplatesFromApi, isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
-import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
+import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT, notifyOfflineModeChanged } from "@/lib/client/appOffline";
+import { clearOfflineRuntimeState, hasOfflineRuntimeState } from "@/lib/client/offlineBootstrap";
 import { apiUrl } from "@/lib/client/apiBase";
 
 function readPendingCount() {
@@ -112,6 +113,9 @@ export function BackgroundSyncManager() {
   const [bootstrapRunning, setBootstrapRunning] = useState(false);
   const [bootstrapStage, setBootstrapStage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
+  const reconnectRecoveryKey = useMemo(() => {
+    return `iso-offline-recovered:v1:${user?.id || "anon"}:${tenantSlug || "none"}`;
+  }, [tenantSlug, user?.id]);
 
   useEffect(() => {
     const updateOnline = () => setOnline(!isAppOffline());
@@ -343,6 +347,22 @@ export function BackgroundSyncManager() {
       window.clearInterval(bootstrapInterval);
     };
   }, [accessToken, online, tenantSlug, user?.id]);
+
+  useEffect(() => {
+    if (!online || !tenantSlug) return;
+    if (!hasOfflineRuntimeState()) return;
+
+    try {
+      if (typeof window !== "undefined" && sessionStorage.getItem(reconnectRecoveryKey) === "1") return;
+      clearOfflineRuntimeState();
+      notifyOfflineModeChanged();
+      sessionStorage.setItem(reconnectRecoveryKey, "1");
+      setBootstrapRunning(false);
+      setBootstrapStage("");
+    } catch {
+      // ignore recovery failures
+    }
+  }, [online, tenantSlug, reconnectRecoveryKey]);
 
   const label = useMemo(() => {
     if (bootstrapRunning) return bootstrapStage ? `Preparing offline cache: ${bootstrapStage}` : "Preparing offline cache...";

@@ -7,9 +7,7 @@ import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
 import { shareAuditLink } from "@/components/forms/AuditShareControls";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  mergeAuditsRows,
   readAuditsListCache,
-  writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
 import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
@@ -155,20 +153,13 @@ export function AuditsListClient({
   }, [tenantSlug, user?.id]);
 
   useEffect(() => {
-    if (allRows.length === 0) return;
-    const cached = readAuditsListCache(user?.id || null, tenantSlug);
-    if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
-    writeAuditsListCache(user?.id || null, tenantSlug, allRows, undefined, { broadcast: false });
-  }, [allRows, tenantSlug, user?.id]);
-
-  useEffect(() => {
     const onCacheUpdate = (event: Event) => {
       const custom = event as CustomEvent<{ tenantSlug?: string }>;
       if (custom.detail?.tenantSlug !== tenantSlug) return;
       const cached = readAuditsListCache(user?.id || null, tenantSlug);
       if (!cached?.rows?.length) return;
       setAllRows((current) => {
-        const merged = mergeAuditsRows(current, cached.rows);
+        const merged = rowsAreEqual(current, cached.rows) ? current : cached.rows;
         return rowsAreEqual(current, merged) ? current : merged;
       });
     };
@@ -191,6 +182,7 @@ export function AuditsListClient({
         since: fullHistory ? undefined : cached?.maxUpdatedAt || undefined,
         limit: fullHistory ? 200 : 80,
         merge: true,
+        persistCache: false,
       });
       setAllRows(result.rows);
       setHasLoadedFromServer(true);
@@ -200,12 +192,6 @@ export function AuditsListClient({
       setSyncing(false);
     }
   }
-
-  useEffect(() => {
-    if (!session?.access_token || !tenantSlug || offline) return;
-    void syncFromServer(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, tenantSlug, user?.id, offline]);
 
   const draftCount = useMemo(() => allRows.filter((r) => r.status === "DRAFT").length, [allRows]);
   const submittedCount = useMemo(() => allRows.filter((r) => r.status === "SUBMITTED").length, [allRows]);
