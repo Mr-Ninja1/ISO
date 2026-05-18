@@ -5,9 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { createClient } from "@/lib/auth";
 import { AuthPageShell } from "@/components/AuthPageShell";
-import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,20 +47,7 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const accessToken = session?.access_token || "";
-      if (accessToken) {
-        const route = await resolvePostLoginRoute(accessToken, email, session?.user?.id || null);
-        router.push(route.path);
-        return;
-      }
-
-      router.push("/workspace");
+      router.replace("/workspace");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign in failed";
       if (/failed to fetch|networkerror|network request failed/i.test(message)) {

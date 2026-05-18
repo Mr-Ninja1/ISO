@@ -1,16 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import "@/components/CapacitorBootstrap";
 import { AuthProvider } from "@/components/AuthProvider";
 import { ThemeBootstrap } from "@/components/ThemeBootstrap";
 import { SmallScreenModal } from "@/components/SmallScreenModal";
-import { NativeLaunchSplash } from "@/components/NativeLaunchSplash";
-import { CapacitorBootstrap } from "@/components/CapacitorBootstrap";
-import { RequiresInternetDialogHost } from "@/components/RequiresInternetDialog";
-import { OfflineNavigationGuard } from "@/components/OfflineNavigationGuard";
-import { OfflineBootstrapGate } from "@/components/OfflineBootstrapGate";
-import { Suspense } from "react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ISO Pro",
-  description: "Offline-capable compliance platform for ISO-led service brands and compliance workflows",
+  description: "Compliance platform for ISO-led service brands and compliance workflows",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -61,15 +54,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeBootstrap />
-        <AuthProvider>
-          <CapacitorBootstrap />
-          <RequiresInternetDialogHost />
-          <OfflineNavigationGuard />
-          <NativeLaunchSplash />
-          <Suspense fallback={null}>
-            <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
-          </Suspense>
-        </AuthProvider>
+        <AuthProvider>{children}</AuthProvider>
         <SmallScreenModal />
       </body>
     </html>

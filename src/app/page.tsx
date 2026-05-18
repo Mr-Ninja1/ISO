@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { ArrowRight, CheckCircle2, ShieldCheck, Sparkles, TabletSmartphone } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -99,10 +98,6 @@ export default function Home() {
 
     setDeveloperClicks(developerClicksRef.current);
   };
-
-  if (loading) {
-    return <AppLoadingScreen title="Loading" subtitle="Preparing your workspace..." />;
-  }
 
   return (
     <main className="min-h-dvh bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-50 via-blue-50/30 to-white px-4 py-6 sm:px-6 lg:px-8">
