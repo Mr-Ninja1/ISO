@@ -105,6 +105,9 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
       const base = z.array(row);
       return field.required ? base.min(1, "Add at least one row") : base.optional();
     }
+    case "display": {
+      return z.any().optional();
+    }
     default: {
       // Exhaustive check
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -121,6 +124,11 @@ function getSections(schema: FormSchemaV1): FormSection[] {
 
 function isActiveField(field: { isActive?: boolean }) {
   return field.isActive !== false;
+}
+
+/** Display labels are read-only; they are not part of submitted audit data. */
+function isInputField(field: FieldDef | SimpleFieldDef) {
+  return field.type !== "display";
 }
 
 function gridToZod(grid: GridSection) {
@@ -151,7 +159,7 @@ export function buildZodSchema(schema: FormSchemaV1) {
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
-      for (const field of section.fields.filter(isActiveField)) {
+      for (const field of section.fields.filter(isActiveField).filter(isInputField)) {
         shape[field.id] = fieldToZod(field);
       }
     }
@@ -170,7 +178,7 @@ export function buildDefaultValues(schema: FormSchemaV1) {
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
-      for (const field of section.fields.filter(isActiveField)) {
+      for (const field of section.fields.filter(isActiveField).filter(isInputField)) {
         if (field.type === "dynamic-table") defaults[field.id] = [];
         else if (field.type === "checkbox") defaults[field.id] = false;
         else if (field.type === "photo") defaults[field.id] = [];

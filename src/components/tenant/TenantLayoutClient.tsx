@@ -6,6 +6,7 @@ import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
+import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
@@ -51,6 +52,7 @@ export function TenantLayoutClient({
         </main>
       </div>
       <BrandAlertListener tenantSlug={tenantSlug} />
+      <TenantDueReminderWatcher tenantSlug={tenantSlug} />
       <TenantLayoutClientBottomNav tenantSlug={tenantSlug} />
     </div>
   );

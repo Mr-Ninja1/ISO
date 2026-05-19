@@ -9,6 +9,7 @@ import { NotificationModal } from "@/components/NotificationModal";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 
 type TemplateItem = {
   id: string;
@@ -150,7 +151,10 @@ export function TemplateManagementPanel({
                   className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
                   onClick={() => {
                     router.push(
-                      `/${tenantSlug}/templates/new?editTemplateId=${encodeURIComponent(t.id)}&categoryId=${encodeURIComponent(t.categoryId || "")}`
+                      buildTenantHref(tenantSlug, "templates/new", {
+                        editTemplateId: t.id,
+                        categoryId: t.categoryId || undefined,
+                      })
                     );
                   }}
                 >

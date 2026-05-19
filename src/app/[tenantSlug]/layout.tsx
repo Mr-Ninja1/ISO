@@ -7,6 +7,7 @@ import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
+import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
 import { capacitorTenantStaticParams } from "@/lib/capacitor/staticExport";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
@@ -112,6 +113,7 @@ export default async function TenantLayout({
         </main>
       </div>
       <BrandAlertListener tenantSlug={tenant.slug} />
+      <TenantDueReminderWatcher tenantSlug={tenant.slug} />
       <div className="print:hidden">
         <TenantBottomTabNav tenantSlug={tenant.slug} />
       </div>

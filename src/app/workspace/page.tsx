@@ -10,6 +10,7 @@ import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -51,7 +52,12 @@ import {
   type TemplateDueRule,
   type TemplateReminderTarget,
 } from "@/lib/dueRules";
-import { DUE_REMINDER_EVENT, ensureNotificationPermission, type DueReminderDetail } from "@/lib/client/dueReminderNotify";
+import {
+  clearRemindersForTemplate,
+  DUE_REMINDER_EVENT,
+  ensureNotificationPermission,
+  type DueReminderDetail,
+} from "@/lib/client/dueReminderNotify";
 
 type TenantSummary = {
   id: string;
@@ -861,10 +867,11 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (blockIfOffline("Create custom form")) return;
     setAddFormOpen(false);
-    const qs = new URLSearchParams();
-    if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
-    const suffix = qs.toString();
-    router.push(`/${workspace.tenant.slug}/templates/new${suffix ? `?${suffix}` : ""}`);
+    router.push(
+      buildTenantHref(workspace.tenant.slug, "templates/new", {
+        categoryId: selectedCategoryId || undefined,
+      })
+    );
   }
 
   async function openQuickSettings(template: TemplateSummary) {
@@ -976,7 +983,7 @@ function WorkspacePageInner() {
       };
 
       const dueAt = resolveTemplateDueReminderAt(nextMeta);
-      const nextSettings = {
+      const nextSettings: NonNullable<TemplateSummary["settings"]> = {
         dueRule: parseTemplateDueRule(nextMeta),
         dueDays: typeof nextMeta.dueDays === "number" ? nextMeta.dueDays : undefined,
         dueReminderAt: dueAt?.toISOString(),
@@ -985,7 +992,7 @@ function WorkspacePageInner() {
           typeof nextMeta.temperatureAlertBelow === "number" ? nextMeta.temperatureAlertBelow : undefined,
         temperatureAlertAbove:
           typeof nextMeta.temperatureAlertAbove === "number" ? nextMeta.temperatureAlertAbove : undefined,
-        temperatureUnit: nextMeta.temperatureUnit === "F" || nextMeta.temperatureUnit === "C" ? nextMeta.temperatureUnit : undefined,
+        temperatureUnit: settings.temperatureUnit,
         cardIcon: typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : undefined,
         cardColor: typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : undefined,
       };
@@ -1008,18 +1015,37 @@ function WorkspacePageInner() {
       const saveJson = await saveRes.json().catch(() => ({}));
       if (!saveRes.ok) throw new Error(saveJson?.error || `Failed to save settings (${saveRes.status})`);
 
-      setWorkspace((prev) =>
-        prev
-          ? {
-              ...prev,
-              templates: prev.templates.map((t) =>
-                t.id === quickSettingsTemplate.id ? { ...t, settings: nextSettings } : t
-              ),
-            }
-          : prev
-      );
+      const savedTemplateId =
+        typeof saveJson?.templateId === "string" ? saveJson.templateId : quickSettingsTemplate.id;
 
-      setQuickSettingsTemplate((prev) => (prev ? { ...prev, settings: nextSettings } : prev));
+      setWorkspace((prev) => {
+        if (!prev) return prev;
+        const nextTemplates = prev.templates.map((t) => {
+          if (t.id !== quickSettingsTemplate.id && t.id !== savedTemplateId) return t;
+          return { ...t, id: savedTemplateId, settings: nextSettings };
+        });
+        const merged =
+          savedTemplateId !== quickSettingsTemplate.id &&
+          !nextTemplates.some((t) => t.id === savedTemplateId)
+            ? [
+                ...nextTemplates,
+                { ...quickSettingsTemplate, id: savedTemplateId, settings: nextSettings },
+              ]
+            : nextTemplates;
+        const nextWorkspace = { ...prev, templates: merged };
+        try {
+          writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, nextWorkspace);
+          if (nextWorkspace.selectedCategoryId) {
+            writeWorkspaceCache(cacheUserId, tenantSlug, nextWorkspace.selectedCategoryId, nextWorkspace);
+          }
+          writeWorkspaceCache(cacheUserId, tenantSlug, null, nextWorkspace);
+        } catch {
+          // cache sync is best-effort
+        }
+        return nextWorkspace;
+      });
+
+      clearRemindersForTemplate(tenantSlug, savedTemplateId);
       setQuickSettingsTemplate(null);
 
       try {
@@ -2110,10 +2136,11 @@ function WorkspacePageInner() {
                           onClick={() => {
                             setMenuOpen(false);
                             if (blockIfOffline("Create custom form")) return;
-                            const qs = workspaceForRender.selectedCategoryId
-                              ? `?categoryId=${encodeURIComponent(workspaceForRender.selectedCategoryId)}`
-                              : "";
-                            router.push(`/${tenant.slug}/templates/new${qs}`);
+                            router.push(
+                              buildTenantHref(tenant.slug, "templates/new", {
+                                categoryId: workspaceForRender.selectedCategoryId || undefined,
+                              })
+                            );
                           }}
                         >
                           <Plus className="h-4 w-4" />
@@ -2806,7 +2833,12 @@ function WorkspacePageInner() {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setCardMenuTemplateId(null);
-                                        router.push(`/${tenant.slug}/templates/new?editTemplateId=${encodeURIComponent(t.id)}${t.categoryId ? `&categoryId=${encodeURIComponent(t.categoryId)}` : ""}`);
+                                        router.push(
+                                          buildTenantHref(tenant.slug, "templates/new", {
+                                            editTemplateId: t.id,
+                                            categoryId: t.categoryId || undefined,
+                                          })
+                                        );
                                       }}
                                     >
                                       Edit form structure
@@ -2817,7 +2849,10 @@ function WorkspacePageInner() {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setCardMenuTemplateId(null);
-                                        const editLink = `${window.location.origin}/${tenant.slug}/templates/new?editTemplateId=${encodeURIComponent(t.id)}${t.categoryId ? `&categoryId=${encodeURIComponent(t.categoryId)}` : ""}`;
+                                        const editLink = `${window.location.origin}${buildTenantHref(tenant.slug, "templates/new", {
+                                          editTemplateId: t.id,
+                                          categoryId: t.categoryId || undefined,
+                                        })}`;
                                         navigator.clipboard.writeText(editLink).then(() => {
                                           setNotification({
                                             title: "Link copied",

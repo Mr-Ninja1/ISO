@@ -1,5 +1,6 @@
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
-import type { FieldDef } from "@/types/forms";
+import type { DisplayField, FieldDef } from "@/types/forms";
+import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 
 export const REPORT_SIGNATURE_IMG_CLASS =
   "report-signature-img mx-auto block h-20 w-full max-w-md object-contain print:h-24";
@@ -39,6 +40,15 @@ function photoList(value: unknown) {
 }
 
 export function renderAuditReportFieldValue(field: FieldDef, payload: Record<string, unknown>, inTable = false) {
+  if (field.type === "display") {
+    const displayField = field as DisplayField;
+    return (
+      <span className={"whitespace-pre-wrap " + displayVariantClass(displayField.variant || "body")}>
+        {displayFieldText(displayField)}
+      </span>
+    );
+  }
+
   const value = payload[field.id];
 
   if (field.type === "signature") {

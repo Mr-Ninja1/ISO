@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -12,9 +12,37 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Calendar, Camera, Check, ChevronDown, ChevronRight, FileText, Hash, PenLine, Plus, Table2, Trash2 } from "lucide-react";
+import {
+  Calendar,
+  Camera,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Hash,
+  PenLine,
+  Plus,
+  Table2,
+  Tag,
+  Thermometer,
+  Trash2,
+} from "lucide-react";
+import {
+  COLUMN_HEADER_PLACEHOLDER,
+  columnHeaderDisplayLabel,
+  isColumnHeaderPlaceholder,
+} from "@/lib/formFieldConstants";
+import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
+import {
+  buildSectionsFromBuilderState,
+  getFormBuilderConfig,
+  sectionTitleForBuilder,
+  starterCanvasForType,
+} from "@/lib/formBuilderConfig";
 import { buildGridLayout } from "@/lib/gridLayout";
+import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 
 type BuilderState = {
   topFields: FieldDef[];
@@ -70,7 +98,17 @@ function defaultField(fieldType: FieldType): FieldDef {
         type: "dynamic-table",
         label: "Table",
         required: false,
-        columns: [{ id: "col1", label: "Column 1", type: "text" }],
+        columns: [{ id: "col1", label: COLUMN_HEADER_PLACEHOLDER, type: "text" }],
+      };
+    case "display":
+      return {
+        id,
+        type: "display",
+        label: "Instruction or form code",
+        required: false,
+        variant: "body",
+        content: "",
+        textAlign: "left",
       };
     default:
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,9 +123,9 @@ function defaultGrid(): GridSection {
     title: "Log Sheet",
     rows: 31,
     columns: [
-      { id: "col_1", type: "text", label: "Add column name", required: false },
-      { id: "col_2", type: "text", label: "Add column name", required: false },
-      { id: "col_3", type: "text", label: "Add column name", required: false },
+      { id: "col_1", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
+      { id: "col_2", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
+      { id: "col_3", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
     ],
   };
 }
@@ -134,15 +172,23 @@ function SectionColumnsSelect({
   );
 }
 
-function palette(): PaletteItem[] {
-  return [
-    { id: "palette_text", label: "Text field", icon: <FileText className="h-4 w-4" />, fieldType: "text" },
-    { id: "palette_date", label: "Date field", icon: <Calendar className="h-4 w-4" />, fieldType: "date" },
-    { id: "palette_number", label: "Number field", icon: <Hash className="h-4 w-4" />, fieldType: "number" },
-    { id: "palette_photo", label: "Photo evidence", icon: <Camera className="h-4 w-4" />, fieldType: "photo" },
-    { id: "palette_signature", label: "Signature field", icon: <PenLine className="h-4 w-4" />, fieldType: "signature" },
-    { id: "palette_table", label: "Table block", icon: <Table2 className="h-4 w-4" />, fieldType: "table" },
-  ];
+const PALETTE_CATALOG: PaletteItem[] = [
+  { id: "palette_display", label: "Label", icon: <Tag className="h-4 w-4" />, fieldType: "display" },
+  { id: "palette_text", label: "Text", icon: <FileText className="h-4 w-4" />, fieldType: "text" },
+  { id: "palette_date", label: "Date", icon: <Calendar className="h-4 w-4" />, fieldType: "date" },
+  { id: "palette_number", label: "Number", icon: <Hash className="h-4 w-4" />, fieldType: "number" },
+  { id: "palette_yesno", label: "Yes / No", icon: <Check className="h-4 w-4" />, fieldType: "yesno" },
+  { id: "palette_checkbox", label: "Checkbox", icon: <CheckSquare className="h-4 w-4" />, fieldType: "checkbox" },
+  { id: "palette_time", label: "Time", icon: <Calendar className="h-4 w-4" />, fieldType: "time" },
+  { id: "palette_temp", label: "Temperature", icon: <Thermometer className="h-4 w-4" />, fieldType: "temp" },
+  { id: "palette_photo", label: "Photo", icon: <Camera className="h-4 w-4" />, fieldType: "photo" },
+  { id: "palette_signature", label: "Signature", icon: <PenLine className="h-4 w-4" />, fieldType: "signature" },
+  { id: "palette_table", label: "Table", icon: <Table2 className="h-4 w-4" />, fieldType: "table" },
+];
+
+function paletteForFormType(formType: FormType): PaletteItem[] {
+  const allowed = new Set(getFormBuilderConfig(formType).paletteTypes);
+  return PALETTE_CATALOG.filter((item) => allowed.has(item.fieldType));
 }
 
 function DraggablePaletteItem({
@@ -176,6 +222,151 @@ function DraggablePaletteItem({
   );
 }
 
+function DisplayFieldCard({
+  field,
+  isActive,
+  isExpanded,
+  setIsExpanded,
+  onChange,
+  onRemove,
+  canDelete,
+}: {
+  field: import("@/types/forms").DisplayField;
+  isActive: boolean;
+  isExpanded: boolean;
+  setIsExpanded: (v: boolean) => void;
+  onChange: (next: import("@/types/forms").DisplayField) => void;
+  onRemove?: () => void;
+  canDelete?: boolean;
+}) {
+  const previewText = displayFieldText(field);
+  const variant = field.variant || "body";
+
+  if (isExpanded) {
+    return (
+      <div
+        className={
+          "rounded-md border border-dashed border-[var(--hse-teal)]/40 bg-[var(--hse-cream)]/30 p-3 " +
+          (isActive ? "" : "opacity-70")
+        }
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold text-[var(--hse-teal)]">Read-only label</div>
+          <div className="flex items-center gap-1">
+            {onRemove && canDelete ? (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsExpanded(false)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          <div className="grid gap-1">
+            <div className="text-xs font-medium text-foreground/70">Short title (optional)</div>
+            <input
+              className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+              value={field.label}
+              onChange={(e) => onChange({ ...field, label: e.target.value })}
+              placeholder="e.g. Form F-12"
+            />
+          </div>
+          <div className="grid gap-1">
+            <div className="text-xs font-medium text-foreground/70">Display text</div>
+            <textarea
+              className="min-h-20 w-full rounded-md border border-foreground/20 bg-background px-2 py-1.5 text-xs"
+              value={field.content ?? ""}
+              onChange={(e) => onChange({ ...field, content: e.target.value })}
+              placeholder="Instructions, legal text, form number, etc."
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Style</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={variant}
+                onChange={(e) =>
+                  onChange({
+                    ...field,
+                    variant: e.target.value as import("@/types/forms").DisplayVariant,
+                  })
+                }
+              >
+                <option value="title">Title</option>
+                <option value="subtitle">Subtitle</option>
+                <option value="body">Body / instruction</option>
+                <option value="caption">Caption</option>
+                <option value="code">Code / form number</option>
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <div className="text-xs font-medium text-foreground/70">Align</div>
+              <select
+                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
+                value={field.textAlign || "left"}
+                onChange={(e) =>
+                  onChange({
+                    ...field,
+                    textAlign: e.target.value as "left" | "center" | "right",
+                  })
+                }
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div
+          className={
+            "mt-3 rounded-md border border-foreground/10 bg-background/80 px-3 py-2 " +
+            displayAlignClass(field.textAlign) +
+            " " +
+            displayVariantClass(variant)
+          }
+        >
+          {previewText}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={
+        "rounded-md border border-dashed border-[var(--hse-teal)]/35 bg-[var(--hse-cream)]/20 px-3 py-2 " +
+        (isActive ? "" : "opacity-60")
+      }
+    >
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setIsExpanded(true)}>
+          <div className={"whitespace-pre-wrap " + displayAlignClass(field.textAlign) + " " + displayVariantClass(variant)}>
+            {previewText}
+          </div>
+          <div className="mt-1 text-[10px] uppercase tracking-wide text-[var(--hse-teal-mid)]">Label Â· not submitted</div>
+        </button>
+        {onRemove && canDelete ? (
+          <button type="button" onClick={onRemove} className="shrink-0 rounded-md border border-foreground/20 p-1 hover:bg-foreground/5">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function FieldCard({
   field,
   onChange,
@@ -192,6 +383,20 @@ function FieldCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const supportsPlaceholder = field.type === "text" || field.type === "date" || field.type === "number";
   const isActive = field.isActive !== false;
+
+  if (field.type === "display") {
+    return (
+      <DisplayFieldCard
+        field={field as import("@/types/forms").DisplayField}
+        isActive={isActive}
+        isExpanded={isExpanded}
+        setIsExpanded={setIsExpanded}
+        onChange={onChange as (next: import("@/types/forms").DisplayField) => void}
+        onRemove={onRemove}
+        canDelete={canDelete}
+      />
+    );
+  }
 
   if (isExpanded) {
     return (
@@ -450,6 +655,208 @@ function ColumnTypeSelect({
   );
 }
 
+function ColumnEditorModal({
+  activeCol,
+  grid,
+  lockExistingDeletes,
+  lockedColumnIds,
+  onClose,
+  onUpdateColumn,
+  onApplyGridChange,
+  onDelete,
+}: {
+  activeCol: SimpleFieldDef;
+  grid: GridSection;
+  lockExistingDeletes?: boolean;
+  lockedColumnIds?: Set<string>;
+  onClose: () => void;
+  onUpdateColumn: (colId: string, patch: Partial<SimpleFieldDef>) => void;
+  onApplyGridChange: (next: GridSection) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <CenteredOverlay open maxWidthClass="max-w-sm" onClose={onClose}>
+      <div className="p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-2 border-b border-foreground/10 pb-3">
+          <div>
+            <div className="text-sm font-semibold">Edit column</div>
+            <div className="text-xs text-foreground/60">Set the header name, type, and size</div>
+          </div>
+          <button
+            type="button"
+            className="rounded-md border border-foreground/20 px-3 py-1.5 text-xs font-medium hover:bg-foreground/5"
+            onClick={onClose}
+          >
+            Done
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          <div className="grid gap-1">
+            <div className="text-xs font-medium text-foreground/70">Header name</div>
+            <input
+              className="h-9 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+              value={activeCol.label}
+              onChange={(e) => onUpdateColumn(activeCol.id, { label: e.target.value } as Partial<SimpleFieldDef>)}
+              placeholder={COLUMN_HEADER_PLACEHOLDER}
+              autoFocus
+            />
+          </div>
+          <div className="grid gap-1">
+            <div className="text-xs font-medium text-foreground/70">Data type</div>
+            <ColumnTypeSelect
+              value={activeCol.type as FieldType}
+              onChange={(nextType) => {
+                const patch: Partial<SimpleFieldDef> = { type: nextType as SimpleFieldDef["type"] };
+                if (nextType === "temp" && !("unit" in activeCol)) (patch as { unit?: "C" | "F" }).unit = "C";
+                onApplyGridChange({
+                  ...grid,
+                  columns: grid.columns.map((c) =>
+                    c.id === activeCol.id ? ({ ...c, ...patch } as SimpleFieldDef) : c
+                  ),
+                });
+              }}
+            />
+          </div>
+          <div className="grid gap-1">
+            <div className="text-xs font-medium text-foreground/70">Column size</div>
+            <div className="text-[11px] leading-4 text-foreground/55">
+              Size controls how wide this column appears in the table (in pixels).
+            </div>
+            <div className="grid grid-cols-[32px_1fr_32px] gap-2">
+              <button
+                type="button"
+                className="h-9 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                onClick={() =>
+                  onUpdateColumn(activeCol.id, {
+                    widthPx: Math.max(80, Number((activeCol as { widthPx?: number }).widthPx || 160) - 20),
+                  } as Partial<SimpleFieldDef>)
+                }
+                title="Narrower"
+              >
+                âˆ’
+              </button>
+              <input
+                type="number"
+                min={80}
+                max={640}
+                step={10}
+                className="h-9 w-full rounded-md border border-foreground/20 bg-background px-2 text-sm"
+                value={
+                  typeof (activeCol as { widthPx?: number }).widthPx === "number"
+                    ? Math.round((activeCol as { widthPx?: number }).widthPx!)
+                    : 160
+                }
+                onChange={(e) => {
+                  const n = Number(e.target.value || 160);
+                  onUpdateColumn(activeCol.id, {
+                    widthPx: Math.max(80, Math.min(640, n)),
+                  } as Partial<SimpleFieldDef>);
+                }}
+              />
+              <button
+                type="button"
+                className="h-9 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                onClick={() =>
+                  onUpdateColumn(activeCol.id, {
+                    widthPx: Math.min(640, Number((activeCol as { widthPx?: number }).widthPx || 160) + 20),
+                  } as Partial<SimpleFieldDef>)
+                }
+                title="Wider"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {activeCol.type === "temp" ? (
+            <>
+              <div className="grid gap-1">
+                <div className="text-xs font-medium text-foreground/70">Temperature unit</div>
+                <select
+                  className="h-9 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                  value={(activeCol as { unit?: string }).unit === "F" ? "F" : "C"}
+                  onChange={(e) =>
+                    onUpdateColumn(activeCol.id, { unit: e.target.value === "F" ? "F" : "C" } as Partial<SimpleFieldDef>)
+                  }
+                >
+                  <option value="C">Celsius (C)</option>
+                  <option value="F">Fahrenheit (F)</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-foreground/70">Alert below</div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="h-9 w-full rounded-md border border-foreground/20 bg-background px-2 text-sm"
+                    value={
+                      typeof (activeCol as { alertBelow?: number }).alertBelow === "number"
+                        ? String((activeCol as { alertBelow?: number }).alertBelow)
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      onUpdateColumn(activeCol.id, {
+                        alertBelow: val === "" ? undefined : Number(val),
+                      } as Partial<SimpleFieldDef>);
+                    }}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-foreground/70">Alert above</div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="h-9 w-full rounded-md border border-foreground/20 bg-background px-2 text-sm"
+                    value={
+                      typeof (activeCol as { alertAbove?: number }).alertAbove === "number"
+                        ? String((activeCol as { alertAbove?: number }).alertAbove)
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      onUpdateColumn(activeCol.id, {
+                        alertAbove: val === "" ? undefined : Number(val),
+                      } as Partial<SimpleFieldDef>);
+                    }}
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          <label className="inline-flex items-center gap-2 text-xs text-foreground/80">
+            <input
+              type="checkbox"
+              checked={activeCol.isActive !== false}
+              onChange={(e) => onUpdateColumn(activeCol.id, { isActive: e.target.checked } as Partial<SimpleFieldDef>)}
+            />
+            Column active
+          </label>
+
+          {!lockExistingDeletes || !lockedColumnIds?.has(activeCol.id) ? (
+            <button
+              type="button"
+              className="inline-flex h-9 w-full items-center justify-center rounded-md border border-red-300 text-sm text-red-700 hover:bg-red-50"
+              onClick={onDelete}
+            >
+              Delete column
+            </button>
+          ) : (
+            <div className="text-xs text-foreground/60">
+              Existing columns are locked because this template has submissions.
+            </div>
+          )}
+        </div>
+      </div>
+    </CenteredOverlay>
+  );
+}
+
 function GridBuilder({
   grid,
   onChange,
@@ -464,14 +871,13 @@ function GridBuilder({
   compact?: boolean;
 }) {
   const [activeColId, setActiveColId] = useState<string | null>(null);
-  const [colEditor, setColEditor] = useState<{ colId: string; top: number; left: number } | null>(null);
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [selection, setSelection] = useState<{
     startRow: number;
     startCol: number;
     endRow: number;
     endCol: number;
   } | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [toolsPos, setToolsPos] = useState<{ top: number; left: number } | null>(null);
   const dragAnchorRef = useRef<{ row: number; col: number } | null>(null);
@@ -517,38 +923,9 @@ function GridBuilder({
   }
 
   const activeCol = useMemo(
-    () => grid.columns.find((c) => c.id === activeColId) ?? null,
-    [grid.columns, activeColId]
+    () => grid.columns.find((c) => c.id === (editingColumnId || activeColId)) ?? null,
+    [grid.columns, activeColId, editingColumnId]
   );
-
-  useEffect(() => {
-    if (!colEditor) return;
-
-    function onMouseDown(ev: MouseEvent) {
-      const pop = popoverRef.current;
-      if (!pop) return;
-      if (ev.target instanceof Node && pop.contains(ev.target)) return;
-      setColEditor(null);
-    }
-
-    function onKeyDown(ev: KeyboardEvent) {
-      if (ev.key === "Escape") setColEditor(null);
-    }
-
-    function onAnyScroll() {
-      setColEditor(null);
-    }
-
-    window.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onAnyScroll, true);
-
-    return () => {
-      window.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onAnyScroll, true);
-    };
-  }, [colEditor]);
 
   useEffect(() => {
     if (!selection) {
@@ -607,7 +984,7 @@ function GridBuilder({
 
   function addColumn() {
     const colId = makeId("col");
-  const nextCol: SimpleFieldDef = { id: colId, type: "text", label: "Add column name", required: false } as any;
+  const nextCol: SimpleFieldDef = { id: colId, type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false } as any;
     applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
     setActiveColId(colId);
   }
@@ -817,23 +1194,15 @@ function GridBuilder({
                       (activeColId === col.id ? "bg-foreground/5" : "")
                     }
                     onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       setActiveColId(col.id);
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      const estimatedPopoverHeight = 260;
-                      const desiredTop = rect.top - estimatedPopoverHeight - 8;
-                      const top = desiredTop >= 12 ? desiredTop : rect.bottom + 8;
-                      const desiredLeft = rect.left;
-                      const maxLeft = Math.max(12, window.innerWidth - 340);
-                      setColEditor({ colId: col.id, top, left: Math.min(desiredLeft, maxLeft) });
+                      setEditingColumnId(col.id);
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setActiveColId(col.id);
-                      setColEditor({
-                        colId: col.id,
-                        top: e.clientY + 8,
-                        left: e.clientX + 8,
-                      });
+                      setEditingColumnId(col.id);
                     }}
                     onTouchStart={(e) => {
                       const touch = e.touches[0];
@@ -841,11 +1210,7 @@ function GridBuilder({
                       if (longPressRef.current != null) window.clearTimeout(longPressRef.current);
                       longPressRef.current = window.setTimeout(() => {
                         setActiveColId(col.id);
-                        setColEditor({
-                          colId: col.id,
-                          top: touch.clientY + 8,
-                          left: touch.clientX + 8,
-                        });
+                        setEditingColumnId(col.id);
                       }, 450);
                     }}
                     onTouchEnd={() => {
@@ -856,12 +1221,18 @@ function GridBuilder({
                     }}
                     title="Edit column"
                   >
-                    {col.label ? col.label : (
-                      <span className="inline-flex items-center gap-1 text-foreground/60">
-                        Add name / Add column name
-                        <PenLine className="h-3.5 w-3.5" />
-                      </span>
-                    )}
+                    <span
+                      className={
+                        isColumnHeaderPlaceholder(col.label)
+                          ? "inline-flex items-center gap-1 italic text-foreground/45"
+                          : ""
+                      }
+                    >
+                      {columnHeaderDisplayLabel(col.label)}
+                      {isColumnHeaderPlaceholder(col.label) ? (
+                        <PenLine className="h-3.5 w-3.5 shrink-0" />
+                      ) : null}
+                    </span>
                   </button>
                 </th>
               ))}
@@ -1152,165 +1523,21 @@ function GridBuilder({
         </div>
       ) : null}
 
-      {colEditor && activeCol && colEditor.colId === activeCol.id ? (
-        <div
-          ref={popoverRef}
-          className="fixed z-50 w-80 rounded-md border border-foreground/20 bg-background p-3 shadow-lg"
-          style={{ top: colEditor.top, left: colEditor.left }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold text-foreground/70">Column</div>
-            <button
-              type="button"
-              className="text-xs px-2 py-1 rounded hover:bg-foreground/5"
-              onClick={() => setColEditor(null)}
-            >
-              Done
-            </button>
-          </div>
-
-          <div className="mt-3 grid gap-3">
-            <div className="grid gap-1">
-              <div className="text-xs font-medium text-foreground/70">Header name</div>
-              <input
-                className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                value={activeCol.label}
-                onChange={(e) => updateColumn(activeCol.id, { label: e.target.value } as any)}
-                placeholder="Column name"
-                autoFocus
-              />
-            </div>
-            <div className="grid gap-1">
-              <div className="text-xs font-medium text-foreground/70">Data type</div>
-              <ColumnTypeSelect
-                value={activeCol.type as FieldType}
-                onChange={(nextType) => {
-                  const patch: any = { type: nextType };
-                  if (nextType === "temp" && !("unit" in activeCol)) patch.unit = "C";
-                  applyGridChange({
-                    ...grid,
-                    columns: grid.columns.map((c) =>
-                      c.id === activeCol.id ? ({ ...c, ...patch } as any) : c
-                    ),
-                  });
-                }}
-              />
-            </div>
-            <div className="grid gap-1">
-              <div className="text-xs font-medium text-foreground/70">Column width (px)</div>
-              <div className="grid grid-cols-[32px_1fr_32px] gap-2">
-                <button
-                  type="button"
-                  className="h-8 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
-                  onClick={() =>
-                    updateColumn(activeCol.id, {
-                      widthPx: Math.max(80, Number((activeCol as any).widthPx || 160) - 20),
-                    } as any)
-                  }
-                  title="Narrower column"
-                >
-                  -
-                </button>
-                <input
-                  type="number"
-                  min={80}
-                  max={640}
-                  step={10}
-                  className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                  value={typeof (activeCol as any).widthPx === "number" ? Math.round((activeCol as any).widthPx) : 160}
-                  onChange={(e) => {
-                    const n = Number(e.target.value || 160);
-                    updateColumn(activeCol.id, { widthPx: Math.max(80, Math.min(640, n)) } as any);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="h-8 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
-                  onClick={() =>
-                    updateColumn(activeCol.id, {
-                      widthPx: Math.min(640, Number((activeCol as any).widthPx || 160) + 20),
-                    } as any)
-                  }
-                  title="Wider column"
-                >
-                  +
-                </button>
-              </div>
-              <div className="text-[11px] text-foreground/55">Use +/- for quick mobile-friendly resizing.</div>
-            </div>
-
-            {activeCol.type === "temp" ? (
-              <>
-                <div className="grid gap-1">
-                  <div className="text-xs font-medium text-foreground/70">Temperature unit</div>
-                  <select
-                    className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                    value={(activeCol as any).unit === "F" ? "F" : "C"}
-                    onChange={(e) => updateColumn(activeCol.id, { unit: e.target.value === "F" ? "F" : "C" } as any)}
-                  >
-                    <option value="C">Celsius (C)</option>
-                    <option value="F">Fahrenheit (F)</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="grid gap-1">
-                    <div className="text-xs font-medium text-foreground/70">Alert below</div>
-                    <input
-                      type="number"
-                      step="0.1"
-                      className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                      value={typeof (activeCol as any).alertBelow === "number" ? String((activeCol as any).alertBelow) : ""}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        updateColumn(activeCol.id, { alertBelow: val === "" ? undefined : Number(val) } as any);
-                      }}
-                      placeholder="Optional"
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <div className="text-xs font-medium text-foreground/70">Alert above</div>
-                    <input
-                      type="number"
-                      step="0.1"
-                      className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                      value={typeof (activeCol as any).alertAbove === "number" ? String((activeCol as any).alertAbove) : ""}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        updateColumn(activeCol.id, { alertAbove: val === "" ? undefined : Number(val) } as any);
-                      }}
-                      placeholder="Optional"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : null}
-            <label className="inline-flex items-center gap-2 text-xs text-foreground/80">
-              <input
-                type="checkbox"
-                checked={activeCol.isActive !== false}
-                onChange={(e) => updateColumn(activeCol.id, { isActive: e.target.checked } as any)}
-              />
-              Column active
-            </label>
-            {!lockExistingDeletes || !lockedColumnIds?.has(activeCol.id) ? (
-              <button
-                type="button"
-                className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 px-2 text-xs text-red-700 hover:bg-red-50"
-                onClick={() => {
-                  applyGridChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
-                  setColEditor(null);
-                  setActiveColId(null);
-                }}
-              >
-                Delete column
-              </button>
-            ) : (
-              <div className="text-xs text-foreground/60">
-                Existing columns are locked because this template has submissions.
-              </div>
-            )}
-          </div>
-        </div>
+      {editingColumnId && activeCol && activeCol.id === editingColumnId ? (
+        <ColumnEditorModal
+          activeCol={activeCol}
+          grid={grid}
+          lockExistingDeletes={lockExistingDeletes}
+          lockedColumnIds={lockedColumnIds}
+          onClose={() => setEditingColumnId(null)}
+          onUpdateColumn={updateColumn}
+          onApplyGridChange={applyGridChange}
+          onDelete={() => {
+            applyGridChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
+            setEditingColumnId(null);
+            setActiveColId(null);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -1337,17 +1564,20 @@ export function FormBuilder({
   lockedGridColumnIds?: string[];
   resetKey?: string;
 }) {
+  const builderConfig = useMemo(() => getFormBuilderConfig(formType), [formType]);
+
   const initialState = useMemo<BuilderState>(() => {
     const topFields: FieldDef[] = [];
     const bottomFields: FieldDef[] = [];
-    let topFieldsColumns: 1 | 2 | 3 | 4 = 1;
+    let topFieldsColumns: 1 | 2 | 3 | 4 = builderConfig.headerColumnsDefault;
     let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
     let grid: GridSection | null = null;
 
     if (initialSections?.length) {
       for (const section of initialSections) {
         if (section.type === "fields") {
-          if (section.title?.toLowerCase().includes("footer")) {
+          const bucket = sectionTitleForBuilder(section, formType);
+          if (bucket === "bottom") {
             bottomFields.push(...section.fields);
             bottomFieldsColumns = section.columns || bottomFieldsColumns;
           } else {
@@ -1364,7 +1594,7 @@ export function FormBuilder({
     }
 
     return { topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grid };
-  }, [initialSections]);
+  }, [initialSections, formType, builderConfig.headerColumnsDefault]);
 
   const [state, setState] = useState<BuilderState>(initialState);
 
@@ -1378,44 +1608,57 @@ export function FormBuilder({
   const [activeDrag, setActiveDrag] = useState<PaletteItem | null>(null);
   const [insertTarget, setInsertTarget] = useState<"top" | "bottom">("top");
   const [questionLabel, setQuestionLabel] = useState("");
-  const [questionType, setQuestionType] = useState<FieldType>(formType === "answer-sheet" ? "text" : "yesno");
+  const [questionType, setQuestionType] = useState<FieldType>(builderConfig.defaultQuestionFieldType);
   const [compactBuilder, setCompactBuilder] = useState(false);
   const [showHeaderSection, setShowHeaderSection] = useState(true);
-  const [showTableSection, setShowTableSection] = useState(true);
-  const [showFooterSection, setShowFooterSection] = useState(true);
-  const paletteItems = useMemo(() => palette(), []);
+  const [showTableSection, setShowTableSection] = useState(builderConfig.canvasMode === "checklist");
+  const [showFooterSection, setShowFooterSection] = useState(false);
+  const paletteItems = useMemo(() => paletteForFormType(formType), [formType]);
   const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
   const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
   useEffect(() => {
-    if (formType === "questionnaire") {
-      setQuestionType("yesno");
-      return;
-    }
-    if (formType === "answer-sheet") {
-      setQuestionType("text");
-    }
-  }, [formType]);
-
+    setQuestionType(builderConfig.defaultQuestionFieldType);
+    setShowTableSection(builderConfig.canvasMode === "checklist" || Boolean(state.grid));
+    setShowHeaderSection(true);
+    setShowFooterSection(false);
+  }, [formType, builderConfig.defaultQuestionFieldType, builderConfig.canvasMode, state.grid]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  const computedSections = useMemo<FormSection[]>(() => {
-    const sections: FormSection[] = [{ type: "fields", title: "Metadata Header", columns: state.topFieldsColumns, fields: state.topFields }];
-    if (state.grid) sections.push(state.grid);
-    if (state.bottomFields.length) {
-      sections.push({ type: "fields", title: "Footer", columns: state.bottomFieldsColumns, fields: state.bottomFields });
-    }
-    return sections;
-  }, [state.bottomFields, state.bottomFieldsColumns, state.grid, state.topFields, state.topFieldsColumns]);
+  const computedSections = useMemo<FormSection[]>(
+    () => buildSectionsFromBuilderState(state, formType),
+    [state, formType]
+  );
 
   function sync(next: BuilderState) {
     setState(next);
-    const sections: FormSection[] = [{ type: "fields", title: "Metadata Header", columns: next.topFieldsColumns, fields: next.topFields }];
-    if (next.grid) sections.push(next.grid);
-    if (next.bottomFields.length) {
-      sections.push({ type: "fields", title: "Footer", columns: next.bottomFieldsColumns, fields: next.bottomFields });
+    onChangeSections(buildSectionsFromBuilderState(next, formType));
+  }
+
+  function applyStarterLayout() {
+    const starter = starterCanvasForType(formType);
+    const topFields: FieldDef[] = [];
+    const bottomFields: FieldDef[] = [];
+    let topFieldsColumns: 1 | 2 | 3 | 4 = builderConfig.headerColumnsDefault;
+    let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
+    let grid: GridSection | null = null;
+
+    for (const section of starter) {
+      if (section.type === "fields") {
+        const bucket = sectionTitleForBuilder(section, formType);
+        if (bucket === "bottom") {
+          bottomFields.push(...section.fields);
+          bottomFieldsColumns = section.columns || bottomFieldsColumns;
+        } else {
+          topFields.push(...section.fields);
+          topFieldsColumns = section.columns || topFieldsColumns;
+        }
+        continue;
+      }
+      if (section.type === "grid") grid = section;
     }
-    onChangeSections(sections);
+
+    sync({ topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grid });
   }
 
   function addItem(fieldType: FieldType | "table", target: "top" | "bottom" = "top") {
@@ -1463,7 +1706,7 @@ export function FormBuilder({
     }
   }
 
-  const showQuestionTools = formType === "questionnaire" || formType === "answer-sheet";
+  const showQuestionTools = builderConfig.showQuestionTools;
 
   function addQuestion() {
     const label = questionLabel.trim();
@@ -1484,7 +1727,9 @@ export function FormBuilder({
         <div className="border-b border-foreground/20 bg-background px-3 py-3 sm:px-6">
           <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
             <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Quick Add Fields</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">
+                Quick add Â· {builderConfig.label}
+              </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
                 {paletteItems.map((item) => (
                   <DraggablePaletteItem
@@ -1494,9 +1739,19 @@ export function FormBuilder({
                   />
                 ))}
               </div>
+              {builderConfig.starterGrid ? (
+                <button
+                  type="button"
+                  className="mt-2 inline-flex h-7 items-center justify-center rounded-md border border-dashed border-foreground/25 px-2 text-[11px] text-foreground/70 hover:bg-foreground/5"
+                  onClick={applyStarterLayout}
+                >
+                  Load starter layout
+                </button>
+              ) : null}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              {builderConfig.showPlacementToggle ? (
               <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Placement</div>
                 <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
@@ -1508,23 +1763,26 @@ export function FormBuilder({
                     }
                     onClick={() => setInsertTarget("top")}
                   >
-                    Header
+                    {builderConfig.sectionLabels.header}
                   </button>
-                  <button
-                    type="button"
-                    className={
-                      "rounded px-2 py-1 " +
-                      (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
-                    }
-                    onClick={() => setInsertTarget("bottom")}
-                  >
-                    Footer
-                  </button>
+                  {builderConfig.sections.footer ? (
+                    <button
+                      type="button"
+                      className={
+                        "rounded px-2 py-1 " +
+                        (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
+                      }
+                      onClick={() => setInsertTarget("bottom")}
+                    >
+                      {builderConfig.sectionLabels.footer}
+                    </button>
+                  ) : null}
                 </div>
               </div>
+              ) : null}
 
               <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Builder View</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">View</div>
                 <button
                   type="button"
                   className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
@@ -1536,7 +1794,7 @@ export function FormBuilder({
             </div>
           </div>
           <div className={"mt-2 rounded-md border border-foreground/15 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/70 " + (compactBuilder ? "hidden sm:block" : "")}>
-            <span className="font-semibold">Build flow:</span> Choose placement (header/footer), tap a field to add, then edit each field card. Long-press works on mobile.
+            <span className="font-semibold">{builderConfig.label}:</span> {builderConfig.description}
           </div>
         </div>
 
@@ -1610,18 +1868,22 @@ export function FormBuilder({
                     </div>
                   ) : null}
 
+                  {builderConfig.sections.header ? (
+                  <>
                   <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between px-3 py-2 text-left"
                       onClick={() => setShowHeaderSection((v) => !v)}
                     >
-                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Metadata Header</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                        {builderConfig.sectionLabels.header}
+                      </span>
                       {showHeaderSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
                     </button>
                   </div>
                   {showHeaderSection ? (
-                  <FieldDropArea id="drop_top_fields" label="Metadata header">
+                  <FieldDropArea id="drop_top_fields" label={builderConfig.sectionLabels.header}>
                       <div className="mt-2 flex items-center justify-between gap-3">
                       <div className={"text-xs text-foreground/60 " + (compactBuilder ? "hidden sm:block" : "")}>Brand/report metadata fields shown at the top of the form.</div>
                       <SectionColumnsSelect
@@ -1634,17 +1896,39 @@ export function FormBuilder({
                       <button
                         type="button"
                         className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                        onClick={() => addItem("display", "top")}
+                      >
+                        + Label / instruction
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                        onClick={() => {
+                          const f = defaultField("display") as import("@/types/forms").DisplayField;
+                          f.variant = "code";
+                          f.label = "Form reference";
+                          f.content = "e.g. F-12 / Rev. 3";
+                          sync({ ...state, topFields: [...state.topFields, f] });
+                        }}
+                      >
+                        + Form code
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
                         onClick={() => addItem("text", "top")}
                       >
-                        + Metadata text field
+                        + Text field
                       </button>
+                      {builderConfig.showMetadataStarter ? (
                       <button
                         type="button"
                         className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
                         onClick={() => sync({ ...state, topFields: defaultMetadataHeaderFields() })}
                       >
-                        Reset metadata starter
+                        Add metadata starter
                       </button>
+                      ) : null}
                       <button
                         type="button"
                         className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
@@ -1686,14 +1970,20 @@ export function FormBuilder({
                     )}
                   </FieldDropArea>
                   ) : null}
+                  </>
+                  ) : null}
 
+                  {builderConfig.sections.table ? (
+                  <>
                   <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between px-3 py-2 text-left"
                       onClick={() => setShowTableSection((v) => !v)}
                     >
-                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Data Log Table</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                        {builderConfig.sectionLabels.table}
+                      </span>
                       {showTableSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
                     </button>
                   </div>
@@ -1716,14 +2006,20 @@ export function FormBuilder({
                     )}
                   </div>
                   ) : null}
+                  </>
+                  ) : null}
 
+                  {builderConfig.sections.footer ? (
+                  <>
                   <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
                     <button
                       type="button"
                       className="flex w-full items-center justify-between px-3 py-2 text-left"
                       onClick={() => setShowFooterSection((v) => !v)}
                     >
-                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Footer Fields</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                        {builderConfig.sectionLabels.footer}
+                      </span>
                       {showFooterSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
                     </button>
                   </div>
@@ -1739,6 +2035,13 @@ export function FormBuilder({
                         />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+                          onClick={() => addItem("display", "bottom")}
+                        >
+                          + Label
+                        </button>
                         <button
                           type="button"
                           className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
@@ -1816,6 +2119,8 @@ export function FormBuilder({
                       )}
                     </FieldDropArea>
                   </div>
+                  ) : null}
+                  </>
                   ) : null}
                 </div>
               </div>

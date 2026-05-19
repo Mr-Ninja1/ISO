@@ -5,12 +5,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Eye, Laptop, Loader2 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { readWorkspaceCacheResolved, writeWorkspaceCache } from "@/lib/client/workspaceCache";
 import { FormBuilder } from "@/components/forms/FormBuilder";
+import { FormTypePicker } from "@/components/forms/FormTypePicker";
+import {
+  blankCanvasForType,
+  getFormBuilderConfig,
+  isSchemaEmpty,
+  parseFormType,
+} from "@/lib/formBuilderConfig";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import type { FieldDef, FormSection, FormStyle, FormType } from "@/types/forms";
+import { columnHeaderDisplayLabel, isColumnHeaderPlaceholder } from "@/lib/formFieldConstants";
+import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import {
   enqueueTemplateSync,
@@ -101,65 +113,8 @@ function flattenSections(sections: FormSection[]): FlatItem[] {
   return items;
 }
 
-function workspaceV1Key(tenantSlug: string, categoryId: string | null) {
-  return `workspace-cache:v1:${tenantSlug}:${categoryId || "all"}`;
-}
-
-function readWorkspaceCache(tenantSlug: string, categoryId: string | null): WorkspaceData | null {
-  if (!tenantSlug) return null;
-  try {
-    // Prefer v2 caches if present (they include user-scoped keys). Look for any matching v2 key.
-    const suffix = `:${tenantSlug}:${categoryId || "all"}`;
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      if (key.startsWith("workspace-cache:v2:") && key.endsWith(suffix)) {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
-        if (!parsed?.data || typeof parsed.ts !== "number") continue;
-        return parsed.data;
-      }
-    }
-
-    // Fallback to legacy v1 key
-    const raw = localStorage.getItem(workspaceV1Key(tenantSlug, categoryId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
-    if (!parsed?.data || typeof parsed.ts !== "number") return null;
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
-
-function writeWorkspaceCache(tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
-  if (!tenantSlug) return;
-  try {
-    const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
-    // write legacy v1 key for backward compatibility
-    localStorage.setItem(workspaceV1Key(tenantSlug, categoryId), JSON.stringify(payload));
-
-    // Also update any v2 workspace caches for this tenant so other components see the change
-    const v2Prefix = `workspace-cache:v2:`;
-    const suffix = `:${tenantSlug}:${categoryId || "all"}`;
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      if (key.startsWith(v2Prefix) && key.endsWith(suffix)) {
-        try {
-          localStorage.setItem(key, JSON.stringify(payload));
-        } catch {
-          // ignore individual write failures
-        }
-      }
-    }
-  } catch {
-    // ignore localStorage failures
-  }
-}
-
 function patchWorkspaceTemplateCaches(
+  userId: string | null,
   tenantSlug: string,
   nextTemplate: { id: string; title: string; categoryId: string | null; updatedAt: string }
 ) {
@@ -197,10 +152,10 @@ function patchWorkspaceTemplateCaches(
         : withoutOld;
 
       // write updated templates into v1 and any matching v2 caches
-      writeWorkspaceCache(tenantSlug, selected, {
+      writeWorkspaceCache(userId, tenantSlug, selected, {
         ...envelope.data,
         templates: nextTemplates,
-      });
+      } as import("@/lib/client/workspaceCache").WorkspaceData);
     } catch {
       // ignore malformed cache items
     }
@@ -221,134 +176,6 @@ function buildId(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
-function isSchemaEmpty(sections: FormSection[]) {
-  return sections.every((section) => {
-    if (section.type === "fields") return section.fields.length === 0;
-    return section.columns.length === 0;
-  });
-}
-
-function buildPresetSections(formType: FormType): FormSection[] {
-  if (formType === "custom") {
-    return [
-      {
-        type: "fields",
-        title: "Metadata Header",
-        columns: 4,
-        fields: [
-          { id: buildId("week"), type: "text", label: "Week", required: false },
-          { id: buildId("month"), type: "text", label: "Month", required: false },
-          { id: buildId("year"), type: "text", label: "Year", required: false },
-          { id: buildId("issue_date"), type: "date", label: "Issue date", required: false },
-        ],
-      },
-      {
-        type: "grid",
-        id: "form_data",
-        title: "Log Sheet",
-        rows: 12,
-        columns: [
-          { id: buildId("item"), type: "text", label: "Item", required: false },
-          { id: buildId("status"), type: "yesno", label: "Status", required: false },
-          { id: buildId("notes"), type: "text", label: "Notes", required: false },
-          { id: buildId("signature"), type: "signature", label: "Verified by", required: false },
-        ],
-      },
-    ];
-  }
-  if (formType === "questionnaire") {
-    const q1: FieldDef = { id: buildId("q"), type: "yesno", label: "Question 1", required: false };
-    return [{ type: "fields", title: "Questions", fields: [q1] }];
-  }
-  if (formType === "answer-sheet") {
-    const q1: FieldDef = {
-      id: buildId("q"),
-      type: "text",
-      label: "Question 1",
-      required: false,
-      multiline: true,
-    };
-    return [{ type: "fields", title: "Questions", fields: [q1] }];
-  }
-  if (formType === "inspection") {
-    return [
-      {
-        type: "fields",
-        title: "Header",
-        fields: [
-          { id: buildId("location"), type: "text", label: "Location", required: false },
-          { id: buildId("week"), type: "text", label: "Week", required: false },
-          { id: buildId("month"), type: "text", label: "Month", required: false },
-          { id: buildId("year"), type: "text", label: "Year", required: false },
-        ],
-      },
-      {
-        type: "grid",
-        id: "form_data",
-        title: "Inspection Log",
-        rows: 10,
-        columns: [
-          { id: buildId("item"), type: "text", label: "Item", required: false },
-          { id: buildId("freq"), type: "text", label: "Frequency", required: false },
-          { id: buildId("status"), type: "yesno", label: "Status", required: false },
-          { id: buildId("notes"), type: "text", label: "Notes", required: false },
-        ],
-      },
-    ];
-  }
-  if (formType === "handwritten") {
-    return [
-      {
-        type: "fields",
-        title: "Handwritten Header",
-        fields: [
-          { id: buildId("name"), type: "signature", label: "Name / initials", required: false },
-          { id: buildId("date"), type: "signature", label: "Date", required: false },
-        ],
-      },
-      {
-        type: "grid",
-        id: "form_data",
-        title: "Handwritten Log",
-        rows: 8,
-        columns: [
-          { id: buildId("item"), type: "signature", label: "Item", required: false },
-          { id: buildId("notes"), type: "signature", label: "Notes", required: false },
-          { id: buildId("status"), type: "signature", label: "Status", required: false },
-        ],
-      },
-    ];
-  }
-  return buildPresetSections("custom");
-}
-
-function convertSectionsToHandwritten(sections: FormSection[]): FormSection[] {
-  return sections.map((section) => {
-    if (section.type === "fields") {
-      return {
-        ...section,
-        fields: section.fields.map((field) => {
-          if (field.type === "dynamic-table") {
-            return {
-              ...field,
-              columns: field.columns.map((col) => ({ ...col, type: "text" as const })),
-            };
-          }
-          return { ...field, type: "signature" as const };
-        }),
-      };
-    }
-    return {
-      ...section,
-      columns: section.columns.map((col) => ({ ...col, type: "signature" as const })),
-      mergedCells: (section.mergedCells || []).map((cell) => ({
-        ...cell,
-        field: cell.field ? { ...cell.field, type: "signature" as const } : cell.field,
-      })),
-    };
-  });
-}
-
 function writeWorkspaceNotice(message: string, tone: "default" | "success" | "warning" | "error" = "default") {
   try {
     localStorage.setItem(
@@ -361,6 +188,7 @@ function writeWorkspaceNotice(message: string, tone: "default" | "success" | "wa
 }
 
 function cacheTemplateSchemaForOffline(
+  userId: string | null,
   tenantSlug: string,
   templateId: string,
   title: string,
@@ -368,8 +196,8 @@ function cacheTemplateSchemaForOffline(
   categoryId: string | null,
   fallbackTenantName: string
 ) {
-  const selectedCache = readWorkspaceCache(tenantSlug, categoryId);
-  const allCache = readWorkspaceCache(tenantSlug, null);
+  const selectedCache = readWorkspaceCacheResolved(userId, tenantSlug, categoryId);
+  const allCache = readWorkspaceCacheResolved(userId, tenantSlug, null);
   const tenant = selectedCache?.tenant || allCache?.tenant || { slug: tenantSlug, name: fallbackTenantName, logoUrl: null };
 
   writeAuditTemplateCache(tenantSlug, templateId, {
@@ -392,6 +220,13 @@ function cacheTemplateSchemaForOffline(
 }
 
 function previewFieldInput(type: FieldDef["type"]) {
+  if (type === "display") {
+    return (
+      <div className="rounded-md border border-dashed border-foreground/25 bg-foreground/[0.03] px-2 py-1.5 text-xs italic text-foreground/60">
+        Read-only label (instructions / form code)
+      </div>
+    );
+  }
   if (type === "yesno") {
     return (
       <select className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm">
@@ -439,10 +274,9 @@ function FormStructurePreview({
   title: string;
   sections: FormSection[];
 }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
-      <div className="w-full max-w-5xl rounded-lg border border-foreground/20 bg-background shadow-xl">
+    <CenteredOverlay open={open} onClose={onClose} maxWidthClass="max-w-5xl">
+      <div>
         <div className="flex items-center justify-between gap-3 border-b border-foreground/15 px-4 py-3">
           <div>
             <div className="text-sm font-semibold">Form preview</div>
@@ -466,9 +300,25 @@ function FormStructurePreview({
                     {section.title ? <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">{section.title}</div> : null}
                     <div className={"grid gap-3 " + (section.columns === 4 ? "md:grid-cols-4" : section.columns === 3 ? "md:grid-cols-3" : section.columns === 2 ? "md:grid-cols-2" : "md:grid-cols-1")}>
                       {section.fields.map((field) => (
-                        <div key={field.id} className="space-y-1">
-                          <div className="text-xs font-medium text-foreground/70">{field.label}</div>
-                          {previewFieldInput(field.type)}
+                        <div
+                          key={field.id}
+                          className={field.type === "display" ? "space-y-1 md:col-span-full" : "space-y-1"}
+                        >
+                          {field.type === "display" ? (
+                            <div
+                              className={
+                                "rounded-md border border-foreground/10 px-2 py-1.5 text-sm " +
+                                displayVariantClass((field as import("@/types/forms").DisplayField).variant || "body")
+                              }
+                            >
+                              {displayFieldText(field as import("@/types/forms").DisplayField)}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="text-xs font-medium text-foreground/70">{field.label}</div>
+                              {previewFieldInput(field.type)}
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -481,8 +331,14 @@ function FormStructurePreview({
                         <thead>
                           <tr>
                             {section.columns.map((col) => (
-                              <th key={col.id} className="border-b border-r border-foreground/15 px-2 py-2 text-left">
-                                {col.label || "Column"}
+                              <th
+                                key={col.id}
+                                className={
+                                  "border-b border-r border-foreground/15 px-2 py-2 text-left " +
+                                  (isColumnHeaderPlaceholder(col.label) ? "italic text-foreground/45" : "")
+                                }
+                              >
+                                {columnHeaderDisplayLabel(col.label)}
                               </th>
                             ))}
                           </tr>
@@ -507,7 +363,7 @@ function FormStructurePreview({
           </div>
         </div>
       </div>
-    </div>
+    </CenteredOverlay>
   );
 }
 
@@ -523,13 +379,14 @@ function NewTemplatePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const params = useParams<{ tenantSlug: string }>();
-
-  const tenantSlug = params?.tenantSlug || "";
+  const routeSlug = params?.tenantSlug || "";
   const requestedCategoryId = searchParams.get("categoryId");
   const editTemplateId = searchParams.get("editTemplateId");
   const isEditMode = Boolean(editTemplateId);
 
   const { user, session, loading: authLoading } = useAuth();
+  const tenantSlug = useResolvedTenantSlug(routeSlug);
+  const userId = user?.id || session?.user?.id || null;
   const accessToken = session?.access_token || "";
   const offline = useAppOffline();
 
@@ -543,7 +400,7 @@ function NewTemplatePageInner() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("Add form title");
-  const [sections, setSections] = useState<FormSection[]>(() => buildPresetSections("custom"));
+  const [sections, setSections] = useState<FormSection[]>(() => blankCanvasForType("custom"));
   const [formType, setFormType] = useState<FormType>("custom");
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
   const [cardIcon, setCardIcon] = useState("clipboard");
@@ -555,7 +412,7 @@ function NewTemplatePageInner() {
   const [online, setOnline] = useState(true);
   const [builderBlockedSmallScreen, setBuilderBlockedSmallScreen] = useState(false);
 
-  const [baseSections, setBaseSections] = useState<FormSection[]>(() => buildPresetSections("custom"));
+  const [baseSections, setBaseSections] = useState<FormSection[]>(() => blankCanvasForType("custom"));
   const [baseVersion, setBaseVersion] = useState(1);
   const [hasAudits, setHasAudits] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
@@ -643,9 +500,15 @@ function NewTemplatePageInner() {
 
   useEffect(() => {
     if (authLoading || !user) return;
-    if (!tenantSlug) return;
+    if (!tenantSlug) {
+      setCategories([]);
+      setSelectedCategoryId(null);
+      setWorkspaceLoading(false);
+      setError("Brand not found. Open the form builder from your workspace so the correct brand is selected.");
+      return;
+    }
 
-    const cached = readWorkspaceCache(tenantSlug, requestedCategoryId);
+    const cached = readWorkspaceCacheResolved(userId, tenantSlug, requestedCategoryId);
     if (cached) {
       setCategories(cached.categories || []);
       setSelectedCategoryId(cached.selectedCategoryId);
@@ -691,7 +554,7 @@ function NewTemplatePageInner() {
         }
       })
       .finally(() => setWorkspaceLoading(false));
-  }, [authLoading, user, accessToken, tenantSlug, requestedCategoryId, online]);
+  }, [authLoading, user, userId, accessToken, tenantSlug, requestedCategoryId, online]);
 
   useEffect(() => {
     if (!isEditMode) return;
@@ -728,7 +591,7 @@ function NewTemplatePageInner() {
         setSelectedCategoryId(data.template.categoryId ?? null);
         setSections(loadedSections);
         setSchemaMeta(nextMeta);
-        setFormType((nextMeta.formType as FormType) || "custom");
+        setFormType(parseFormType(nextMeta.formType));
         setFormStyle((nextMeta.formStyle as FormStyle) || "default");
         setCardIcon(typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : "clipboard");
         setCardColor(typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : "default");
@@ -788,13 +651,14 @@ function NewTemplatePageInner() {
         });
         setQueuedTemplateSaves(getPendingTemplateSyncCount());
         if (localTemplateId) {
-          patchWorkspaceTemplateCaches(tenantSlug, {
+          patchWorkspaceTemplateCaches(userId, tenantSlug, {
             id: localTemplateId,
             title,
             categoryId: selectedCategoryId ?? null,
             updatedAt: new Date().toISOString(),
           });
           cacheTemplateSchemaForOffline(
+            userId,
             tenantSlug,
             localTemplateId,
             title,
@@ -826,7 +690,7 @@ function NewTemplatePageInner() {
 
       const savedTemplateId = (data?.templateId as string | undefined) || editTemplateId || "";
       if (savedTemplateId) {
-        patchWorkspaceTemplateCaches(tenantSlug, {
+        patchWorkspaceTemplateCaches(userId, tenantSlug, {
           id: savedTemplateId,
           title,
           categoryId: selectedCategoryId ?? null,
@@ -889,13 +753,14 @@ function NewTemplatePageInner() {
         });
         setQueuedTemplateSaves(getPendingTemplateSyncCount());
         if (localTemplateId) {
-          patchWorkspaceTemplateCaches(tenantSlug, {
+          patchWorkspaceTemplateCaches(userId, tenantSlug, {
             id: localTemplateId,
             title,
             categoryId: selectedCategoryId ?? null,
             updatedAt: new Date().toISOString(),
           });
           cacheTemplateSchemaForOffline(
+            userId,
             tenantSlug,
             localTemplateId,
             title,
@@ -964,20 +829,17 @@ function NewTemplatePageInner() {
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
 
   function handleFormTypeChange(next: FormType) {
+    if (next === formType) return;
+    if (!isSchemaEmpty(sections)) {
+      const ok = window.confirm(
+        "Switching form type clears the canvas and starts a fresh blank layout for that type. Continue?"
+      );
+      if (!ok) return;
+    }
     setFormType(next);
-    if (next === "handwritten") {
-      setSections((prev) => {
-        const converted = convertSectionsToHandwritten(prev);
-        return converted;
-      });
-      setBuilderResetKey(`handwritten-${Date.now()}`);
-      return;
-    }
-    if (isSchemaEmpty(sections)) {
-      const preset = buildPresetSections(next);
-      setSections(preset);
-      setBuilderResetKey(`preset-${next}-${Date.now()}`);
-    }
+    setCardIcon(getFormBuilderConfig(next).cardIcon);
+    setSections(blankCanvasForType(next));
+    setBuilderResetKey(`type-${next}-${Date.now()}`);
   }
 
   return (
@@ -1078,18 +940,14 @@ function NewTemplatePageInner() {
           <div className="min-w-0">
             <div className="px-3 pt-3 sm:px-6">
               <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
-                <label className="text-xs font-semibold uppercase tracking-wide">Form type</label>
-                <select
-                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                  value={formType}
-                  onChange={(e) => handleFormTypeChange(e.target.value as FormType)}
-                >
-                  <option value="custom">Custom</option>
-                  <option value="questionnaire">Questionnaire</option>
-                  <option value="answer-sheet">Answer sheet</option>
-                  <option value="inspection">Inspection</option>
-                  <option value="handwritten">Handwritten capture</option>
-                </select>
+                <label className="w-full text-xs font-semibold uppercase tracking-wide">Form type</label>
+                <div className="w-full py-1">
+                  <FormTypePicker
+                    value={formType}
+                    onChange={handleFormTypeChange}
+                    disabled={saving || loadingEditInfo}
+                  />
+                </div>
                 <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Style</label>
                 <select
                   className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
@@ -1136,17 +994,7 @@ function NewTemplatePageInner() {
                   <Eye className="mr-1 h-3.5 w-3.5" />
                   Preview
                 </button>
-                <span className="text-foreground/50">
-                  {formType === "inspection"
-                    ? "Adds a starter log table (editable)."
-                    : formType === "answer-sheet"
-                      ? "Quick add creates multiline answers."
-                      : formType === "questionnaire"
-                        ? "Quick add focuses on response types."
-                        : formType === "handwritten"
-                          ? "All fields switch to signature-style capture for stylus/finger input."
-                        : "Use the default builder."}
-                </span>
+                <span className="text-foreground/50">{getFormBuilderConfig(formType).tagline}</span>
               </div>
             </div>
             <FormBuilder
@@ -1161,8 +1009,8 @@ function NewTemplatePageInner() {
               resetKey={builderResetKey}
             />
             {builderBlockedSmallScreen ? (
-              <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/45 p-4">
-                <div className="w-full max-w-md rounded-xl border border-foreground/20 bg-background p-5 shadow-xl">
+              <CenteredOverlay open maxWidthClass="max-w-md" zIndexClass="z-[85]" onClose={() => {}}>
+                <div className="p-5">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-lg border border-foreground/20 bg-foreground/[0.03]">
                       <Laptop className="h-5 w-5 text-foreground/70" />
@@ -1183,7 +1031,7 @@ function NewTemplatePageInner() {
                     </Link>
                   </div>
                 </div>
-              </div>
+              </CenteredOverlay>
             ) : null}
           </div>
         </div>
@@ -1197,8 +1045,14 @@ function NewTemplatePageInner() {
       />
 
       {showSaveConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-md rounded-lg border border-foreground/20 bg-background p-4 shadow-xl">
+        <CenteredOverlay
+          open
+          maxWidthClass="max-w-md"
+          onClose={() => {
+            if (!saving) setShowSaveConfirm(false);
+          }}
+        >
+          <div className="p-4">
             <div className="text-sm font-semibold">
               {isEditMode ? "Confirm template update" : "Confirm form details"}
             </div>
@@ -1324,12 +1178,12 @@ function NewTemplatePageInner() {
               </button>
             </div>
           </div>
-        </div>
+        </CenteredOverlay>
       ) : null}
 
       {showPhotoImportGuide ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-foreground/20 bg-background p-4 shadow-xl">
+        <CenteredOverlay open maxWidthClass="max-w-lg" onClose={() => setShowPhotoImportGuide(false)}>
+          <div className="p-4">
             <div className="text-sm font-semibold">Create a form from photo</div>
             <div className="mt-2 text-sm text-foreground/80">
               You can generate a form by uploading a clear photo (or PDF) of your physical form.
@@ -1363,7 +1217,7 @@ function NewTemplatePageInner() {
               </button>
             </div>
           </div>
-        </div>
+        </CenteredOverlay>
       ) : null}
     </div>
   );

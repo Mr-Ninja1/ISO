@@ -18,11 +18,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type {
   FormSchemaV1,
   FieldDef,
+  DisplayField,
   TempField,
   DynamicTableField,
   FormSection,
   FormStyle,
 } from "@/types/forms";
+import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
@@ -683,7 +685,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
                   <div
                     key={field.id}
                     className={
-                      field.type === "dynamic-table" || field.type === "photo" || field.type === "signature"
+                      field.type === "display" ||
+                      field.type === "dynamic-table" ||
+                      field.type === "photo" ||
+                      field.type === "signature"
                         ? `md:[grid-column:1/-1] ${styleTokens.fieldCard}`
                         : styleTokens.fieldCard
                     }
@@ -791,6 +796,24 @@ function Field({
     "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
   const lineTextareaClass =
     "min-h-20 w-full resize-y border-0 border-b border-foreground/25 bg-transparent px-1 py-2 text-sm outline-none focus:border-foreground/60";
+
+  if (field.type === "display") {
+    const displayField = field as DisplayField;
+    const variant = displayField.variant || "body";
+    return (
+      <div
+        className={
+          "rounded-md border border-foreground/10 bg-foreground/[0.02] px-3 py-2.5 whitespace-pre-wrap " +
+          displayAlignClass(displayField.textAlign) +
+          " " +
+          displayVariantClass(variant)
+        }
+        role="note"
+      >
+        {displayFieldText(displayField)}
+      </div>
+    );
+  }
 
   if (field.type === "text") {
     return (

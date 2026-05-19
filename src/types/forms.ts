@@ -8,9 +8,19 @@ export type FieldType =
   | "checkbox"
   | "yesno"
   | "time"
-  | "dynamic-table";
+  | "dynamic-table"
+  /** Read-only instruction, form code, section title — not submitted as data */
+  | "display";
 
-export type FormType = "custom" | "questionnaire" | "answer-sheet" | "inspection" | "handwritten";
+export type DisplayVariant = "title" | "subtitle" | "body" | "caption" | "code";
+
+export type FormType =
+  | "custom"
+  | "checklist"
+  | "questionnaire"
+  | "answer-sheet"
+  | "inspection"
+  | "handwritten";
 export type FormStyle = "default" | "compact" | "report";
 
 export type FormSchemaV1 = {
@@ -102,6 +112,13 @@ export type DynamicTableField = BaseField & {
   }>;
 };
 
+export type DisplayField = BaseField & {
+  type: "display";
+  /** Longer copy; falls back to `label` when empty */
+  content?: string;
+  variant?: DisplayVariant;
+};
+
 export type FieldDef =
   | TextField
   | DateField
@@ -112,7 +129,8 @@ export type FieldDef =
   | CheckboxField
   | YesNoField
   | TimeField
-  | DynamicTableField;
+  | DynamicTableField
+  | DisplayField;
 
 export type SimpleFieldDef = Exclude<FieldDef, DynamicTableField>;
 

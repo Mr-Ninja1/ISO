@@ -43,6 +43,26 @@ export function markReminderShown(key: string) {
   }
 }
 
+/** Allow a fresh reminder after the due period is saved again. */
+export function clearRemindersForTemplate(tenantSlug: string, templateId: string) {
+  const prefix = `${tenantSlug}:${templateId}:`;
+  try {
+    const set = remindedKeys();
+    let changed = false;
+    for (const key of set) {
+      if (key.startsWith(prefix)) {
+        set.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(REMINDED_LS_KEY, JSON.stringify([...set].slice(-400)));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function dispatchDueReminder(detail: DueReminderDetail) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(DUE_REMINDER_EVENT, { detail }));
@@ -60,20 +80,30 @@ export async function ensureNotificationPermission(): Promise<NotificationPermis
 }
 
 export async function showDueReminderNotification(detail: DueReminderDetail) {
-  const permission = await ensureNotificationPermission();
+  // In-app modal always fires (works in Capacitor WebView where Notification API is missing).
+  dispatchDueReminder(detail);
 
-  if (permission === "granted" && typeof window !== "undefined" && "Notification" in window) {
-    try {
-      new Notification(`Reminder: ${detail.title}`, {
-        body: detail.body,
-        tag: reminderKey(detail.tenantSlug, detail.templateId, detail.dueReminderAt),
-      });
-    } catch {
-      // fall through to in-app
-    }
+  const permission = await ensureNotificationPermission();
+  if (permission !== "granted" || typeof window === "undefined" || !("Notification" in window)) {
+    return;
   }
 
-  dispatchDueReminder(detail);
+  const tag = reminderKey(detail.tenantSlug, detail.templateId, detail.dueReminderAt);
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(`Reminder: ${detail.title}`, { body: detail.body, tag });
+      return;
+    }
+  } catch {
+    // fall through to Notification constructor
+  }
+
+  try {
+    new Notification(`Reminder: ${detail.title}`, { body: detail.body, tag });
+  } catch {
+    // in-app event already dispatched
+  }
 }
 
 export function buildReminderBody(dueReminderAt: string) {

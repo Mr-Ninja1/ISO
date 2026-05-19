@@ -43,8 +43,8 @@ export function TemplateDueRuleFields({ value, onChange, disabled }: Props) {
           }}
         >
           <option value="none">No due date</option>
-          <option value="duration">Time from start (minutes / hours)</option>
-          <option value="days">Days from start</option>
+          <option value="duration">Time from save (minutes / hours)</option>
+          <option value="days">Days from save</option>
           <option value="fixed">Specific date &amp; time</option>
         </select>
       </label>
@@ -52,7 +52,7 @@ export function TemplateDueRuleFields({ value, onChange, disabled }: Props) {
       {value.mode === "duration" ? (
         <div className="grid gap-2">
           <label className="grid gap-1 text-sm">
-            <span className="text-foreground/70">Minutes after form is started</span>
+            <span className="text-foreground/70">Minutes after you save</span>
             <input
               type="number"
               min={1}
@@ -87,7 +87,7 @@ export function TemplateDueRuleFields({ value, onChange, disabled }: Props) {
 
       {value.mode === "days" ? (
         <label className="grid gap-1 text-sm">
-          <span className="text-foreground/70">Days after form is started</span>
+          <span className="text-foreground/70">Days after you save</span>
           <input
             type="number"
             min={1}
