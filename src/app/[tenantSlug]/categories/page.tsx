@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ssrTenantWithCategories } from "@/lib/data/ssrQueries";
 import { CategoriesManager } from "@/components/CategoriesManager";
+import { CategoriesPageClient } from "@/components/categories/CategoriesPageClient";
+
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 export default async function CategoriesPage({
   params,
@@ -9,6 +12,11 @@ export default async function CategoriesPage({
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
+
+  if (isCapacitorBuild) {
+    return <CategoriesPageClient routeSlug={tenantSlug} />;
+  }
+
   const tenant = await ssrTenantWithCategories(tenantSlug);
 
   if (!tenant) notFound();

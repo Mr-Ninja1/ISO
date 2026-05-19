@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
+import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -46,8 +47,13 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await signIn(email, password);
-      router.push("/workspace");
+      const { session, user: signedInUser } = await signIn(email, password);
+      const route = await resolvePostLoginRoute(
+        session.access_token,
+        signedInUser.email || email,
+        signedInUser.id
+      );
+      router.replace(route.path);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign in failed";
       if (/failed to fetch|networkerror|network request failed/i.test(message)) {

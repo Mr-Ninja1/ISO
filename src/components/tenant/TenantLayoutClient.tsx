@@ -7,6 +7,9 @@ import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { readWorkspaceCacheResolved } from "@/lib/client/workspaceCache";
+import { useAuth } from "@/components/AuthProvider";
 
 function displayNameFromSlug(slug: string) {
   const cleaned = slug.replace(/[-_]+/g, " ").trim();
@@ -24,8 +27,12 @@ export function TenantLayoutClient({
   children: React.ReactNode;
   params: Promise<{ tenantSlug: string }>;
 }) {
-  const { tenantSlug } = use(params);
-  const name = displayNameFromSlug(tenantSlug);
+  const { tenantSlug: routeSlug } = use(params);
+  const tenantSlug = useResolvedTenantSlug(routeSlug);
+  const { user, session } = useAuth();
+  const userId = user?.id || session?.user?.id || null;
+  const cached = tenantSlug ? readWorkspaceCacheResolved(userId, tenantSlug, null) : null;
+  const name = cached?.tenant?.name || displayNameFromSlug(tenantSlug);
 
   return (
     <div className="min-h-dvh bg-gradient-to-b from-slate-50 via-white to-slate-50">

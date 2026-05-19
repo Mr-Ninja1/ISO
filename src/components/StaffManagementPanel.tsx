@@ -8,6 +8,7 @@ import { NotificationModal } from "@/components/NotificationModal";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { apiUrl } from "@/lib/client/apiBase";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 type StaffRow = {
   userId: string;
@@ -37,7 +38,8 @@ type PatchStaffResponse = {
   error?: string;
 };
 
-export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
+export function StaffManagementPanel({ tenantSlug: routeSlug }: { tenantSlug: string }) {
+  const tenantSlug = useResolvedTenantSlug(routeSlug);
   const { session } = useAuth();
   const offline = useAppOffline();
   const accessToken = session?.access_token || "";

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AuditsListClient } from "@/components/forms/AuditsListClient";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RefreshPageButton } from "@/components/RefreshPageButton";
 import { AdminBackButton } from "@/components/forms/AdminBackButton";
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
-export function AuditsPageClient({ tenantSlug }: { tenantSlug: string }) {
+export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string }) {
+  const tenantSlug = useResolvedTenantSlug(routeSlug);
   const searchParams = useSearchParams();
   const statusParam = searchParams.get("status");
   const notice = searchParams.get("notice");

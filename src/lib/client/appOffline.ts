@@ -1,10 +1,12 @@
+import { getCachedReachability } from "@/lib/client/reachability";
+import { INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/connectivityEvents";
+
+export { INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT };
+
 /**
  * Offline detection for workspace / audits: combines browser connectivity with an optional
  * shell flag set by iso-mobile (navigator.onLine is unreliable inside some WebViews).
  */
-
-export const OFFLINE_MODE_CHANGED_EVENT = "iso-offline-mode-changed";
-export const INTERNET_RESTORED_EVENT = "iso-internet-restored";
 
 declare global {
   interface Window {
@@ -22,6 +24,10 @@ export function isAppOffline(): boolean {
   } catch {
     /* ignore */
   }
+
+  const probed = getCachedReachability();
+  if (probed !== null) return !probed;
+
   return typeof navigator !== "undefined" ? !navigator.onLine : false;
 }
 

@@ -14,22 +14,7 @@ import {
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
-
-function normalizeTenantSlug(value: string | null | undefined) {
-  const slug = (value || "").trim();
-  if (!slug || slug === "_" || slug === "workspace") return "";
-  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
-  return slug;
-}
-
-function resolveTenantSlug(value: string) {
-  const normalized = normalizeTenantSlug(value);
-  if (normalized) return normalized;
-  if (typeof window !== "undefined") {
-    return normalizeTenantSlug(localStorage.getItem("lastTenantSlug"));
-  }
-  return "";
-}
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
   return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
@@ -85,7 +70,7 @@ export function AuditRunClient({
   const router = useRouter();
   const { user, session, loading: authLoading } = useAuth();
   const accessToken = session?.access_token || "";
-  const activeTenantSlug = resolveTenantSlug(tenantSlug);
+  const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
 
   const [data, setData] = useState<AuditTemplatePayload | null>(null);
   const [loading, setLoading] = useState(true);

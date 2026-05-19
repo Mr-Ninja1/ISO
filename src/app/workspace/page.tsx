@@ -5,7 +5,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
+import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
@@ -1101,9 +1101,10 @@ function WorkspacePageInner() {
   }, [tenantSlug, categoryId, cacheUserId]);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
-    }
+    if (authLoading) return;
+    if (user?.id) return;
+    if (hasPersistedAuthCredentials()) return;
+    router.push("/login");
   }, [authLoading, user, router]);
 
   useEffect(() => {

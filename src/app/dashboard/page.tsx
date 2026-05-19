@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
+import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { isPlatformAdminEmail } from "@/lib/adminAccess";
@@ -39,7 +39,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && !user) {
+    if (!authLoading && !user && !hasPersistedAuthCredentials()) {
       router.push("/login");
       return;
     }

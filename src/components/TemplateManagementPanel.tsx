@@ -8,6 +8,7 @@ import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue"
 import { NotificationModal } from "@/components/NotificationModal";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { apiUrl } from "@/lib/client/apiBase";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 type TemplateItem = {
   id: string;
@@ -18,12 +19,13 @@ type TemplateItem = {
 };
 
 export function TemplateManagementPanel({
-  tenantSlug,
+  tenantSlug: routeSlug,
   templates,
 }: {
   tenantSlug: string;
   templates: TemplateItem[];
 }) {
+  const tenantSlug = useResolvedTenantSlug(routeSlug);
   const router = useRouter();
   const { session } = useAuth();
   const accessToken = session?.access_token || "";

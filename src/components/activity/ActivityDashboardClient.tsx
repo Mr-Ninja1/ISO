@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { apiUrl } from "@/lib/client/apiBase";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 type ActivityRow = {
   id: string;
@@ -108,25 +109,13 @@ function targetLabel(row: ActivityRow) {
 
 export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) {
   const { session, loading: authLoading } = useAuth();
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const offline = useAppOffline();
+  const online = !offline;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<ActivityRow[]>([]);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<ActivityGroup>("ALL");
-
-  useEffect(() => {
-    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
-    updateOnline();
-
-    window.addEventListener("online", updateOnline);
-    window.addEventListener("offline", updateOnline);
-
-    return () => {
-      window.removeEventListener("online", updateOnline);
-      window.removeEventListener("offline", updateOnline);
-    };
-  }, []);
 
   useEffect(() => {
     if (!tenantSlug) return;

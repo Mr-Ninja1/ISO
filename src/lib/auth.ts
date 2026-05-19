@@ -5,6 +5,71 @@ import { isCapacitorNativeApp, markCapacitorShell } from "@/lib/capacitor/runtim
 /** Set by iso-mobile WebView before load — session lives in localStorage (`sb-*-auth-token`). */
 export const ISO_MOBILE_SHELL_LS_KEY = "__ISO_MOBILE_SHELL__";
 
+export const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
+
+export type CachedAuthUser = {
+  id: string;
+  email: string;
+};
+
+export function readCachedAuthUser(): CachedAuthUser | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = localStorage.getItem(LAST_AUTH_USER_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const candidate = parsed as Partial<CachedAuthUser>;
+    if (typeof candidate.id !== "string" || !candidate.id) return null;
+
+    return {
+      id: candidate.id,
+      email: typeof candidate.email === "string" ? candidate.email : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedAuthUser(user: CachedAuthUser | null) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (!user) {
+      localStorage.removeItem(LAST_AUTH_USER_KEY);
+      return;
+    }
+
+    localStorage.setItem(LAST_AUTH_USER_KEY, JSON.stringify(user));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+/** True when we still have a cached user or Supabase session in localStorage. */
+export function hasPersistedAuthCredentials(): boolean {
+  if (readPersistedSupabaseSession()?.access_token) return true;
+  return Boolean(readCachedAuthUser()?.id);
+}
+
+/**
+ * Persist session in the format Supabase Auth expects (flat session JSON, not `{ currentSession }`).
+ */
+export function writeBrowserSupabaseSession(session: Session) {
+  if (typeof window === "undefined") return;
+
+  try {
+    markCapacitorShell();
+    localStorage.setItem(browserSupabaseAuthStorageKey(), JSON.stringify(session));
+    localStorage.setItem(ISO_MOBILE_SHELL_LS_KEY, "1");
+  } catch {
+    // ignore storage failures
+  }
+}
+
 /** Same rule as mobile `getSupabaseAuthStorageKey()` so injected tokens are read by the web client. */
 export function browserSupabaseAuthStorageKey(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";

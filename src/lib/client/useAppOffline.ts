@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isAppOffline, INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT, initInternetStatusMonitor } from "./appOffline";
+import { initReachabilityMonitor } from "./reachability";
 
 /** Reactive offline state (browser + `window.__ISO_FORCE_OFFLINE__` from mobile shell). */
 export function useAppOffline(): boolean {
@@ -14,6 +15,7 @@ export function useAppOffline(): boolean {
 
     sync();
     const unsubscribe = initInternetStatusMonitor();
+    const stopReachability = initReachabilityMonitor();
     
     window.addEventListener("online", sync);
     window.addEventListener("offline", sync);
@@ -21,6 +23,7 @@ export function useAppOffline(): boolean {
 
     return () => {
       unsubscribe();
+      stopReachability();
       window.removeEventListener("online", sync);
       window.removeEventListener("offline", sync);
       window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, sync);

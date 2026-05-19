@@ -9,6 +9,7 @@ import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { readAuditsListCache, writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
 import { apiUrl } from "@/lib/client/apiBase";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 type WorkspaceResponse = {
   tenant: { id: string; name: string; slug: string; logoUrl: string | null };
@@ -144,7 +145,8 @@ function toNumber(value: unknown) {
 
 export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
   const { session, loading: authLoading } = useAuth();
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const offline = useAppOffline();
+  const online = !offline;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
@@ -152,17 +154,6 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetricsResponse | null>(null);
-
-  useEffect(() => {
-    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
-    updateOnline();
-    window.addEventListener("online", updateOnline);
-    window.addEventListener("offline", updateOnline);
-    return () => {
-      window.removeEventListener("online", updateOnline);
-      window.removeEventListener("offline", updateOnline);
-    };
-  }, []);
 
   useEffect(() => {
     if (!tenantSlug) return;

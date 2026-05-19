@@ -15,22 +15,7 @@ import {
 import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
-
-function normalizeTenantSlug(value: string | null | undefined) {
-  const slug = (value || "").trim();
-  if (!slug || slug === "_" || slug === "workspace") return "";
-  if (!/^[a-z0-9][a-z0-9-]*$/i.test(slug)) return "";
-  return slug;
-}
-
-function resolveTenantSlug(value: string) {
-  const normalized = normalizeTenantSlug(value);
-  if (normalized) return normalized;
-  if (typeof window !== "undefined") {
-    return normalizeTenantSlug(localStorage.getItem("lastTenantSlug"));
-  }
-  return "";
-}
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
@@ -153,7 +138,7 @@ export function AuditsListClient({
 }) {
   const { session, user } = useAuth();
   const offline = useAppOffline();
-  const activeTenantSlug = resolveTenantSlug(tenantSlug);
+  const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [query, setQuery] = useState(initialQuery);
   const [allRows, setAllRows] = useState<CachedAuditRow[]>(rows);

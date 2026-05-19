@@ -9,6 +9,7 @@ import { NotificationModal } from "@/components/NotificationModal";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { apiUrl } from "@/lib/client/apiBase";
+import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 type Props = {
   tenant?: {
@@ -20,7 +21,8 @@ type Props = {
   tenantSlug?: string;
 };
 
-export function TenantSettingsForm({ tenant, tenantSlug }: Props) {
+export function TenantSettingsForm({ tenant, tenantSlug: routeSlug }: Props) {
+  const tenantSlug = useResolvedTenantSlug(routeSlug || tenant?.slug);
   const router = useRouter();
   const offline = useAppOffline();
   const [resolvedTenant, setResolvedTenant] = useState<{ id: string; name: string; logoUrl: string | null } | null>(

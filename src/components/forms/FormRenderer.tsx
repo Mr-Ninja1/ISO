@@ -469,13 +469,17 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     };
   }, [session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
 
-  // Persist local draft quickly on edits (helps when mobile camera/file picker reloads the page).
+  // Persist local draft quickly on edits (signatures, tables, photos — not only isDirty text fields).
   useEffect(() => {
     if (isLoadingDraft) return;
     if (!tenantSlug || !templateId) return;
     if (!currentUserId && !session?.access_token) return;
-    if (!form.formState.isDirty) return;
     if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+
+    if (!hasSeenUserEditRef.current) {
+      hasSeenUserEditRef.current = true;
+      return;
+    }
 
     if (localDraftWriteTimerRef.current !== null) {
       window.clearTimeout(localDraftWriteTimerRef.current);
@@ -484,8 +488,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
     localDraftWriteTimerRef.current = window.setTimeout(() => {
       const values = form.getValues();
-      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: false });
-    }, 700);
+      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: true });
+    }, 400);
 
     return () => {
       if (localDraftWriteTimerRef.current !== null) {
@@ -1092,8 +1096,11 @@ function SignatureFieldInput({
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
   const sigRef = useRef<SignatureCanvas | null>(null);
+  const hydratedValueRef = useRef<string | null>(null);
   const [SignatureCanvasInput, setSignatureCanvasInput] = useState<React.ComponentType<any> | null>(null);
   const currentValue = useWatch({ control, name: field.id as never }) as unknown;
+  const savedDataUrl =
+    typeof currentValue === "string" && currentValue.startsWith("data:image") ? currentValue : "";
 
   useEffect(() => {
     let alive = true;
@@ -1113,20 +1120,20 @@ function SignatureFieldInput({
 
   useEffect(() => {
     const canvas = sigRef.current;
-    if (!canvas) return;
-    if (typeof currentValue !== "string" || !currentValue.startsWith("data:image")) return;
+    if (!canvas || !savedDataUrl) return;
+    if (hydratedValueRef.current === savedDataUrl) return;
 
-    // Rehydrate saved draft signature into the canvas when reopening the form.
     const id = window.requestAnimationFrame(() => {
       try {
-        canvas.fromDataURL(currentValue);
+        canvas.fromDataURL(savedDataUrl);
+        hydratedValueRef.current = savedDataUrl;
       } catch {
         // Ignore malformed data URLs and keep canvas editable.
       }
     });
 
     return () => window.cancelAnimationFrame(id);
-  }, [currentValue]);
+  }, [savedDataUrl, SignatureCanvasInput]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -1136,6 +1143,14 @@ function SignatureFieldInput({
         name={field.id as never}
         render={({ field: rhfField }) => (
           <div className="rounded-md border border-foreground/20 bg-background p-2">
+            {savedDataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={savedDataUrl}
+                alt={`${field.label} signature`}
+                className="mb-2 h-20 w-full object-contain"
+              />
+            ) : null}
             {SignatureCanvasInput ? (
               <SignatureCanvasInput
                 ref={(ref: SignatureCanvas | null) => {
@@ -1145,7 +1160,9 @@ function SignatureFieldInput({
                 canvasProps={{ className: "h-20 w-full" }}
                 onEnd={() => {
                   const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";
-                  rhfField.onChange(dataUrl);
+                  if (!dataUrl) return;
+                  hydratedValueRef.current = dataUrl;
+                  rhfField.onChange(dataUrl, { shouldDirty: true, shouldTouch: true });
                 }}
               />
             ) : (
@@ -1157,7 +1174,8 @@ function SignatureFieldInput({
                 className="h-8 rounded-md border border-foreground/20 px-2.5 text-xs"
                 onClick={() => {
                   sigRef.current?.clear();
-                  rhfField.onChange("");
+                  hydratedValueRef.current = null;
+                  rhfField.onChange("", { shouldDirty: true, shouldTouch: true });
                 }}
               >
                 Clear

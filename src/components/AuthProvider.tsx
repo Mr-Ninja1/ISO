@@ -2,52 +2,17 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { browserSupabaseAuthStorageKey, createClient, ISO_MOBILE_SHELL_LS_KEY, readPersistedSupabaseSession } from "@/lib/auth";
+import {
+  browserSupabaseAuthStorageKey,
+  createClient,
+  hasPersistedAuthCredentials,
+  ISO_MOBILE_SHELL_LS_KEY,
+  readCachedAuthUser,
+  readPersistedSupabaseSession,
+  writeBrowserSupabaseSession,
+  writeCachedAuthUser,
+} from "@/lib/auth";
 import { apiUrl } from "@/lib/client/apiBase";
-
-const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
-
-type CachedAuthUser = {
-  id: string;
-  email: string;
-};
-
-function readCachedAuthUser(): CachedAuthUser | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = localStorage.getItem(LAST_AUTH_USER_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return null;
-
-    const candidate = parsed as Partial<CachedAuthUser>;
-    if (typeof candidate.id !== "string" || !candidate.id) return null;
-
-    return {
-      id: candidate.id,
-      email: typeof candidate.email === "string" ? candidate.email : "",
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedAuthUser(user: CachedAuthUser | null) {
-  if (typeof window === "undefined") return;
-
-  try {
-    if (!user) {
-      localStorage.removeItem(LAST_AUTH_USER_KEY);
-      return;
-    }
-
-    localStorage.setItem(LAST_AUTH_USER_KEY, JSON.stringify(user));
-  } catch {
-    // ignore storage failures
-  }
-}
 
 type AuthContextType = {
   session: Session | null;
@@ -63,18 +28,33 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-function persistNativeSession(session: Session) {
-  if (typeof window === "undefined") return;
 
-  try {
-    const payload = JSON.stringify({ currentSession: session });
-    localStorage.setItem(browserSupabaseAuthStorageKey(), payload);
-    localStorage.setItem(ISO_MOBILE_SHELL_LS_KEY, "1");
-  } catch {
-    // ignore storage failures
+async function hydrateSupabaseSession(
+  supabase: ReturnType<typeof createClient>
+): Promise<Session | null> {
+  const {
+    data: { session: supaSession },
+  } = await supabase.auth.getSession();
+
+  if (supaSession?.access_token) return supaSession;
+
+  const fallback = readPersistedSupabaseSession();
+  if (!fallback?.access_token || !fallback.refresh_token) {
+    return fallback?.access_token ? fallback : null;
   }
-}
 
+  const { data, error } = await supabase.auth.setSession({
+    access_token: fallback.access_token,
+    refresh_token: fallback.refresh_token,
+  });
+
+  if (error) {
+    writeBrowserSupabaseSession(fallback);
+    return fallback;
+  }
+
+  return data.session ?? fallback;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => readPersistedSupabaseSession());
@@ -97,32 +77,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }, 3000);
 
-    // Check current session
+    const applySession = (resolved: Session | null) => {
+      if (cancelled) return;
+      setSession(resolved);
+      if (resolved?.user?.id) {
+        const nextUser = { id: resolved.user.id, email: resolved.user.email || "" };
+        setUser(nextUser);
+        writeCachedAuthUser(nextUser);
+      }
+    };
+
     const getSession = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (cancelled) return;
-        const resolved = session ?? readPersistedSupabaseSession();
-        setSession(resolved);
-        if (resolved?.user) {
-          const nextUser = { id: resolved.user.id, email: resolved.user.email || "" };
-          setUser(nextUser);
-          writeCachedAuthUser(nextUser);
-        }
+        const resolved = await hydrateSupabaseSession(supabase);
+        applySession(resolved);
       } catch {
         if (cancelled) return;
         const fallback = readPersistedSupabaseSession();
-        if (fallback) {
-          setSession(fallback);
-          if (fallback.user?.id) {
-            const nextUser = { id: fallback.user.id, email: fallback.user.email || "" };
-            setUser(nextUser);
-            writeCachedAuthUser(nextUser);
-          }
-        }
+        applySession(fallback);
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -132,26 +104,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     getSession();
 
-    // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (cancelled) return;
-      setSession(session);
-      if (session?.user) {
-        const nextUser = { id: session.user.id, email: session.user.email || "" };
+
+      if (nextSession?.user) {
+        setSession(nextSession);
+        const nextUser = { id: nextSession.user.id, email: nextSession.user.email || "" };
         setUser(nextUser);
         writeCachedAuthUser(nextUser);
+        writeBrowserSupabaseSession(nextSession);
       } else if (event === "SIGNED_OUT") {
+        setSession(null);
         setUser(null);
         try {
           localStorage.removeItem("lastTenantSlug");
           localStorage.removeItem("active-staff-profile:v1");
+          localStorage.removeItem(browserSupabaseAuthStorageKey());
         } catch {
           // ignore
         }
         writeCachedAuthUser(null);
+      } else {
+        // INITIAL_SESSION / TOKEN_REFRESHED with null — do not wipe a session we just set via API sign-in.
+        const fallback = readPersistedSupabaseSession();
+        if (fallback?.access_token) {
+          setSession((prev) => prev ?? fallback);
+          if (fallback.user?.id) {
+            setUser((prev) => prev ?? { id: fallback.user!.id, email: fallback.user!.email || "" });
+          }
+        }
       }
+
       setLoading(false);
     });
 
@@ -184,19 +169,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(payload?.error || "Sign in failed");
     }
 
-    const session = payload?.session as Session | undefined;
-    const user = payload?.user as { id?: string; email?: string } | undefined;
-    if (!session || !user?.id) {
+    const sessionPayload = payload?.session as Session | undefined;
+    const userPayload = payload?.user as { id?: string; email?: string } | undefined;
+    if (!sessionPayload?.access_token || !sessionPayload.refresh_token || !userPayload?.id) {
       throw new Error("Sign in failed");
     }
 
-    setSession(session);
-    const nextUser = { id: user.id, email: user.email || "" };
+    const { data, error } = await supabase.auth.setSession({
+      access_token: sessionPayload.access_token,
+      refresh_token: sessionPayload.refresh_token,
+    });
+
+    const activeSession = data.session ?? sessionPayload;
+    if (error) {
+      writeBrowserSupabaseSession(sessionPayload);
+    } else if (activeSession) {
+      writeBrowserSupabaseSession(activeSession);
+    }
+
+    setSession(activeSession);
+    const nextUser = { id: userPayload.id, email: userPayload.email || "" };
     setUser(nextUser);
     writeCachedAuthUser(nextUser);
-    persistNativeSession(session);
 
-    return { session, user: nextUser };
+    return { session: activeSession, user: nextUser };
   };
 
   const signOut = async () => {
@@ -207,10 +203,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem("lastTenantSlug");
       localStorage.removeItem("active-staff-profile:v1");
       localStorage.removeItem(ISO_MOBILE_SHELL_LS_KEY);
-      localStorage.removeItem(LAST_AUTH_USER_KEY);
+      localStorage.removeItem(browserSupabaseAuthStorageKey());
     } catch {
       // ignore
     }
+    writeCachedAuthUser(null);
+    setSession(null);
+    setUser(null);
   };
 
   return (
@@ -229,3 +228,5 @@ export function useAuth() {
 export function useOptionalAuth() {
   return useContext(AuthContext);
 }
+
+export { hasPersistedAuthCredentials } from "@/lib/auth";
