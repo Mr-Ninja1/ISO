@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { createClient } from "@/lib/auth";
+import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAppOffline } from "@/lib/client/useAppOffline";
@@ -110,8 +110,8 @@ export function TenantSettingsForm({ tenant, tenantSlug: routeSlug }: Props) {
       error,
     } = await supabase.auth.getSession();
     if (error) throw error;
-    const token = session?.access_token;
-    if (!token) throw new Error("Missing session token. Please log in again.");
+    const token = session?.access_token || readPersistedSupabaseSession()?.access_token;
+    if (!token) throw new Error("Please sign in again to manage settings.");
     return token;
   }
 

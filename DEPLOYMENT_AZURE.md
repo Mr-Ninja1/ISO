@@ -28,6 +28,8 @@ This app is ready to deploy as a Dockerized Next.js production build.
 - The app uses `next-pwa`, so the service worker and manifest are already wired.
 - Closed corrective actions stay in the archive view instead of being deleted.
 - The build output is configured as `standalone`, which keeps the container image simpler for Azure.
+- **Important:** Azure must run `node server.js` from the **standalone bundle root** (with `public/` and `.next/static/` copied in). If only static HTML is deployed, every `/api/*` route (sign-in, saved forms, workspace) returns **404**.
+- GitHub Actions packages `.next/standalone` + static assets into the deploy artifact. App Service startup command should be `npm start` (runs `node server.js`).
 
 ## Smoke test checklist
 

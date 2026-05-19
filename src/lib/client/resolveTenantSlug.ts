@@ -64,6 +64,18 @@ export function resolveTenantSlug(options: ResolveTenantSlugOptions = {}): strin
   return "";
 }
 
+/** Audit id from `/brand/audits/{id}` (excludes new, local, placeholder). */
+export function auditIdFromPathname(pathname: string | null | undefined): string {
+  if (!pathname) return "";
+  const match = pathname.match(/^\/[^/]+\/audits\/([^/]+)\/?$/);
+  if (!match?.[1]) return "";
+  const id = match[1];
+  if (id === "new" || id === "local" || id === "offline-last" || id === CAPACITOR_EXPORT_TENANT_SLUG) {
+    return "";
+  }
+  return id;
+}
+
 export function rememberActiveTenantSlug(slug: string) {
   const normalized = normalizeTenantSlug(slug);
   if (!normalized || typeof window === "undefined") return;

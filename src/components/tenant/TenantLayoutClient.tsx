@@ -7,6 +7,7 @@ import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { PageNavigationBar } from "@/components/PageNavigationBar";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { readWorkspaceCacheResolved } from "@/lib/client/workspaceCache";
 import { useAuth } from "@/components/AuthProvider";
@@ -36,6 +37,7 @@ export function TenantLayoutClient({
 
   return (
     <div className="min-h-dvh bg-gradient-to-b from-slate-50 via-white to-slate-50">
+      <PageNavigationBar />
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
         <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-white/60 bg-white/90 p-3 shadow-lg shadow-slate-200/40 backdrop-blur-xl sm:items-center sm:gap-4 sm:p-4 print:hidden">
           <TenantLayoutClientHeader tenantSlug={tenantSlug} name={name} />

@@ -105,6 +105,12 @@ export async function dbClearDraft(tenantSlug: string, templateId: string): Prom
   await db.drafts.delete(draftKey(tenantSlug, templateId));
 }
 
+export async function dbListDraftsForTenant(tenantSlug: string): Promise<DbDraftRow[]> {
+  const db = getDb();
+  if (!db) return [];
+  return await db.drafts.where("tenantSlug").equals(tenantSlug).toArray();
+}
+
 export async function dbEnqueueOutbox(row: Omit<DbOutboxRow, "id" | "createdAt" | "tries">): Promise<DbOutboxRow | null> {
   const db = getDb();
   if (!db) return null;

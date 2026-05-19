@@ -17,6 +17,7 @@ import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { AuditReportFromCacheClient } from "@/components/forms/AuditReportFromCacheClient";
+import { AuditReportPageClient } from "@/components/forms/AuditReportPageClient";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -112,7 +113,7 @@ export default async function AuditReportPage({
   const { tenantSlug, auditId } = await params;
 
   if (isCapacitorBuild) {
-    return <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />;
+    return <AuditReportPageClient routeSlug={tenantSlug} routeAuditId={auditId} />;
   }
   const { orientation } = await searchParams;
   let audit:

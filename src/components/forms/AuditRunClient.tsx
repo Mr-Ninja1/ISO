@@ -15,6 +15,7 @@ import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { FormPageNavBar } from "@/components/forms/FormPageNavBar";
 
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
   return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
@@ -280,6 +281,7 @@ export function AuditRunClient({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-24 sm:pb-6">
+      <FormPageNavBar tenantSlug={activeTenantSlug} />
       <p className="text-sm text-foreground/70">Complete the form and submit.</p>
       {content}
     </div>

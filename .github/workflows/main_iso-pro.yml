@@ -60,10 +60,17 @@ jobs:
           fi
           npm run test --if-present
 
-      - name: Package artifact for deployment job
+      - name: Package standalone artifact for deployment job
         run: |
+          rm -rf deploy-bundle
+          mkdir -p deploy-bundle/.next
+          cp -R .next/standalone/. deploy-bundle/
+          cp -R .next/static deploy-bundle/.next/static
+          cp -R public deploy-bundle/public
+          # Ensure Azure runs the standalone server (API routes require Node, not static-only hosting).
+          node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...j.scripts,start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
           rm -f node-app.tar.gz
-          tar -czf node-app.tar.gz .next package.json package-lock.json next.config.ts next-env.d.ts public
+          tar -czf node-app.tar.gz -C deploy-bundle .
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v6
         with:
@@ -102,20 +109,15 @@ jobs:
         with:
           node-version: '24.x'
 
-      - name: Install production dependencies for deploy
+      - name: Verify standalone server entry exists
         run: |
           cd node-app
-          npm ci --omit=dev
-
-      - name: Verify Next production build exists
-        run: |
-          cd node-app
-          if [ ! -d ".next" ]; then
-            echo ".next directory not found. Build may have failed or artifact path is wrong."
+          if [ ! -f "server.js" ]; then
+            echo "server.js not found in deploy root. Standalone bundle may be incomplete."
             exit 1
           fi
-          if [ ! -f ".next/standalone/server.js" ]; then
-            echo ".next/standalone/server.js not found. Standalone output may be missing."
+          if [ ! -d ".next/static" ]; then
+            echo ".next/static not found. CSS and client chunks may be missing."
             exit 1
           fi
 

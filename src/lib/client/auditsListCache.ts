@@ -6,6 +6,8 @@ export type CachedAuditRow = {
   updatedAt: string;
   submittedAt: string | null;
   template: { title: string };
+  /** Saved on device; may still be syncing to the server. */
+  devicePending?: boolean;
 };
 
 type AuditsListCacheEnvelope = {
@@ -64,6 +66,13 @@ export function writeAuditsListCache(
   } catch {
     // ignore localStorage quota/serialization errors
   }
+}
+
+export function upsertCachedAuditRow(userId: string | null, tenantSlug: string, row: CachedAuditRow) {
+  if (!tenantSlug) return;
+  const existing = readAuditsListCache(userId, tenantSlug);
+  const merged = mergeAuditsRows(existing?.rows ?? [], [row]);
+  writeAuditsListCache(userId, tenantSlug, merged, existing?.maxUpdatedAt ?? null);
 }
 
 export function mergeAuditsRows(base: CachedAuditRow[], incoming: CachedAuditRow[]) {

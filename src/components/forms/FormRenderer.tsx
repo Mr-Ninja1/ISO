@@ -30,8 +30,8 @@ import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyn
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
-import { dbClearDraft, dbGetDraft, dbPutDraft } from "@/lib/client/formsDb";
-import { dbEnqueueOutbox } from "@/lib/client/formsDb";
+import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/client/formsDb";
+import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 
 type Props = {
   tenantSlug: string;
@@ -575,6 +575,16 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
       const json = (await res.json()) as { auditId: string };
       setDraftAuditId(json.auditId);
+      const savedAt = new Date().toISOString();
+      upsertCachedAuditRow(currentUserId, tenantSlug, {
+        id: json.auditId,
+        status: mode === "draft" ? "DRAFT" : "SUBMITTED",
+        templateId,
+        createdAt: savedAt,
+        updatedAt: savedAt,
+        submittedAt: mode === "submit" ? savedAt : null,
+        template: { title: effectiveSchema.title || "Form" },
+      });
 
       if (mode === "draft") {
         writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, json.auditId);
@@ -646,6 +656,17 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           templateId,
           templateTitle: effectiveSchema.title || "Form",
           payload: payloadWithMeta,
+        });
+        const queuedAt = new Date().toISOString();
+        upsertCachedAuditRow(currentUserId, tenantSlug, {
+          id: `pending:${queued.id}`,
+          status: "SUBMITTED",
+          templateId,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+          submittedAt: queuedAt,
+          template: { title: effectiveSchema.title || "Form" },
+          devicePending: true,
         });
         clearLocalDraft(currentUserId, tenantSlug, templateId);
         setDraftAuditId(null);
@@ -831,17 +852,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
         <div className="mr-auto text-xs text-foreground/60">
-          {isAutoSaving ? "Auto-saving draft..." : lastAutoSavedAt ? `Auto-saved ${new Date(lastAutoSavedAt).toLocaleTimeString()}` : "Auto-save on"}
+          {isAutoSaving
+            ? "Auto-saving draft..."
+            : lastAutoSavedAt
+              ? `Draft auto-saved ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
+              : "Draft saves automatically"}
         </div>
-        <button
-          type="button"
-          className="h-11 w-full rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50 sm:h-12 sm:w-auto inline-flex items-center justify-center gap-2"
-          onClick={onSaveDraft}
-          disabled={isSavingDraft || form.formState.isSubmitting}
-        >
-          {isSavingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {isSavingDraft ? "Saving draft..." : "Save draft"}
-        </button>
         <button
           type="submit"
           className="h-11 w-full rounded-md bg-foreground px-4 text-background disabled:opacity-50 sm:h-12 sm:w-auto inline-flex items-center justify-center gap-2"
@@ -1125,6 +1141,10 @@ function SignatureFieldInput({
 
     const id = window.requestAnimationFrame(() => {
       try {
+        if (typeof canvas.isEmpty === "function" && !canvas.isEmpty()) {
+          hydratedValueRef.current = savedDataUrl;
+          return;
+        }
         canvas.fromDataURL(savedDataUrl);
         hydratedValueRef.current = savedDataUrl;
       } catch {
@@ -1143,14 +1163,6 @@ function SignatureFieldInput({
         name={field.id as never}
         render={({ field: rhfField }) => (
           <div className="rounded-md border border-foreground/20 bg-background p-2">
-            {savedDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={savedDataUrl}
-                alt={`${field.label} signature`}
-                className="mb-2 h-20 w-full object-contain"
-              />
-            ) : null}
             {SignatureCanvasInput ? (
               <SignatureCanvasInput
                 ref={(ref: SignatureCanvas | null) => {

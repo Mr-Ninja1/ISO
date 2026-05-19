@@ -157,24 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { userId: data.user?.id ?? null };
   };
 
-  const signIn = async (email: string, password: string) => {
-    const res = await fetch(apiUrl("/api/auth/sign-in"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const payload = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(payload?.error || "Sign in failed");
-    }
-
-    const sessionPayload = payload?.session as Session | undefined;
-    const userPayload = payload?.user as { id?: string; email?: string } | undefined;
-    if (!sessionPayload?.access_token || !sessionPayload.refresh_token || !userPayload?.id) {
-      throw new Error("Sign in failed");
-    }
-
+  const applySignedInSession = async (sessionPayload: Session, userPayload: { id: string; email: string }) => {
     const { data, error } = await supabase.auth.setSession({
       access_token: sessionPayload.access_token,
       refresh_token: sessionPayload.refresh_token,
@@ -188,11 +171,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setSession(activeSession);
-    const nextUser = { id: userPayload.id, email: userPayload.email || "" };
-    setUser(nextUser);
-    writeCachedAuthUser(nextUser);
+    setUser(userPayload);
+    writeCachedAuthUser(userPayload);
 
-    return { session: activeSession, user: nextUser };
+    return { session: activeSession, user: userPayload };
+  };
+
+  const signIn = async (email: string, password: string) => {
+    let apiUnavailable = false;
+
+    try {
+      const res = await fetch(apiUrl("/api/auth/sign-in"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (res.status === 404 || res.status === 405) {
+        apiUnavailable = true;
+      } else {
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload?.error || "Sign in failed");
+        }
+
+        const sessionPayload = payload?.session as Session | undefined;
+        const userPayload = payload?.user as { id?: string; email?: string } | undefined;
+        if (!sessionPayload?.access_token || !sessionPayload.refresh_token || !userPayload?.id) {
+          throw new Error("Sign in failed");
+        }
+
+        return applySignedInSession(sessionPayload, {
+          id: userPayload.id,
+          email: userPayload.email || email,
+        });
+      }
+    } catch (error: unknown) {
+      if (!apiUnavailable) {
+        const message = error instanceof Error ? error.message : "";
+        if (message && !message.includes("fetch") && !message.includes("network")) {
+          throw error;
+        }
+        apiUnavailable = true;
+      }
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.session || !data.user) {
+      throw new Error(error?.message || "Sign in failed");
+    }
+
+    return applySignedInSession(data.session, {
+      id: data.user.id,
+      email: data.user.email || email,
+    });
   };
 
   const signOut = async () => {

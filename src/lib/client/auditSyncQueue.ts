@@ -81,6 +81,10 @@ export function getOfflineSubmittedForms(tenantSlug: string) {
   return readOfflineSubmitted().filter((x) => x.tenantSlug === tenantSlug);
 }
 
+export function getAuditSyncQueueForTenant(tenantSlug: string) {
+  return readQueue().filter((x) => x.tenantSlug === tenantSlug);
+}
+
 export function removeOfflineSubmittedByQueueId(queueId: string) {
   const all = readOfflineSubmitted();
   const next = all.filter((x) => x.queueId !== queueId);

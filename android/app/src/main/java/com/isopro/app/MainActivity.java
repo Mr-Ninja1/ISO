@@ -50,12 +50,7 @@ public class MainActivity extends BridgeActivity {
         if (tenantSegment.isEmpty() || tenantSegment.equals(SHELL_SLUG)) return null;
 
         String remappedPath = "/" + SHELL_SLUG + path.substring(tenantSegment.length() + 1);
-        String assetPath = "public" + remappedPath;
-        if (assetPath.endsWith("/")) {
-            assetPath += "index.html";
-        } else if (!assetPath.endsWith(".html") && !assetPath.contains(".")) {
-            assetPath += "/index.html";
-        }
+        String assetPath = resolveShellAssetPath(view, remappedPath);
 
         try {
             InputStream stream = view.getContext().getAssets().open(assetPath);
@@ -64,5 +59,41 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    /**
+     * Static export only includes placeholder dynamic segments (e.g. /_/audits/_).
+     * Map any real audit id to the shell HTML so View report does not blank-screen.
+     */
+    private String resolveShellAssetPath(WebView view, String remappedPath) {
+        String assetPath = "public" + remappedPath;
+        if (assetPath.endsWith("/")) {
+            assetPath += "index.html";
+        } else if (!assetPath.endsWith(".html") && !assetPath.contains(".")) {
+            assetPath += "/index.html";
+        }
+
+        if (assetPath.contains("/audits/")) {
+            String[] parts = remappedPath.split("/");
+            // /_/audits/{segment}
+            if (parts.length >= 4) {
+                String auditSegment = parts[3];
+                if (!auditSegment.isEmpty()
+                        && !auditSegment.equals("_")
+                        && !auditSegment.equals("new")
+                        && !auditSegment.equals("local")
+                        && !auditSegment.equals("offline-last")) {
+                    String shellAudit = "public/" + SHELL_SLUG + "/audits/_/index.html";
+                    try {
+                        view.getContext().getAssets().open(shellAudit);
+                        return shellAudit;
+                    } catch (Exception ignored) {
+                        // fall through
+                    }
+                }
+            }
+        }
+
+        return assetPath;
     }
 }

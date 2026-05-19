@@ -47,7 +47,15 @@ export async function fetchAndCacheAuditsList(
     error?: string;
   };
   if (!res.ok) {
-    throw new Error(data?.error || `Failed to load saved forms (${res.status})`);
+    const detail = typeof data?.error === "string" ? data.error : "";
+    if (res.status === 404) {
+      throw new Error(
+        detail === "Tenant not found"
+          ? "Could not load saved forms — brand not found on server. Re-open workspace and try again."
+          : "Could not load saved forms — list API unavailable (404). Device copies below still work."
+      );
+    }
+    throw new Error(detail || `Failed to load saved forms (${res.status})`);
   }
 
   const incoming = Array.isArray(data.rows) ? data.rows : [];

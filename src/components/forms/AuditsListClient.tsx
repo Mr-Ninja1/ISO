@@ -16,6 +16,7 @@ import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGen
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
 
 type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
 
@@ -145,16 +146,25 @@ export function AuditsListClient({
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
+  const [deviceReady, setDeviceReady] = useState(false);
 
   useEffect(() => {
     if (!activeTenantSlug) return;
-    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
-    if (cached?.rows?.length) {
+    let cancelled = false;
+
+    void loadDeviceAuditsRows(user?.id || null, activeTenantSlug).then((deviceRows) => {
+      if (cancelled) return;
+      setDeviceReady(true);
+      if (!deviceRows.length) return;
       setAllRows((current) => {
-        const next = current.length >= cached.rows.length ? current : cached.rows;
-        return rowsAreEqual(current, next) ? current : next;
+        const merged = mergeAuditsRows(current, deviceRows);
+        return rowsAreEqual(current, merged) ? current : merged;
       });
-    }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeTenantSlug, user?.id]);
 
   useEffect(() => {
@@ -199,17 +209,19 @@ export function AuditsListClient({
       setAllRows(result.rows);
       setHasLoadedFromServer(true);
     } catch (err: unknown) {
-      setSyncError(err instanceof Error ? err.message : "Could not load saved forms");
+      const message = err instanceof Error ? err.message : "Could not load saved forms";
+      const localCount = readAuditsListCache(user?.id || null, activeTenantSlug)?.rows?.length ?? allRows.length;
+      if (localCount > 0) {
+        setSyncError(`${message} Showing ${localCount} form(s) saved on this device.`);
+      } else {
+        setSyncError(message);
+      }
     } finally {
       setSyncing(false);
     }
   }
 
-  useEffect(() => {
-    if (!session?.access_token || !activeTenantSlug || offline) return;
-    void syncFromServer(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, activeTenantSlug, user?.id, offline]);
+  // Server history loads only when the user taps "Load from server" (on-demand).
 
   const draftCount = useMemo(() => allRows.filter((r) => r.status === "DRAFT").length, [allRows]);
   const submittedCount = useMemo(() => allRows.filter((r) => r.status === "SUBMITTED").length, [allRows]);
@@ -231,10 +243,11 @@ export function AuditsListClient({
 
   return (
     <>
-      {offline ? (
+      {offline || !hasLoadedFromServer ? (
         <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          Showing saved forms stored on this device. Connect to the internet and tap Load from server to see the full
-          history.
+          {deviceReady
+            ? "Showing forms saved on this device. When online, tap Load from server to fetch more history."
+            : "Loading forms saved on this device…"}
         </div>
       ) : null}
 
@@ -338,11 +351,18 @@ export function AuditsListClient({
                         <div className="line-clamp-2 font-medium">{row.template.title}</div>
                         <div className="mt-0.5 text-xs text-foreground/70 break-words">
                           Updated {new Date(row.updatedAt).toLocaleString()}
+                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
+                            <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
+                              On device
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex w-full items-center gap-2 sm:w-auto">
                         <Link
-                          href={`/${activeTenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}&auditId=${encodeURIComponent(row.id)}`}
+                          href={`/${activeTenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}${
+                            isDevicePendingAuditId(row.id) ? "" : `&auditId=${encodeURIComponent(row.id)}`
+                          }`}
                           className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
                         >
                           <FileText className="h-4 w-4" />
@@ -368,17 +388,34 @@ export function AuditsListClient({
                         <div className="line-clamp-2 font-medium">{row.template.title}</div>
                         <div className="mt-0.5 text-xs text-foreground/70 break-words">
                           Submitted {new Date(row.submittedAt || row.updatedAt).toLocaleString()}
+                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
+                            <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
+                              Pending sync
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex w-full items-center gap-2 sm:w-auto">
                         <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
+                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
+                            <Link
+                              href={`/${activeTenantSlug}/audits/local`}
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
+                            >
+                              <FileText className="h-4 w-4" />
+                              Queued details
+                            </Link>
+                          ) : (
                           <Link
-                            href={`/${tenantSlug}/audits/${row.id}`}
+                            href={`/${activeTenantSlug}/audits/${row.id}`}
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
                           >
                             <FileText className="h-4 w-4" />
                             View report
                           </Link>
+                          )}
+                          {row.devicePending || isDevicePendingAuditId(row.id) ? null : (
+                          <>
                           <button
                             type="button"
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
@@ -401,6 +438,8 @@ export function AuditsListClient({
                             <Printer className="h-4 w-4" />
                             <span className="hidden sm:inline">PDF</span>
                           </button>
+                          </>
+                          )}
                         </div>
                         <div className="flex sm:hidden">
                           <CardMenu
