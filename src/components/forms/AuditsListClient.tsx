@@ -73,8 +73,8 @@ function CardMenu({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
+          <div className="fixed inset-0 z-[250]" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute right-0 top-full z-[251] mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
             <button
               type="button"
               onClick={handleView}

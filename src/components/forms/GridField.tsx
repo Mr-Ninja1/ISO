@@ -14,6 +14,7 @@ import {
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
 import { buildGridLayout, buildGridRowDefaults } from "@/lib/gridLayout";
+import { clampColumnWidthPx } from "@/lib/formFieldConstants";
 
 type FormValues = Record<string, unknown>;
 
@@ -391,7 +392,10 @@ export function GridField({
                     col.type === "checkbox"
                       ? { width: 72, minWidth: 72 }
                       : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                        ? {
+                                width: clampColumnWidthPx((col as any).widthPx),
+                                minWidth: clampColumnWidthPx((col as any).widthPx),
+                              }
                         : undefined
                   }
                 >
@@ -441,7 +445,10 @@ export function GridField({
                         col.type === "checkbox"
                           ? { width: 72, minWidth: 72 }
                           : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                            ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                            ? {
+                                width: clampColumnWidthPx((col as any).widthPx),
+                                minWidth: clampColumnWidthPx((col as any).widthPx),
+                              }
                             : undefined
                       }
                     >

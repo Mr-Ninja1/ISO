@@ -846,50 +846,19 @@ function NewTemplatePageInner() {
     <div className="relative min-h-dvh">
       {headerActionsMount
         ? createPortal(
-            <div className="mr-1 flex flex-wrap items-center justify-end gap-1 sm:gap-1.5">
-              {!isEditMode ? (
-                <>
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      e.currentTarget.value = "";
-                      if (!file) return;
-                      await importFromPhoto(file);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
-                    onClick={() => setShowPhotoImportGuide(true)}
-                    disabled={importingPhoto || saving || workspaceLoading}
-                  >
-                    {importingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    {importingPhoto ? "Importing..." : "Create from photo"}
-                  </button>
-                </>
-              ) : null}
-
+            <div className="mr-1 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
+                className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-foreground/25 bg-background px-3 text-xs font-medium text-foreground hover:bg-foreground/5 disabled:opacity-50 sm:h-7"
                 onClick={() => setShowFormPreview(true)}
+                disabled={workspaceLoading || builderBlockedSmallScreen}
               >
-                <Eye className="mr-1 h-3.5 w-3.5" />
-                Preview form
+                <Eye className="h-3.5 w-3.5" />
+                Preview
               </button>
-              <Link
-                href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
-                className="inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-foreground/20 px-2 text-xs sm:h-7"
-              >
-                Back
-              </Link>
               <button
                 type="button"
-                className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md bg-foreground px-2 text-xs font-medium text-background disabled:opacity-50 sm:h-7"
+                className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50 sm:h-7"
                 onClick={() => setShowSaveConfirm(true)}
                 disabled={disableSave}
               >
@@ -904,6 +873,20 @@ function NewTemplatePageInner() {
                   "Save"
                 )}
               </button>
+              {!isEditMode ? (
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.currentTarget.value = "";
+                    if (!file) return;
+                    await importFromPhoto(file);
+                  }}
+                />
+              ) : null}
             </div>,
             headerActionsMount
           )
@@ -940,7 +923,6 @@ function NewTemplatePageInner() {
           <div className="min-w-0">
             <div className="px-3 pt-3 sm:px-6">
               <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
-                <label className="w-full text-xs font-semibold uppercase tracking-wide">Form type</label>
                 <div className="w-full py-1">
                   <FormTypePicker
                     value={formType}
@@ -994,6 +976,17 @@ function NewTemplatePageInner() {
                   <Eye className="mr-1 h-3.5 w-3.5" />
                   Preview
                 </button>
+                {!isEditMode ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5 disabled:opacity-50"
+                    disabled={importingPhoto || saving || workspaceLoading}
+                    onClick={() => setShowPhotoImportGuide(true)}
+                  >
+                    {importingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {importingPhoto ? "Importing…" : "Import from photo"}
+                  </button>
+                ) : null}
                 <span className="text-foreground/50">{getFormBuilderConfig(formType).tagline}</span>
               </div>
             </div>

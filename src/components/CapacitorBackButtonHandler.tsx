@@ -1,25 +1,29 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { initCapacitorBackButton, trackPageNavigation } from "@/lib/capacitor/backButton";
+import { AppNavigationStack, buildAppPath, recordCapacitorNavigation } from "@/lib/capacitor/backButton";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 /**
- * Initialize Capacitor back button handling on mount.
- * Also tracks page navigation for the back button stack.
+ * Keeps the sessionStorage navigation stack in sync with Next.js routes.
+ * Hardware back is handled by /capacitor-hardware-back.js + MainActivity.
  */
 export function CapacitorBackButtonHandler() {
-  const pathname = usePathname();
+  const pathname = usePathname() || "/";
+  const stackRef = useRef(new AppNavigationStack());
 
-  useEffect(() => {
-    initCapacitorBackButton();
-  }, []);
-
-  useEffect(() => {
-    if (pathname) {
-      trackPageNavigation(pathname);
-    }
+  const readFullPath = useCallback(() => {
+    if (typeof window === "undefined") return buildAppPath(pathname);
+    return buildAppPath(pathname, window.location.search);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
+    const fullPath = readFullPath();
+    stackRef.current.record(fullPath);
+    recordCapacitorNavigation(fullPath);
+  }, [readFullPath]);
 
   return null;
 }

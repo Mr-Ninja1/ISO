@@ -92,15 +92,30 @@ export async function ssrAuditReportForPrint(auditId: string, tenantSlug: string
 
   const { data: row, error } = await svc
     .from("audit_logs")
-    .select("id, status, created_at, payload, form_templates(title, schema)")
+    .select("id, status, created_at, payload, template_id")
     .eq("id", auditId)
     .eq("tenant_id", tenant.id)
     .maybeSingle();
 
   if (error || !row) return null;
 
-  const rawTpl = row.form_templates;
-  const tpl = (Array.isArray(rawTpl) ? rawTpl[0] : rawTpl) as { title: string; schema: unknown } | null | undefined;
+  let templateTitle = "Form";
+  let templateSchema: unknown = null;
+
+  const templateId = row.template_id as string | null;
+  if (templateId) {
+    const { data: tplRow, error: tplError } = await svc
+      .from("form_templates")
+      .select("title, schema")
+      .eq("id", templateId)
+      .eq("tenant_id", tenant.id)
+      .maybeSingle();
+
+    if (!tplError && tplRow) {
+      templateTitle = (tplRow.title as string) || "Form";
+      templateSchema = tplRow.schema;
+    }
+  }
 
   return {
     id: row.id as string,
@@ -113,8 +128,8 @@ export async function ssrAuditReportForPrint(auditId: string, tenantSlug: string
       slug: tenant.slug,
     },
     template: {
-      title: tpl?.title ?? "Form",
-      schema: tpl?.schema ?? null,
+      title: templateTitle,
+      schema: templateSchema,
     },
   };
 }

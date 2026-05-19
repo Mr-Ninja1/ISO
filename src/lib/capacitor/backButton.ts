@@ -2,57 +2,66 @@
 
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
-let unsubscribeBackButton: (() => void) | null = null;
-let navigationStack: string[] = [];
+export const NAV_STACK_STORAGE_KEY = "iso-nav-stack:v1";
 
-/**
- * Initialize Capacitor back button handler.
- * When back button is pressed, tries to go back in history first.
- * Only exits app if there's nowhere left to go.
- */
-export function initCapacitorBackButton() {
-  if (typeof window === "undefined") return;
-  if (!isCapacitorNativeApp()) return;
-
-  // Dynamically import Capacitor App plugin
-  import("@capacitor/app").then(({ App }) => {
-    if (!App) return;
-
-    void App.addListener("backButton", () => {
-      if (navigationStack.length > 1) {
-        navigationStack.pop();
-        window.history.back();
-      } else {
-        App.minimizeApp();
-      }
-    }).then((handle) => {
-      unsubscribeBackButton = () => {
-        void handle.remove();
-      };
-    });
-  }).catch(() => {
-    // Capacitor not available, ignore
-  });
+export function buildAppPath(pathname: string, search = "") {
+  const path = pathname || "/";
+  if (!search || search === "?") return path;
+  return search.startsWith("?") ? `${path}${search}` : `${path}?${search}`;
 }
 
-/**
- * Track page navigation for back button handler.
- * Call this whenever the page/route changes.
- */
-export function trackPageNavigation(path: string) {
-  if (!isCapacitorNativeApp()) return;
-  if (navigationStack.length === 0 || navigationStack[navigationStack.length - 1] !== path) {
-    navigationStack.push(path);
+/** Sync React route changes into the sessionStorage stack used by hardware back. */
+export function recordCapacitorNavigation(path: string) {
+  if (typeof window === "undefined" || !isCapacitorNativeApp()) return;
+  const recorder = (window as Window & { __ISO_RECORD_NAV__?: (path: string) => void }).__ISO_RECORD_NAV__;
+  if (recorder) {
+    recorder(path);
+    return;
+  }
+
+  try {
+    const raw = sessionStorage.getItem(NAV_STACK_STORAGE_KEY);
+    const stack: string[] = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(stack)) return;
+
+    if (!stack.length) {
+      sessionStorage.setItem(NAV_STACK_STORAGE_KEY, JSON.stringify([path]));
+      return;
+    }
+    if (stack[stack.length - 1] === path) return;
+    if (stack.length >= 2 && stack[stack.length - 2] === path) {
+      stack.pop();
+      sessionStorage.setItem(NAV_STACK_STORAGE_KEY, JSON.stringify(stack));
+      return;
+    }
+    stack.push(path);
+    sessionStorage.setItem(NAV_STACK_STORAGE_KEY, JSON.stringify(stack));
+  } catch {
+    // ignore
   }
 }
 
-/**
- * Cleanup back button handler (call on unmount if needed).
- */
-export function cleanupCapacitorBackButton() {
-  if (unsubscribeBackButton) {
-    unsubscribeBackButton();
-    unsubscribeBackButton = null;
+/** In-app navigation stack (pathname + query) for React-only flows. */
+export class AppNavigationStack {
+  private stack: string[] = [];
+
+  record(path: string) {
+    recordCapacitorNavigation(path);
+    if (this.stack.length === 0) {
+      this.stack = [path];
+      return;
+    }
+    const top = this.stack[this.stack.length - 1];
+    if (top === path) return;
+    if (this.stack.length >= 2 && this.stack[this.stack.length - 2] === path) {
+      this.stack.pop();
+      return;
+    }
+    this.stack.push(path);
   }
-  navigationStack = [];
+
+  previous(): string | null {
+    if (this.stack.length < 2) return null;
+    return this.stack[this.stack.length - 2];
+  }
 }

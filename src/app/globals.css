@@ -72,10 +72,75 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root,
+  :root[data-theme="default"],
+  :root[data-theme="hse-pro"],
+  :root[data-theme="slate-soft"],
+  :root[data-theme="warm-paper"],
+  :root[data-theme="mint-soft"] {
+    --hse-cream: #141c1b;
+    --hse-cream-deep: #0f1514;
+    --hse-teal: #6ee7d6;
+    --hse-teal-mid: #2dd4bf;
+    --hse-teal-light: #5eead4;
+    --hse-copper: #f59e6b;
+    --hse-copper-soft: #3d2a22;
+    --hse-sky: #1e3a47;
+    --hse-sky-deep: #163040;
+    --hse-charcoal: #eef2f1;
+    --hse-caution: #fbbf24;
+    --hse-caution-dark: #422006;
+
+    --background: #0f1615;
+    --foreground: #eef2f1;
+    --surface: #1a2423;
+    --surface-muted: #232e2d;
+    --border: #3d4f4d;
+    --border-strong: var(--hse-teal-mid);
+    --accent: var(--hse-teal-mid);
+    --accent-soft: #a8c4bf;
+    --brand-primary: var(--hse-teal-mid);
+    --brand-primary-soft: #1a3330;
+    --brand-accent: var(--hse-copper);
+    --brand-accent-soft: #3d2a22;
+    --brand-sky: var(--hse-sky);
+    --brand-sky-soft: #1a2f38;
+    --brand-emerald: #2dd4bf;
+    --brand-emerald-soft: #134e4a;
+    --shell-tint-a: rgba(30, 58, 71, 0.45);
+    --shell-tint-b: rgba(15, 22, 21, 0.98);
+    --shell-tint-c: rgba(26, 51, 48, 0.55);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px rgba(0, 0, 0, 0.45);
+    --shadow-card-hover: 0 12px 32px rgba(0, 0, 0, 0.5);
   }
+
+  .ws-header {
+    background: linear-gradient(180deg, rgba(26, 36, 35, 0.98), rgba(20, 28, 27, 0.94));
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .ws-panel {
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+
+  .wayfinder-btn {
+    background: var(--surface);
+    color: var(--hse-teal-mid);
+    border-color: var(--hse-teal-mid);
+  }
+
+  .wayfinder-btn-home {
+    background: var(--hse-teal-mid);
+    color: var(--hse-cream-deep);
+  }
+
+  .tenant-shell {
+    background: linear-gradient(180deg, var(--hse-cream-deep) 0%, #0f1615 45%, var(--hse-sky-deep) 120%);
+  }
+}
+
+html {
+  color-scheme: light dark;
 }
 
 body {

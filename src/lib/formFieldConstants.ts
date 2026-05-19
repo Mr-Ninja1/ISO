@@ -1,6 +1,15 @@
 /** Shown on new grid columns until the admin sets a real header name. */
 export const COLUMN_HEADER_PLACEHOLDER = "Add column name";
 
+export const COLUMN_MIN_WIDTH_PX = 65;
+export const COLUMN_MAX_WIDTH_PX = 640;
+export const COLUMN_DEFAULT_WIDTH_PX = 160;
+
+export function clampColumnWidthPx(value: number): number {
+  if (!Number.isFinite(value)) return COLUMN_DEFAULT_WIDTH_PX;
+  return Math.max(COLUMN_MIN_WIDTH_PX, Math.min(COLUMN_MAX_WIDTH_PX, Math.round(value)));
+}
+
 export function isColumnHeaderPlaceholder(label: string | undefined | null): boolean {
   if (!label || !label.trim()) return true;
   const normalized = label.trim().toLowerCase();

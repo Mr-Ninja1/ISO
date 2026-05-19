@@ -26,9 +26,39 @@ export type FormBuilderConfig = {
   showPlacementToggle: boolean;
   showMetadataStarter: boolean;
   defaultQuestionFieldType: FieldType;
+  /** Shown inline in Quick add; remaining palette types go under More tools */
+  quickPaletteTypes?: Array<FieldType | "table">;
   /** Optional starter grid when user clicks "Add starter table" */
   starterGrid?: { rows: number; columns: SimpleFieldDef[] };
 };
+
+const PALETTE_QUICK_PRIORITY: Array<FieldType | "table"> = [
+  "text",
+  "yesno",
+  "date",
+  "table",
+  "signature",
+  "photo",
+  "checkbox",
+  "number",
+  "display",
+  "time",
+  "temp",
+];
+
+export function resolvePaletteSplit(formType: FormType): {
+  quickTypes: Array<FieldType | "table">;
+  moreTypes: Array<FieldType | "table">;
+} {
+  const config = getFormBuilderConfig(formType);
+  const all = config.paletteTypes;
+  const quick =
+    config.quickPaletteTypes ??
+    PALETTE_QUICK_PRIORITY.filter((t) => all.includes(t)).slice(0, 6);
+  const quickSet = new Set(quick);
+  const more = all.filter((t) => !quickSet.has(t));
+  return { quickTypes: quick, moreTypes: more };
+}
 
 function makeId(prefix: string) {
   try {
@@ -74,6 +104,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: true,
     showMetadataStarter: true,
     defaultQuestionFieldType: "text",
+    quickPaletteTypes: ["text", "yesno", "date", "signature", "table"],
     starterGrid: {
       rows: 12,
       columns: [
@@ -99,6 +130,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: false,
     showMetadataStarter: false,
     defaultQuestionFieldType: "yesno",
+    quickPaletteTypes: ["text", "yesno", "checkbox", "photo", "table"],
     starterGrid: {
       rows: 15,
       columns: [
@@ -124,6 +156,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: false,
     showMetadataStarter: false,
     defaultQuestionFieldType: "yesno",
+    quickPaletteTypes: ["text", "yesno", "date", "photo"],
   },
   "answer-sheet": {
     formType: "answer-sheet",
@@ -140,6 +173,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: false,
     showMetadataStarter: false,
     defaultQuestionFieldType: "text",
+    quickPaletteTypes: ["text", "date", "photo"],
   },
   inspection: {
     formType: "inspection",
@@ -156,6 +190,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: true,
     showMetadataStarter: false,
     defaultQuestionFieldType: "text",
+    quickPaletteTypes: ["text", "yesno", "date", "table", "signature"],
     starterGrid: {
       rows: 10,
       columns: [
@@ -181,6 +216,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showPlacementToggle: false,
     showMetadataStarter: false,
     defaultQuestionFieldType: "signature",
+    quickPaletteTypes: ["signature", "text", "table"],
     starterGrid: {
       rows: 8,
       columns: [
@@ -218,40 +254,37 @@ export function isSchemaEmpty(sections: FormSection[]) {
   });
 }
 
-/** Blank canvas for a form type — countdown of structure, zero fields until the user adds them. */
+/** Default table block with starter columns for types that use a log grid. */
+export function defaultGridSectionForType(formType: FormType): FormSection {
+  const config = getFormBuilderConfig(formType);
+  const rows = config.starterGrid?.rows ?? 10;
+  const starterCols = config.starterGrid?.columns;
+  const columns =
+    starterCols && starterCols.length > 0
+      ? starterCols.map((col) => ({
+          id: makeId(col.type),
+          type: col.type,
+          label: COLUMN_HEADER_PLACEHOLDER,
+          required: false,
+        }))
+      : [starterColumn("text"), starterColumn("text"), starterColumn("text")];
+
+  return {
+    type: "grid",
+    id: "form_data",
+    title: config.sectionLabels.table,
+    rows,
+    columns,
+  };
+}
+
+/** Blank canvas — only includes blocks the user will actually see (no empty header/footer shells). */
 export function blankCanvasForType(formType: FormType): FormSection[] {
   const config = getFormBuilderConfig(formType);
-  const sections: FormSection[] = [];
-
-  if (config.sections.header) {
-    sections.push({
-      type: "fields",
-      title: config.sectionLabels.header,
-      columns: config.headerColumnsDefault,
-      fields: [],
-    });
-  }
-
   if (config.sections.table) {
-    sections.push({
-      type: "grid",
-      id: "form_data",
-      title: config.sectionLabels.table,
-      rows: 10,
-      columns: [],
-    });
+    return [defaultGridSectionForType(formType) as FormSection];
   }
-
-  if (config.sections.footer) {
-    sections.push({
-      type: "fields",
-      title: config.sectionLabels.footer,
-      columns: 1,
-      fields: [],
-    });
-  }
-
-  return sections;
+  return [];
 }
 
 /** Optional richer starter (user-triggered, not applied on type switch). */
@@ -315,7 +348,7 @@ export function buildSectionsFromBuilderState(
   const config = getFormBuilderConfig(formType);
   const sections: FormSection[] = [];
 
-  if (config.sections.header) {
+  if (config.sections.header && state.topFields.length > 0) {
     sections.push({
       type: "fields",
       title: config.sectionLabels.header,

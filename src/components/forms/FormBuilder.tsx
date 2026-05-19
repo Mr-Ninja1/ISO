@@ -19,8 +19,11 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Ellipsis,
   FileText,
   Hash,
+  UnfoldHorizontal,
+  Minus,
   PenLine,
   Plus,
   Table2,
@@ -29,7 +32,11 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  COLUMN_DEFAULT_WIDTH_PX,
   COLUMN_HEADER_PLACEHOLDER,
+  COLUMN_MAX_WIDTH_PX,
+  COLUMN_MIN_WIDTH_PX,
+  clampColumnWidthPx,
   columnHeaderDisplayLabel,
   isColumnHeaderPlaceholder,
 } from "@/lib/formFieldConstants";
@@ -37,7 +44,9 @@ import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/
 import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
 import {
   buildSectionsFromBuilderState,
+  defaultGridSectionForType,
   getFormBuilderConfig,
+  resolvePaletteSplit,
   sectionTitleForBuilder,
   starterCanvasForType,
 } from "@/lib/formBuilderConfig";
@@ -116,18 +125,68 @@ function defaultField(fieldType: FieldType): FieldDef {
   }
 }
 
-function defaultGrid(): GridSection {
-  return {
-    type: "grid",
-    id: "form_data",
-    title: "Log Sheet",
-    rows: 31,
-    columns: [
-      { id: "col_1", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
-      { id: "col_2", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
-      { id: "col_3", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
-    ],
-  };
+function defaultGrid(formType: FormType): GridSection {
+  const section = defaultGridSectionForType(formType);
+  if (section.type !== "grid") {
+    return {
+      type: "grid",
+      id: "form_data",
+      title: "Log Sheet",
+      rows: 10,
+      columns: [
+        { id: "col_1", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
+        { id: "col_2", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
+        { id: "col_3", type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false },
+      ],
+    };
+  }
+  return section;
+}
+
+function columnWidthPx(col: SimpleFieldDef): number {
+  const w = (col as { widthPx?: number }).widthPx;
+  return typeof w === "number" && Number.isFinite(w) ? clampColumnWidthPx(w) : COLUMN_DEFAULT_WIDTH_PX;
+}
+
+function ColumnResizeHandle({
+  onResizeDelta,
+}: {
+  onResizeDelta: (deltaPx: number) => void;
+}) {
+  const startX = useRef(0);
+
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Drag to resize column"
+      title="Drag to resize column"
+      className="absolute right-0 top-0 z-20 flex h-full w-4 cursor-col-resize touch-none items-center justify-center border-l border-transparent hover:border-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)]"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startX.current = e.clientX;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return;
+        const delta = e.clientX - startX.current;
+        if (Math.abs(delta) < 2) return;
+        startX.current = e.clientX;
+        onResizeDelta(delta);
+      }}
+      onPointerUp={(e) => {
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <UnfoldHorizontal className="h-3.5 w-3.5 text-foreground/45" aria-hidden />
+    </span>
+  );
 }
 
 function defaultMetadataHeaderFields(): FieldDef[] {
@@ -189,6 +248,73 @@ const PALETTE_CATALOG: PaletteItem[] = [
 function paletteForFormType(formType: FormType): PaletteItem[] {
   const allowed = new Set(getFormBuilderConfig(formType).paletteTypes);
   return PALETTE_CATALOG.filter((item) => allowed.has(item.fieldType));
+}
+
+function splitPaletteItems(allItems: PaletteItem[], formType: FormType) {
+  const { quickTypes, moreTypes } = resolvePaletteSplit(formType);
+  const quickSet = new Set(quickTypes);
+  const moreSet = new Set(moreTypes);
+  return {
+    quickPaletteItems: allItems.filter((item) => quickSet.has(item.fieldType)),
+    morePaletteItems: allItems.filter((item) => moreSet.has(item.fieldType)),
+  };
+}
+
+function PaletteMoreToolsMenu({
+  items,
+  open,
+  onClose,
+  onPick,
+}: {
+  items: PaletteItem[];
+  open: boolean;
+  onClose: () => void;
+  onPick: (fieldType: FieldType | "table") => void;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!panelRef.current?.contains(event.target as Node)) onClose();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open || items.length === 0) return null;
+
+  return (
+    <div
+      ref={panelRef}
+      role="menu"
+      aria-label="More field tools"
+      className="absolute left-0 top-full z-30 mt-1 min-w-[min(100%,20rem)] max-w-md rounded-md border border-foreground/20 bg-background p-2 shadow-lg"
+    >
+      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/55">
+        Additional tools
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((item) => (
+          <DraggablePaletteItem
+            key={item.id}
+            item={item}
+            onClick={() => {
+              onPick(item.fieldType);
+              onClose();
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DraggablePaletteItem({
@@ -721,52 +847,64 @@ function ColumnEditorModal({
           <div className="grid gap-1">
             <div className="text-xs font-medium text-foreground/70">Column size</div>
             <div className="text-[11px] leading-4 text-foreground/55">
-              Size controls how wide this column appears in the table (in pixels).
+              Drag the resize handle on the column header, use the slider, or type a pixel width ({COLUMN_MIN_WIDTH_PX}–{COLUMN_MAX_WIDTH_PX}).
             </div>
-            <div className="grid grid-cols-[32px_1fr_32px] gap-2">
+            <div className="grid grid-cols-[36px_1fr_36px] items-center gap-2">
               <button
                 type="button"
-                className="h-9 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5"
                 onClick={() =>
                   onUpdateColumn(activeCol.id, {
-                    widthPx: Math.max(80, Number((activeCol as { widthPx?: number }).widthPx || 160) - 20),
+                    widthPx: clampColumnWidthPx(columnWidthPx(activeCol) - 20),
                   } as Partial<SimpleFieldDef>)
                 }
                 title="Narrower"
+                aria-label="Narrower column"
               >
-                âˆ’
+                <Minus className="h-4 w-4" />
               </button>
               <input
                 type="number"
-                min={80}
-                max={640}
+                min={COLUMN_MIN_WIDTH_PX}
+                max={COLUMN_MAX_WIDTH_PX}
                 step={10}
                 className="h-9 w-full rounded-md border border-foreground/20 bg-background px-2 text-sm"
-                value={
-                  typeof (activeCol as { widthPx?: number }).widthPx === "number"
-                    ? Math.round((activeCol as { widthPx?: number }).widthPx!)
-                    : 160
-                }
+                value={columnWidthPx(activeCol)}
                 onChange={(e) => {
-                  const n = Number(e.target.value || 160);
+                  const n = Number(e.target.value || COLUMN_DEFAULT_WIDTH_PX);
                   onUpdateColumn(activeCol.id, {
-                    widthPx: Math.max(80, Math.min(640, n)),
+                    widthPx: clampColumnWidthPx(n),
                   } as Partial<SimpleFieldDef>);
                 }}
               />
               <button
                 type="button"
-                className="h-9 rounded-md border border-foreground/20 text-xs hover:bg-foreground/5"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5"
                 onClick={() =>
                   onUpdateColumn(activeCol.id, {
-                    widthPx: Math.min(640, Number((activeCol as { widthPx?: number }).widthPx || 160) + 20),
+                    widthPx: clampColumnWidthPx(columnWidthPx(activeCol) + 20),
                   } as Partial<SimpleFieldDef>)
                 }
                 title="Wider"
+                aria-label="Wider column"
               >
-                +
+                <Plus className="h-4 w-4" />
               </button>
             </div>
+            <input
+              type="range"
+              min={COLUMN_MIN_WIDTH_PX}
+              max={COLUMN_MAX_WIDTH_PX}
+              step={10}
+              className="mt-1 w-full accent-[var(--hse-teal)]"
+              value={columnWidthPx(activeCol)}
+              onChange={(e) =>
+                onUpdateColumn(activeCol.id, {
+                  widthPx: clampColumnWidthPx(Number(e.target.value)),
+                } as Partial<SimpleFieldDef>)
+              }
+              aria-label="Column width slider"
+            />
           </div>
 
           {activeCol.type === "temp" ? (
@@ -860,12 +998,14 @@ function ColumnEditorModal({
 function GridBuilder({
   grid,
   onChange,
+  onRemoveTable,
   lockExistingDeletes,
   lockedColumnIds,
   compact = false,
 }: {
   grid: GridSection;
   onChange: (next: GridSection) => void;
+  onRemoveTable?: () => void;
   lockExistingDeletes?: boolean;
   lockedColumnIds?: Set<string>;
   compact?: boolean;
@@ -1164,6 +1304,17 @@ function GridBuilder({
           >
             Undo
           </button>
+          {onRemoveTable ? (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-red-200 px-2 text-xs text-red-700 hover:bg-red-50"
+              onClick={onRemoveTable}
+              title="Remove table from form"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove table
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1175,17 +1326,24 @@ function GridBuilder({
                 <th
                   key={col.id}
                   className={
-                    "border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    "relative border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
                     (col.type === "checkbox" ? "w-16" : "")
                   }
                   style={
                     col.type === "checkbox"
                       ? { width: 72, minWidth: 72 }
-                      : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
-                        : undefined
+                      : { width: columnWidthPx(col), minWidth: columnWidthPx(col) }
                   }
                 >
+                  {col.type !== "checkbox" ? (
+                    <ColumnResizeHandle
+                      onResizeDelta={(delta) =>
+                        updateColumn(col.id, {
+                          widthPx: clampColumnWidthPx(columnWidthPx(col) + delta),
+                        } as Partial<SimpleFieldDef>)
+                      }
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className={
@@ -1265,7 +1423,10 @@ function GridBuilder({
                         col.type === "checkbox"
                           ? { width: 72, minWidth: 72 }
                           : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                            ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                            ? {
+                                width: columnWidthPx(col),
+                                minWidth: columnWidthPx(col),
+                              }
                             : undefined
                       }
                       onMouseDown={(e) => {
@@ -1610,18 +1771,30 @@ export function FormBuilder({
   const [questionLabel, setQuestionLabel] = useState("");
   const [questionType, setQuestionType] = useState<FieldType>(builderConfig.defaultQuestionFieldType);
   const [compactBuilder, setCompactBuilder] = useState(false);
-  const [showHeaderSection, setShowHeaderSection] = useState(true);
-  const [showTableSection, setShowTableSection] = useState(builderConfig.canvasMode === "checklist");
-  const [showFooterSection, setShowFooterSection] = useState(false);
+  const [headerAreaOpen, setHeaderAreaOpen] = useState(() => initialState.topFields.length > 0);
+  const [footerAreaOpen, setFooterAreaOpen] = useState(() => initialState.bottomFields.length > 0);
   const paletteItems = useMemo(() => paletteForFormType(formType), [formType]);
+  const { quickPaletteItems, morePaletteItems } = useMemo(
+    () => splitPaletteItems(paletteItems, formType),
+    [paletteItems, formType]
+  );
+  const [moreToolsOpen, setMoreToolsOpen] = useState(false);
   const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
   const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
   useEffect(() => {
     setQuestionType(builderConfig.defaultQuestionFieldType);
-    setShowTableSection(builderConfig.canvasMode === "checklist" || Boolean(state.grid));
-    setShowHeaderSection(true);
-    setShowFooterSection(false);
-  }, [formType, builderConfig.defaultQuestionFieldType, builderConfig.canvasMode, state.grid]);
+    if (state.topFields.length === 0) setHeaderAreaOpen(false);
+    if (state.bottomFields.length === 0) setFooterAreaOpen(false);
+    setMoreToolsOpen(false);
+  }, [formType, builderConfig.defaultQuestionFieldType, state.topFields.length, state.bottomFields.length]);
+
+  useEffect(() => {
+    if (typeof resetKey === "string") {
+      setHeaderAreaOpen(initialState.topFields.length > 0);
+      setFooterAreaOpen(initialState.bottomFields.length > 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -1664,20 +1837,23 @@ export function FormBuilder({
   function addItem(fieldType: FieldType | "table", target: "top" | "bottom" = "top") {
     if (fieldType === "table") {
       if (state.grid) return;
-      sync({ ...state, grid: defaultGrid() });
+      sync({ ...state, grid: defaultGrid(formType) });
       return;
     }
     const nextField = defaultField(fieldType);
     if (target === "bottom") {
+      if (!footerAreaOpen) setFooterAreaOpen(true);
       sync({ ...state, bottomFields: [...state.bottomFields, nextField] });
       return;
     }
+    if (!headerAreaOpen) setHeaderAreaOpen(true);
     sync({ ...state, topFields: [...state.topFields, nextField] });
   }
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
-    const item = paletteItems.find((p) => p.id === id) ?? null;
+    const item =
+      quickPaletteItems.find((p) => p.id === id) ?? morePaletteItems.find((p) => p.id === id) ?? null;
     setActiveDrag(item);
   }
 
@@ -1716,6 +1892,7 @@ export function FormBuilder({
     if (formType === "answer-sheet" && nextField.type === "text") {
       nextField.multiline = true;
     }
+    if (!headerAreaOpen) setHeaderAreaOpen(true);
     sync({ ...state, topFields: [...state.topFields, nextField] });
     setQuestionLabel("");
   }
@@ -1725,19 +1902,48 @@ export function FormBuilder({
       <div className="flex flex-col">
         {/* Ribbon */}
         <div className="border-b border-foreground/20 bg-background px-3 py-3 sm:px-6">
-          <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
-            <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
+            <div className="min-w-0 flex-1 rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">
-                Quick add Â· {builderConfig.label}
+                Quick add · {builderConfig.label}
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {paletteItems.map((item) => (
+              <div className="relative flex flex-wrap items-center gap-2">
+                {quickPaletteItems.map((item) => (
                   <DraggablePaletteItem
                     key={item.id}
                     item={item}
                     onClick={() => addItem(item.fieldType, insertTarget)}
                   />
                 ))}
+                {morePaletteItems.length > 0 ? (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className={
+                        "inline-flex items-center gap-1.5 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm whitespace-nowrap hover:bg-foreground/5 " +
+                        (moreToolsOpen ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]" : "")
+                      }
+                      aria-expanded={moreToolsOpen}
+                      aria-haspopup="menu"
+                      onClick={() => setMoreToolsOpen((open) => !open)}
+                    >
+                      <Ellipsis className="h-4 w-4 text-foreground/55" />
+                      <span className="font-medium">More tools</span>
+                      <ChevronDown
+                        className={
+                          "h-4 w-4 text-foreground/45 transition-transform " +
+                          (moreToolsOpen ? "rotate-180" : "")
+                        }
+                      />
+                    </button>
+                    <PaletteMoreToolsMenu
+                      items={morePaletteItems}
+                      open={moreToolsOpen}
+                      onClose={() => setMoreToolsOpen(false)}
+                      onPick={(fieldType) => addItem(fieldType, insertTarget)}
+                    />
+                  </div>
+                ) : null}
               </div>
               {builderConfig.starterGrid ? (
                 <button
@@ -1750,7 +1956,7 @@ export function FormBuilder({
               ) : null}
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <div className="flex shrink-0 flex-wrap items-stretch gap-2">
               {builderConfig.showPlacementToggle ? (
               <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Placement</div>
@@ -1821,10 +2027,48 @@ export function FormBuilder({
                   </div>
 
                   {state.topFields.length === 0 && state.bottomFields.length === 0 && !state.grid ? (
-                    <div className="mt-4 rounded-md border border-dashed border-foreground/20 p-10 text-center text-sm text-foreground/60">
-                      Click a tool above to insert, or drag tools onto this page.
+                    <div className="mt-4 rounded-md border border-dashed border-foreground/20 p-6 text-center text-sm text-foreground/60">
+                      Use the tools above, or add a block below to start building.
                     </div>
                   ) : null}
+
+                  {(() => {
+                    const canAddHeader = builderConfig.sections.header && !headerAreaOpen;
+                    const canAddTable = builderConfig.sections.table && !state.grid;
+                    const canAddFooter = builderConfig.sections.footer && !footerAreaOpen;
+                    if (!canAddHeader && !canAddTable && !canAddFooter) return null;
+                    return (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {canAddHeader ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-dashed border-[var(--hse-teal)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]"
+                            onClick={() => setHeaderAreaOpen(true)}
+                          >
+                            + {builderConfig.sectionLabels.header}
+                          </button>
+                        ) : null}
+                        {canAddTable ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-dashed border-[var(--hse-teal)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]"
+                            onClick={() => addItem("table", "top")}
+                          >
+                            + {builderConfig.sectionLabels.table}
+                          </button>
+                        ) : null}
+                        {canAddFooter ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-dashed border-[var(--hse-teal)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]"
+                            onClick={() => setFooterAreaOpen(true)}
+                          >
+                            + {builderConfig.sectionLabels.footer}
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
 
                   {showQuestionTools ? (
                     <div className="mt-4 rounded-md border border-foreground/15 bg-foreground/[0.03] p-3">
@@ -1868,21 +2112,23 @@ export function FormBuilder({
                     </div>
                   ) : null}
 
-                  {builderConfig.sections.header ? (
-                  <>
-                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
+                  {builderConfig.sections.header && headerAreaOpen ? (
+                  <div className="mt-5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                      {builderConfig.sectionLabels.header}
+                    </span>
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between px-3 py-2 text-left"
-                      onClick={() => setShowHeaderSection((v) => !v)}
+                      className="text-[11px] font-medium text-red-600 hover:underline"
+                      onClick={() => {
+                        sync({ ...state, topFields: [] });
+                        setHeaderAreaOpen(false);
+                      }}
                     >
-                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                        {builderConfig.sectionLabels.header}
-                      </span>
-                      {showHeaderSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
+                      Remove section
                     </button>
                   </div>
-                  {showHeaderSection ? (
                   <FieldDropArea id="drop_top_fields" label={builderConfig.sectionLabels.header}>
                       <div className="mt-2 flex items-center justify-between gap-3">
                       <div className={"text-xs text-foreground/60 " + (compactBuilder ? "hidden sm:block" : "")}>Brand/report metadata fields shown at the top of the form.</div>
@@ -1929,13 +2175,6 @@ export function FormBuilder({
                         Add metadata starter
                       </button>
                       ) : null}
-                      <button
-                        type="button"
-                        className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
-                        onClick={() => sync({ ...state, topFields: [] })}
-                      >
-                        Remove metadata header fields
-                      </button>
                     </div>
                     {state.topFields.length ? (
                       <div className={"mt-3 " + sectionColumnsClass(state.topFieldsColumns)}>
@@ -1960,7 +2199,9 @@ export function FormBuilder({
                               sync({ ...state, topFields: state.topFields.map((x) => (x.id === f.id ? next : x)) });
                             }}
                             onRemove={() => {
-                              sync({ ...state, topFields: state.topFields.filter((x) => x.id !== f.id) });
+                              const next = state.topFields.filter((x) => x.id !== f.id);
+                              sync({ ...state, topFields: next });
+                              if (next.length === 0) setHeaderAreaOpen(false);
                             }}
                           />
                         ))}
@@ -1969,62 +2210,39 @@ export function FormBuilder({
                       <div className="mt-2 text-xs text-foreground/60">Drag fields here to place them above the table.</div>
                     )}
                   </FieldDropArea>
-                  ) : null}
-                  </>
-                  ) : null}
-
-                  {builderConfig.sections.table ? (
-                  <>
-                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between px-3 py-2 text-left"
-                      onClick={() => setShowTableSection((v) => !v)}
-                    >
-                      <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                        {builderConfig.sectionLabels.table}
-                      </span>
-                      {showTableSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
-                    </button>
-                  </div>
-                  {showTableSection ? (
-                  <div className="mt-3">
-                    {state.grid ? (
-                      <div className="min-h-[420px]">
-                        <GridBuilder
-                          grid={state.grid}
-                          onChange={(next) => sync({ ...state, grid: next })}
-                          lockExistingDeletes={lockExistingDeletes}
-                          lockedColumnIds={lockedGridColumnIdSet}
-                          compact={compactBuilder}
-                        />
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-foreground/20 bg-background/50 p-10 text-center">
-                        <div className="text-sm text-foreground/60">Insert a Table block to add a data grid.</div>
-                      </div>
-                    )}
                   </div>
                   ) : null}
-                  </>
+
+                  {state.grid ? (
+                  <div className="mt-5">
+                    <GridBuilder
+                      grid={state.grid}
+                      onChange={(next) => sync({ ...state, grid: next })}
+                      onRemoveTable={() => sync({ ...state, grid: null })}
+                      lockExistingDeletes={lockExistingDeletes}
+                      lockedColumnIds={lockedGridColumnIdSet}
+                      compact={compactBuilder}
+                    />
+                  </div>
                   ) : null}
 
-                  {builderConfig.sections.footer ? (
-                  <>
-                  <div className="mt-5 rounded-md border border-foreground/15 bg-foreground/[0.02]">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between px-3 py-2 text-left"
-                      onClick={() => setShowFooterSection((v) => !v)}
-                    >
+                  {builderConfig.sections.footer && footerAreaOpen ? (
+                  <div className="mt-5">
+                    <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
                         {builderConfig.sectionLabels.footer}
                       </span>
-                      {showFooterSection ? <ChevronDown className="h-4 w-4 text-foreground/60" /> : <ChevronRight className="h-4 w-4 text-foreground/60" />}
-                    </button>
-                  </div>
-                  {showFooterSection ? (
-                  <div className="mt-3">
+                      <button
+                        type="button"
+                        className="text-[11px] font-medium text-red-600 hover:underline"
+                        onClick={() => {
+                          sync({ ...state, bottomFields: [] });
+                          setFooterAreaOpen(false);
+                        }}
+                      >
+                        Remove section
+                      </button>
+                    </div>
                     <FieldDropArea id="drop_bottom_fields" label="Footer fields">
                       <div className="mt-2 flex items-center justify-between gap-3">
                         <div className="text-xs text-foreground/60">Keep signatures, notes, and confirmations grouped in the footer.</div>
@@ -2109,18 +2327,18 @@ export function FormBuilder({
                                 sync({ ...state, bottomFields: state.bottomFields.map((x) => (x.id === f.id ? next : x)) });
                               }}
                               onRemove={() => {
-                                sync({ ...state, bottomFields: state.bottomFields.filter((x) => x.id !== f.id) });
+                                const next = state.bottomFields.filter((x) => x.id !== f.id);
+                                sync({ ...state, bottomFields: next });
+                                if (next.length === 0) setFooterAreaOpen(false);
                               }}
                             />
                           ))}
                         </div>
                       ) : (
-                        <div className="mt-2 text-xs text-foreground/60">Drag fields here to place them below the table.</div>
+                        <div className="mt-2 text-xs text-foreground/60">Drag fields here for sign-off or notes.</div>
                       )}
                     </FieldDropArea>
                   </div>
-                  ) : null}
-                  </>
                   ) : null}
                 </div>
               </div>

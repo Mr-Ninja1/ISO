@@ -2071,7 +2071,7 @@ function WorkspacePageInner() {
             <div className="min-w-0 flex flex-col">
               <div className="flex items-center gap-2">
                 <LayoutDashboard className="h-4 w-4 text-[var(--hse-teal)]" />
-                <h1 className="truncate text-base font-semibold text-[var(--hse-charcoal)]">{tenant.name}</h1>
+                <h1 className="truncate text-base font-semibold text-foreground">{tenant.name}</h1>
               </div>
               <p className="hidden text-sm text-[var(--hse-teal-mid)] sm:block">
                 {isAdminView ? "HSE management · ISO Pro" : "Field inspections · ISO Pro"}
@@ -2103,12 +2103,12 @@ function WorkspacePageInner() {
                 <>
                   <button
                     type="button"
-                    className="fixed inset-0 z-10 cursor-default"
+                    className="fixed inset-0 z-[250] cursor-default"
                     aria-label="Close menu"
                     onClick={() => setMenuOpen(false)}
                   />
                   <div
-                    className="ui-menu absolute right-0 top-11 z-20 w-56 p-1"
+                    className="ui-menu absolute right-0 top-11 z-[251] w-56 p-1"
                     role="menu"
                   >
                     {canManageCategories ? (
@@ -2808,14 +2808,14 @@ function WorkspacePageInner() {
                                 <>
                                   <button
                                     type="button"
-                                    className="fixed inset-0 z-20 cursor-default"
+                                    className="fixed inset-0 z-[250] cursor-default"
                                     aria-label="Close template actions"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setCardMenuTemplateId(null);
                                     }}
                                   />
-                                  <div className="absolute right-0 top-11 z-30 w-56 rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl">
+                                  <div className="absolute right-0 top-11 z-[251] w-56 rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl">
                                     <button
                                       type="button"
                                       className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"

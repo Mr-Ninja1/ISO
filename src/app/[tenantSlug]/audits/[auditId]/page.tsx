@@ -10,9 +10,12 @@ export function generateStaticParams() {
 import { ssrAuditReportForPrint } from "@/lib/data/ssrQueries";
 import { PrintButton } from "@/components/PrintButton";
 import { AuditReportShareControls } from "@/components/forms/AuditShareControls";
-import type { FormSchemaV1, FormSection, FieldDef } from "@/types/forms";
+import type { FormSection, FieldDef } from "@/types/forms";
 import { collectTemperatureSeries } from "@/lib/temperatureMonitoring";
 import { buildGridLayout } from "@/lib/gridLayout";
+import { clampColumnWidthPx } from "@/lib/formFieldConstants";
+import { normalizeFormSchema, splitReportSections } from "@/lib/normalizeFormSchema";
+import { renderAuditReportFieldValue } from "@/components/forms/auditReportFieldRender";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
@@ -55,53 +58,11 @@ function photoList(value: unknown) {
   return [] as string[];
 }
 
-function splitSections(schema: FormSchemaV1): FormSection[] {
-  if (Array.isArray(schema.sections) && schema.sections.length) return schema.sections;
-  return [{ type: "fields", title: "Fields", fields: schema.fields ?? [] }];
-}
-
-function visibleSections(schema: FormSchemaV1): FormSection[] {
-  return splitSections(schema)
-    .map((section) => {
-      if (section.type === "fields") {
-        return { ...section, fields: section.fields.filter((f) => f.isActive !== false) };
-      }
-      return { ...section, columns: section.columns.filter((c) => c.isActive !== false) };
-    })
-    .filter((section) => (section.type === "fields" ? section.fields.length > 0 : section.columns.length > 0));
-}
-
 function sectionColumnsClass(columns?: number) {
   if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2";
   if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
   if (columns === 4) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4";
   return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]";
-}
-
-function renderFieldValue(field: FieldDef, payload: Record<string, unknown>) {
-  const value = payload[field.id];
-
-  if (field.type === "signature") {
-    if (isDataUrl(value)) {
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img src={value as string} alt={`${field.label} signature`} className="report-signature-img h-20 w-full object-contain" />;
-    }
-    return <span className="text-foreground/50">Not signed</span>;
-  }
-
-  if (field.type === "photo") {
-    const items = photoList(value);
-    if (items.length > 0) {
-      return <ReportPhotoGallery photos={items} label={field.label} />;
-    }
-    return <span className="text-foreground/50">No photo</span>;
-  }
-
-  if (field.type === "checkbox") {
-    return <span>{value ? "Checked" : "Not checked"}</span>;
-  }
-
-  return <span>{asText(value) || "-"}</span>;
 }
 
 export default async function AuditReportPage({
@@ -145,15 +106,18 @@ export default async function AuditReportPage({
   }
 
   const tenant = audit.tenant;
-  const schema = audit.template.schema as FormSchemaV1;
-  const payload = (audit.payload as Record<string, unknown>) ?? {};
+  const schema = normalizeFormSchema(audit.template.schema);
+  const payload =
+    audit.payload && typeof audit.payload === "object" && !Array.isArray(audit.payload)
+      ? (audit.payload as Record<string, unknown>)
+      : {};
   const auditMeta =
     payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
       ? (payload.__auditMeta as Record<string, unknown>)
       : null;
   const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
   const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
-  const sections = splitSections(schema);
+  const sections = splitReportSections(schema);
   const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
   const payloadTempMeta =
     payload && typeof payload.__temperatureMeta === "object" && payload.__temperatureMeta !== null
@@ -298,7 +262,7 @@ export default async function AuditReportPage({
                         }
                       >
                         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">{field.label}</div>
-                        <div className="text-sm">{renderFieldValue(field, payload)}</div>
+                        <div className="text-sm">{renderAuditReportFieldValue(field, payload)}</div>
                       </div>
                     ))}
                   </div>
@@ -330,7 +294,10 @@ export default async function AuditReportPage({
                               col.type === "checkbox"
                                 ? { width: 72, minWidth: 72 }
                                 : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                                  ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                                  ? {
+                                  width: clampColumnWidthPx((col as any).widthPx),
+                                  minWidth: clampColumnWidthPx((col as any).widthPx),
+                                }
                                   : undefined
                             }
                           >
@@ -361,7 +328,10 @@ export default async function AuditReportPage({
                                     col.type === "checkbox"
                                       ? { width: 72, minWidth: 72 }
                                       : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                                        ? { width: (col as any).widthPx, minWidth: Math.max(80, (col as any).widthPx) }
+                                        ? {
+                                  width: clampColumnWidthPx((col as any).widthPx),
+                                  minWidth: clampColumnWidthPx((col as any).widthPx),
+                                }
                                         : undefined
                                   }
                                 >

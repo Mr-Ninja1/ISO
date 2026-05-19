@@ -100,7 +100,7 @@ export default async function TenantLayout({
   return (
     <div className="tenant-shell min-h-dvh">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
-        <header className="sticky top-0 z-20 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-lg shadow-[rgba(0,61,51,0.08)] backdrop-blur-xl print:hidden">
+        <header className="sticky top-0 z-20 overflow-visible rounded-2xl border border-border/80 bg-surface/95 shadow-lg backdrop-blur-xl print:hidden">
           <div className="ws-header-accent" />
           <div className="flex flex-wrap items-start justify-between gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
             <TenantLayoutHeader tenant={tenant} dbUnavailable={dbUnavailable} />
@@ -108,7 +108,7 @@ export default async function TenantLayout({
           </div>
         </header>
 
-        <main className="flex flex-col gap-6 rounded-2xl border border-white/70 bg-white/90 p-4 pb-20 shadow-lg shadow-[rgba(0,61,51,0.06)] sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
+        <main className="flex flex-col gap-6 rounded-2xl border border-border/70 bg-surface/90 p-4 pb-20 shadow-lg sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
           {children}
         </main>
       </div>
@@ -130,22 +130,22 @@ function TenantLayoutHeader({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-      <PageWayfinder tenantSlug={tenant.slug} />
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
         {tenant.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={tenant.logoUrl} alt={`${tenant.name} logo`} className="h-8 w-8 object-contain" />
         ) : (
-          <span className="text-sm font-bold text-slate-700">{tenant.name[0]}</span>
+          <span className="text-sm font-bold text-foreground">{tenant.name[0]}</span>
         )}
       </div>
       <div className="min-w-0 flex flex-col">
-        <h1 className="truncate text-base font-bold text-slate-900 sm:text-lg">{tenant.name}</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="truncate text-base font-bold text-foreground sm:text-lg">{tenant.name}</h1>
+        <p className="text-sm text-foreground/60">
           /{tenant.slug}
           {dbUnavailable ? " (offline)" : ""}
         </p>
       </div>
+      <PageWayfinder tenantSlug={tenant.slug} />
     </div>
   );
 }

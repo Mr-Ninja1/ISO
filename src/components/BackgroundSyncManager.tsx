@@ -360,6 +360,10 @@ export function BackgroundSyncManager() {
       ? "border-blue-300 bg-blue-50 text-blue-900"
       : "border-foreground/20 bg-background text-foreground/70";
 
+  if (pathname?.includes("/templates/new")) {
+    return null;
+  }
+
   return (
     <div className={`inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${toneClass}`}>
       {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}

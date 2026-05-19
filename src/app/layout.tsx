@@ -51,6 +51,10 @@ export default function RootLayout({
         <link rel='apple-touch-icon' sizes='180x180' href='/apple-touch-icon-180.png' />
         <link rel='apple-touch-icon' sizes='152x152' href='/apple-touch-icon-152.png' />
         <link rel='icon' href='/icon.svg' />
+        {process.env.NEXT_PUBLIC_CAPACITOR_APP === '1' ? (
+          // eslint-disable-next-line @next/next/no-sync-scripts
+          <script src='/capacitor-hardware-back.js' />
+        ) : null}
       </head>
       <body className='min-h-full flex flex-col'>
         <ThemeBootstrap />

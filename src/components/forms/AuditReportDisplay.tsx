@@ -9,6 +9,7 @@ import {
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { buildGridLayout } from "@/lib/gridLayout";
 import type { FormSchemaV1, FormSection } from "@/types/forms";
+import { normalizeFormSchema, splitReportSections } from "@/lib/normalizeFormSchema";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -37,11 +38,6 @@ function photoList(value: unknown) {
   return [] as string[];
 }
 
-function splitSections(schema: FormSchemaV1): FormSection[] {
-  if (Array.isArray(schema.sections) && schema.sections.length) return schema.sections;
-  return [{ type: "fields", fields: schema.fields ?? [] }];
-}
-
 function sectionColumnsClass(columns?: number) {
   if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2 print:grid-cols-2";
   if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-3";
@@ -57,10 +53,10 @@ export function AuditReportDisplay({
   auditId: string;
 }) {
   const payload = audit.payload;
-  const schema = audit.template.schema;
+  const schema = audit.template.schema ? normalizeFormSchema(audit.template.schema) : null;
   const { submittedByName, submittedByEmail } = auditMetaFromPayload(payload);
 
-  if (!schema) {
+  if (!schema || (!schema.sections?.length && !schema.fields?.length)) {
     const entries = Object.entries(payload).filter(([key]) => !key.startsWith("__"));
     return (
       <div className="report-export-root rounded-md border border-foreground/20 bg-background p-4">
@@ -93,7 +89,7 @@ export function AuditReportDisplay({
     );
   }
 
-  const sections = splitSections(schema);
+  const sections = splitReportSections(schema);
   const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
   const payloadTempMeta =
     payload && typeof payload.__temperatureMeta === "object" && payload.__temperatureMeta !== null

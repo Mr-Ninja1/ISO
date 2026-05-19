@@ -1,9 +1,12 @@
 package com.isopro.app;
 
 import android.net.Uri;
+import android.os.Bundle;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
 import java.io.InputStream;
@@ -15,6 +18,55 @@ import java.io.InputStream;
 public class MainActivity extends BridgeActivity {
 
     private static final String SHELL_SLUG = "_";
+
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    registerInAppBackNavigation();
+  }
+
+  /**
+   * Never finish the activity on back — delegate to the WebView / in-app navigation script first.
+   */
+  private void registerInAppBackNavigation() {
+    getOnBackPressedDispatcher()
+      .addCallback(
+        this,
+        new OnBackPressedCallback(true) {
+          @Override
+          public void handleOnBackPressed() {
+            Bridge bridge = getBridge();
+            if (bridge == null) {
+              moveTaskToBack(true);
+              return;
+            }
+
+            WebView webView = bridge.getWebView();
+            if (webView == null) {
+              moveTaskToBack(true);
+              return;
+            }
+
+            webView.evaluateJavascript(
+              "(function(){try{if(window.__ISO_HANDLE_BACK__){return window.__ISO_HANDLE_BACK__()===true;} }catch(e){} return false;})()",
+              value -> {
+                if ("true".equals(String.valueOf(value))) {
+                  return;
+                }
+
+                runOnUiThread(() -> {
+                  if (webView.canGoBack()) {
+                    webView.goBack();
+                    return;
+                  }
+                  moveTaskToBack(true);
+                });
+              }
+            );
+          }
+        }
+      );
+  }
 
     @Override
     public void onStart() {
