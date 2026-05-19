@@ -9,8 +9,6 @@ import { DeferredDetailsSection } from "@/components/DeferredDetailsSection";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 
-const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
-
 export default async function TenantSettingsPage({
   params,
   searchParams,
@@ -19,11 +17,6 @@ export default async function TenantSettingsPage({
   searchParams?: Promise<{ focus?: string }>;
 }) {
   const { tenantSlug } = await params;
-
-  if (isCapacitorBuild) {
-    const { CapacitorOfflineAdminGate } = await import("@/components/capacitor/CapacitorOfflineAdminGate");
-    return <CapacitorOfflineAdminGate tenantSlug={tenantSlug} title="Brand settings need internet" />;
-  }
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const focusSection = resolvedSearchParams.focus;
 

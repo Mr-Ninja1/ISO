@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import SignatureCanvas from "react-signature-canvas";
 import {
   type Control,
@@ -47,7 +48,7 @@ function SignatureModal({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-foreground/20" onClick={onClose} />
       <div className="relative w-full max-w-lg overflow-hidden rounded-lg border border-foreground/20 bg-background shadow-sm">
@@ -94,7 +95,8 @@ function SignatureModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

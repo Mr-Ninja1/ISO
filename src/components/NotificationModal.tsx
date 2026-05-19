@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 export type NotificationModalProps = {
@@ -41,6 +42,8 @@ export function NotificationModal({
 
   if (!open) return null;
 
+  if (typeof document === "undefined") return null;
+
   const toneClasses =
     tone === "success"
       ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-900"
@@ -55,7 +58,7 @@ export function NotificationModal({
       : "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md";
   const cancelButtonClasses = "h-10 rounded-xl border border-slate-200 bg-white/80 px-4 text-sm font-medium text-slate-600 shadow-sm transition-all hover:bg-white hover:shadow-md";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <button
         type="button"
@@ -111,6 +114,7 @@ export function NotificationModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

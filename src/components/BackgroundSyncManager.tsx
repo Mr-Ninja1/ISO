@@ -303,7 +303,12 @@ export function BackgroundSyncManager() {
       // ignore initial bootstrap failures
     });
 
-    const onOnline = () => maybeFlush();
+    const onOnline = () => {
+      maybeFlush();
+      runPullSync().catch(() => {
+        // ignore reconnect sync failures
+      });
+    };
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         maybeFlush();
@@ -344,13 +349,6 @@ export function BackgroundSyncManager() {
       window.clearInterval(bootstrapInterval);
     };
   }, [accessToken, online, tenantSlug, user?.id]);
-
-  useEffect(() => {
-    if (!online || !accessToken || tenantSlug) return;
-    // Auto-sync when internet is restored
-    void runPullSync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online]);
 
   const label = useMemo(() => {
     if (bootstrapRunning) return bootstrapStage ? `Downloading workspace: ${bootstrapStage}` : "Downloading workspace...";

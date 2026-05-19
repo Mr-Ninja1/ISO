@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Plus, X } from "lucide-react";
 
 function normalizeName(name: string) {
@@ -67,12 +68,9 @@ export function WorkspaceSeedModal({
     setCustom((prev) => prev.filter((x) => x !== name));
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-foreground/20"
-        onClick={() => (busy ? null : onClose())}
-      />
+      <div className="absolute inset-0 bg-foreground/20" onClick={() => (busy ? null : onClose())} />
 
       <div className="relative w-full max-w-lg rounded-lg border border-foreground/20 bg-background p-5 shadow-sm">
         <div className="flex items-start justify-between gap-4">
@@ -188,6 +186,7 @@ export function WorkspaceSeedModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

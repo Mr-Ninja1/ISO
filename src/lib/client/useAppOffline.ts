@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { isAppOffline, isNativeApp, OFFLINE_MODE_CHANGED_EVENT, INTERNET_RESTORED_EVENT, initInternetStatusMonitor } from "./appOffline";
+import { useEffect, useState } from "react";
+import { isAppOffline, INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT, initInternetStatusMonitor } from "./appOffline";
 
 /** Reactive offline state (browser + `window.__ISO_FORCE_OFFLINE__` from mobile shell). */
 export function useAppOffline(): boolean {
@@ -30,20 +30,11 @@ export function useAppOffline(): boolean {
   return offline;
 }
 
-/** Check if page should be restricted to web-only (not available in native app). */
-export function useWebOnlyPage(shouldBlock?: boolean): boolean {
-  const isNative = useAppOffline(); // Will be false if native, true if web
-  return isNativeApp() && (shouldBlock !== false);
-}
-
-/** Trigger callback when internet is restored after being offline. */
 export function useOnInternetRestored(callback: () => void) {
-  const memoCallback = useCallback(callback, [callback]);
-
   useEffect(() => {
-    window.addEventListener(INTERNET_RESTORED_EVENT, () => memoCallback());
+    window.addEventListener(INTERNET_RESTORED_EVENT, callback);
     return () => {
-      window.removeEventListener(INTERNET_RESTORED_EVENT, () => memoCallback());
+      window.removeEventListener(INTERNET_RESTORED_EVENT, callback);
     };
-  }, [memoCallback]);
+  }, [callback]);
 }

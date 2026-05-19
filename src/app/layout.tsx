@@ -8,6 +8,7 @@ import { CapacitorBootstrap } from '@/components/CapacitorBootstrap';
 import { RequiresInternetDialogHost } from '@/components/RequiresInternetDialog';
 import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
+import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { Suspense } from 'react';
 
 export const metadata: Metadata = {
@@ -49,6 +50,7 @@ export default function RootLayout({
       </head>
       <body className='min-h-full flex flex-col'>
         <ThemeBootstrap />
+        <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
           <RequiresInternetDialogHost />

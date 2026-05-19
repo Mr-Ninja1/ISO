@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
@@ -263,7 +264,7 @@ function WorkspaceUnavailable({
 }) {
   return (
     <div className="min-h-dvh bg-background">
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-7xl p-6">
         <h1 className="text-xl font-semibold">Workspace</h1>
         <div className="mt-4 rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">{message}</div>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -361,7 +362,7 @@ function TemplateQuickSettingsModal({
 
   if (!open || !template) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/45" aria-label="Close quick settings" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg rounded-2xl border border-foreground/20 bg-background p-5 shadow-xl">
@@ -477,7 +478,8 @@ function TemplateQuickSettingsModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1672,7 +1674,7 @@ function WorkspacePageInner() {
   if (showTenantPicker) {
     return (
       <div className="min-h-dvh bg-background">
-        <div className="mx-auto max-w-4xl p-6">
+        <div className="mx-auto max-w-7xl p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20">
               <LayoutDashboard className="h-5 w-5" />
@@ -1739,7 +1741,7 @@ function WorkspacePageInner() {
     const offline = offlineFromHook;
     return (
       <div className="min-h-dvh bg-background">
-        <div className="mx-auto max-w-4xl p-6">
+        <div className="mx-auto max-w-7xl p-6">
           <h1 className="text-xl font-semibold">Workspace</h1>
           <div className="mt-4 space-y-3">
             <FeatureSyncNotice
@@ -1808,7 +1810,7 @@ function WorkspacePageInner() {
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
       <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background/95 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
               {tenant.logoUrl ? (
@@ -2034,7 +2036,7 @@ function WorkspacePageInner() {
         </div>
 
         {isFormsView && hasCategories ? (
-          <div className="mx-auto max-w-4xl px-4 pb-3">
+          <div className="mx-auto max-w-7xl px-4 pb-3">
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]">
               {categories.map((c) => {
                 const active = c.id === activeCategoryId;
@@ -2077,11 +2079,11 @@ function WorkspacePageInner() {
         ) : null}
       </div>
 
-      <div className="mx-auto max-w-4xl px-4 pt-3">
+      <div className="mx-auto max-w-7xl px-4 pt-3">
         <div className="h-px bg-foreground/10" />
       </div>
 
-      <div className="mx-auto max-w-4xl p-4 pb-8">
+      <div className="mx-auto max-w-7xl p-4 pb-8">
         {error ? (
           <div className="mb-4 rounded-md border border-foreground/20 bg-background p-3 text-sm">
             {error}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { NotificationModal } from "@/components/NotificationModal";
@@ -265,14 +266,15 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
       </div>
 
       {staffModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/40"
-            aria-label="Close staff modal"
-            onClick={() => setStaffModalOpen(false)}
-          />
-          <div className="relative z-10 w-full max-w-2xl rounded-lg border border-foreground/20 bg-background p-4 shadow-xl sm:p-5">
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              aria-label="Close staff modal"
+              onClick={() => setStaffModalOpen(false)}
+            />
+            <div className="relative z-10 w-full max-w-2xl rounded-lg border border-foreground/20 bg-background p-4 shadow-xl sm:p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">Add / Update staff</h3>
               <button
@@ -327,8 +329,10 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
                 {busy ? "Saving..." : "Save staff"}
               </button>
             </div>
-          </div>
-        </div>
+            </div>
+          </div>,
+          document.body
+        )
       ) : null}
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
@@ -416,18 +420,19 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
       </div>
 
       {passwordModalUserId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/40"
-            aria-label="Close password modal"
-            onClick={() => {
-              if (busy) return;
-              setPasswordModalUserId(null);
-              setNextPassword("");
-            }}
-          />
-          <div className="relative z-10 w-full max-w-md rounded-lg border border-foreground/20 bg-background p-4 shadow-xl sm:p-5">
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              aria-label="Close password modal"
+              onClick={() => {
+                if (busy) return;
+                setPasswordModalUserId(null);
+                setNextPassword("");
+              }}
+            />
+            <div className="relative z-10 w-full max-w-md rounded-lg border border-foreground/20 bg-background p-4 shadow-xl sm:p-5">
             <h3 className="text-sm font-semibold">Set staff password</h3>
             <p className="mt-1 text-xs text-foreground/70">Enter a new password (minimum 8 characters).</p>
             <input
@@ -460,8 +465,10 @@ export function StaffManagementPanel({ tenantSlug }: { tenantSlug: string }) {
                 {busy ? "Saving..." : "Save password"}
               </button>
             </div>
-          </div>
-        </div>
+            </div>
+          </div>,
+          document.body
+        )
       ) : null}
 
       <NotificationModal

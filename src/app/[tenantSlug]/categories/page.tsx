@@ -3,19 +3,12 @@ import Link from "next/link";
 import { ssrTenantWithCategories } from "@/lib/data/ssrQueries";
 import { CategoriesManager } from "@/components/CategoriesManager";
 
-const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
-
 export default async function CategoriesPage({
   params,
 }: {
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
-
-  if (isCapacitorBuild) {
-    const { CapacitorOfflineAdminGate } = await import("@/components/capacitor/CapacitorOfflineAdminGate");
-    return <CapacitorOfflineAdminGate tenantSlug={tenantSlug} title="Categories admin needs internet" />;
-  }
   const tenant = await ssrTenantWithCategories(tenantSlug);
 
   if (!tenant) notFound();
