@@ -32,6 +32,8 @@ import { apiUrl } from "@/lib/client/apiBase";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
+import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
+import { isDraftPayloadDirty } from "@/lib/client/draftPayloadDirty";
 
 type Props = {
   tenantSlug: string;
@@ -180,12 +182,14 @@ function writeLocalDraft(
   templateId: string,
   values: FormValues,
   auditId?: string | null,
-  options?: { durable?: boolean }
+  options?: { durable?: boolean; schema?: FormSchemaV1 }
 ) {
+  const payload = values as Record<string, unknown>;
+
   try {
     localStorage.setItem(
       draftCacheKey(userId, tenantSlug, templateId),
-      JSON.stringify({ ts: Date.now(), values, auditId: auditId || null })
+      JSON.stringify({ ts: Date.now(), values: payload, auditId: auditId || null })
     );
   } catch {
     // ignore
@@ -197,7 +201,7 @@ function writeLocalDraft(
       tenantSlug,
       templateId,
       auditId: auditId || null,
-      payload: values as Record<string, unknown>,
+      payload,
     });
   }
 }
@@ -280,7 +284,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const [correctiveAction, setCorrectiveAction] = useState("");
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
-  const hasSeenUserEditRef = useRef(false);
+  const skipLocalDraftWatchRef = useRef(true);
+  const skipAutosaveWatchRef = useRef(true);
   const autoSaveInFlightRef = useRef(false);
   const autoSavePauseUntilRef = useRef(0);
   const suppressLocalDraftWriteUntilRef = useRef(0);
@@ -352,6 +357,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }, [tenantSlug]);
 
   useEffect(() => {
+    skipLocalDraftWatchRef.current = true;
+  }, [templateId, tenantSlug, initialAuditId]);
+
+  useEffect(() => {
     let alive = true;
     const baseValues = defaultValuesRef.current;
 
@@ -378,96 +387,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateId, tenantSlug, currentUserId, initialAuditId]);
 
+  // Drafts are stored on this device only (localStorage + IndexedDB), not synced to the server.
   useEffect(() => {
-    const accessToken = session?.access_token;
-    if (!accessToken || !tenantSlug || !templateId) return;
-    if (isAppOffline()) {
-      setIsLoadingDraft(false);
-      return;
-    }
-
-    const local = readLocalDraft(currentUserId, tenantSlug, templateId);
-    if (local && shouldSkipDraftFetch(currentUserId, tenantSlug, templateId, 5 * 60_000)) {
-      setIsLoadingDraft(false);
-      return;
-    }
-
-    let controller: AbortController | null = null;
-    let timeout: number | null = null;
-    let hardStop: number | null = null;
-
-    const runFetch = () => {
-      const showBlockingSpinner = !local;
-      if (showBlockingSpinner) setIsLoadingDraft(true);
-      const url = new URL(apiUrl("/api/audit/draft"));
-      url.searchParams.set("tenantSlug", tenantSlug);
-      url.searchParams.set("templateId", templateId);
-      if (initialAuditId) url.searchParams.set("auditId", initialAuditId);
-
-      controller = new AbortController();
-      timeout = window.setTimeout(() => controller?.abort(), 2500);
-
-      fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        signal: controller.signal,
-      })
-        .then(async (res) => {
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data?.error || "Failed to load draft");
-          return data as {
-            draft: null | {
-              id: string;
-              payload: Record<string, unknown>;
-              updatedAt: string;
-            };
-          };
-        })
-        .then((data) => {
-          if (!data.draft) return;
-          const serverUpdatedAt = data.draft.updatedAt ? new Date(data.draft.updatedAt).getTime() : 0;
-          const shouldAdoptServerDraft = !local || !Number.isFinite(serverUpdatedAt) || serverUpdatedAt >= local.ts;
-
-          if (shouldAdoptServerDraft) {
-            setDraftAuditId(data.draft.id);
-            safeReset({ ...defaultValues, ...data.draft.payload });
-            writeLocalDraft(currentUserId, tenantSlug, templateId, data.draft.payload, data.draft.id);
-          }
-
-          markDraftFetch(currentUserId, tenantSlug, templateId);
-        })
-        .catch(() => {
-          // Silent fallback: form starts from defaults when no draft is available.
-        })
-        .finally(() => {
-          if (timeout !== null) window.clearTimeout(timeout);
-          if (hardStop !== null) window.clearTimeout(hardStop);
-          setIsLoadingDraft(false);
-        });
-    };
-
-    hardStop = window.setTimeout(() => {
-      setIsLoadingDraft(false);
-    }, 4000);
-
-    const cancelDeferred = local
-      ? scheduleBackgroundTask(runFetch, 900)
-      : (() => {
-          runFetch();
-          return () => {
-            // no-op
-          };
-        })();
-
-    return () => {
-      cancelDeferred();
-      if (timeout !== null) window.clearTimeout(timeout);
-      if (hardStop !== null) window.clearTimeout(hardStop);
-      controller?.abort();
-      setIsLoadingDraft(false);
-    };
-  }, [session?.access_token, templateId, tenantSlug, currentUserId, initialAuditId]);
+    setIsLoadingDraft(false);
+  }, [templateId, tenantSlug, initialAuditId]);
 
   // Persist local draft quickly on edits (signatures, tables, photos — not only isDirty text fields).
   useEffect(() => {
@@ -476,10 +399,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     if (!currentUserId && !session?.access_token) return;
     if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
 
-    if (!hasSeenUserEditRef.current) {
-      hasSeenUserEditRef.current = true;
+    if (skipLocalDraftWatchRef.current) {
+      skipLocalDraftWatchRef.current = false;
       return;
     }
+
+    const values = form.getValues();
+    if (!isDraftPayloadDirty(values as Record<string, unknown>, effectiveSchema)) return;
 
     if (localDraftWriteTimerRef.current !== null) {
       window.clearTimeout(localDraftWriteTimerRef.current);
@@ -487,8 +413,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
 
     localDraftWriteTimerRef.current = window.setTimeout(() => {
-      const values = form.getValues();
-      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: true });
+      const latest = form.getValues();
+      if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema)) return;
+      writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true });
+      setLastAutoSavedAt(Date.now());
     }, 400);
 
     return () => {
@@ -497,7 +425,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         localDraftWriteTimerRef.current = null;
       }
     };
-  }, [watchedValues, isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token]);
+  }, [watchedValues, isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token, effectiveSchema]);
 
   async function persistAudit(
     values: FormValues,
@@ -541,7 +469,18 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
 
     if (mode === "draft") {
-      writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, draftAuditId);
+      if (!isDraftPayloadDirty(payloadWithMeta as Record<string, unknown>, effectiveSchema)) {
+        return true;
+      }
+      writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, draftAuditId, { durable: true });
+      if (!silent) {
+        setNotification({
+          title: "Draft saved",
+          message: "Saved on this device.",
+          tone: "success",
+        });
+      }
+      return true;
     }
 
     try {
@@ -562,9 +501,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        const message =
-          (typeof data?.error === "string" && data.error) ||
-          (mode === "draft" ? "Saving draft failed" : "Submit failed");
+        const message = (typeof data?.error === "string" && data.error) || "Submit failed";
         const error = new Error(message) as Error & { status?: number; code?: string };
         error.status = res.status;
         if (typeof data?.code === "string") {
@@ -578,26 +515,20 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       const savedAt = new Date().toISOString();
       upsertCachedAuditRow(currentUserId, tenantSlug, {
         id: json.auditId,
-        status: mode === "draft" ? "DRAFT" : "SUBMITTED",
+        status: "SUBMITTED",
         templateId,
         createdAt: savedAt,
         updatedAt: savedAt,
-        submittedAt: mode === "submit" ? savedAt : null,
+        submittedAt: savedAt,
         template: { title: effectiveSchema.title || "Form" },
       });
 
-      if (mode === "draft") {
-        writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, json.auditId);
-        if (!silent) {
-          setNotification({
-            title: "Draft saved",
-            message: "Your draft was saved successfully.",
-            tone: "success",
-          });
-        }
-        return true;
-      }
-
+      writeAuditReportSnapshot(tenantSlug, json.auditId, {
+        title: effectiveSchema.title || "Form",
+        status: "SUBMITTED",
+        tenantName: tenantName || tenantSlug,
+        payload: payloadWithMeta as Record<string, unknown>,
+      });
       clearLocalDraft(currentUserId, tenantSlug, templateId);
       setDraftAuditId(null);
       router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=submitted&auditId=${encodeURIComponent(json.auditId)}`);
@@ -608,12 +539,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (!shouldQueue) {
         if (!silent) {
           setNotification({
-            title: mode === "draft" ? "Draft save failed" : "Submission failed",
-            message:
-              (error as any)?.message ||
-              (mode === "draft"
-                ? "Could not save draft on server. Please retry."
-                : "Could not submit on server. Please retry."),
+            title: "Submission failed",
+            message: (error as any)?.message || "Could not submit on server. Please retry.",
             tone: "error",
           });
         }
@@ -638,18 +565,20 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       });
       if (!silent) {
         setNotification({
-          title: mode === "draft" ? "Draft saved locally" : "Submission queued",
-          message:
-            mode === "draft"
-              ? timedOut
-                ? "The draft is stored locally and will finish syncing in the background."
-                : "Your draft will sync automatically when the connection returns."
-              : "Your submission will sync automatically when the connection returns.",
+          title: "Submission queued",
+          message: "Your submission will sync automatically when the connection returns.",
           tone: "warning",
         });
       }
 
-      if (mode === "submit") {
+      {
+        const pendingId = `pending:${queued.id}`;
+        writeAuditReportSnapshot(tenantSlug, pendingId, {
+          title: effectiveSchema.title || "Form",
+          status: "SUBMITTED",
+          tenantName: tenantName || tenantSlug,
+          payload: payloadWithMeta as Record<string, unknown>,
+        });
         addOfflineSubmittedForm({
           queueId: queued.id,
           tenantSlug,
@@ -677,40 +606,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return true;
     }
   }
-
-  useEffect(() => {
-    if (isLoadingDraft) return;
-    if (form.formState.isSubmitting || isSavingDraft) return;
-    if (!session?.access_token || !tenantSlug || !templateId) return;
-    if (Date.now() < autoSavePauseUntilRef.current) return;
-
-    if (!hasSeenUserEditRef.current) {
-      hasSeenUserEditRef.current = true;
-      return;
-    }
-
-    const timeoutId = window.setTimeout(async () => {
-      if (autoSaveInFlightRef.current) return;
-      const values = form.getValues();
-      writeLocalDraft(currentUserId, tenantSlug, templateId, values, draftAuditId, { durable: false });
-
-      autoSaveInFlightRef.current = true;
-      setIsAutoSaving(true);
-      try {
-        const ok = await persistAudit(values, "draft", { silent: true, allowQueue: false });
-        if (ok) setLastAutoSavedAt(Date.now());
-        if (!ok) {
-          // Back off autosave API retries when server is under pressure.
-          autoSavePauseUntilRef.current = Date.now() + 30_000;
-        }
-      } finally {
-        autoSaveInFlightRef.current = false;
-        setIsAutoSaving(false);
-      }
-    }, 10_000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [watchedValues, form, isLoadingDraft, isSavingDraft, session?.access_token, tenantSlug, templateId, currentUserId, draftAuditId]);
 
   async function onSubmit(values: FormValues) {
     await persistAudit(values, "submit");
@@ -852,11 +747,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
         <div className="mr-auto text-xs text-foreground/60">
-          {isAutoSaving
-            ? "Auto-saving draft..."
-            : lastAutoSavedAt
-              ? `Draft auto-saved ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
-              : "Draft saves automatically"}
+          {lastAutoSavedAt
+            ? `Draft saved on device ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
+            : "Draft saves on this device"}
         </div>
         <button
           type="submit"

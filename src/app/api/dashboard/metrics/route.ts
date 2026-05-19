@@ -4,6 +4,12 @@ import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import type { FormSchemaV1 } from "@/types/forms";
 import { collectTemperatureAlerts, collectTemperatureSeries } from "@/lib/temperatureMonitoring";
+import {
+  isPastDue,
+  parseTemplateDueRule,
+  resolveTemplateDueReminderAt,
+  templateMetaFromSchema,
+} from "@/lib/dueRules";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -53,28 +59,26 @@ function schemaHasTemperatureInputs(schema: unknown): boolean {
 }
 
 function templateSettings(schema: unknown) {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+  const meta = templateMetaFromSchema(schema);
+  if (!meta) {
     return {
-      dueDays: undefined as number | undefined,
+      dueRule: null,
       temperatureAlertBelow: undefined as number | undefined,
       temperatureAlertAbove: undefined as number | undefined,
     };
   }
 
-  const meta = (schema as Record<string, unknown>).meta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
-    return {
-      dueDays: undefined as number | undefined,
-      temperatureAlertBelow: undefined as number | undefined,
-      temperatureAlertAbove: undefined as number | undefined,
-    };
-  }
-
-  const metaRecord = meta as Record<string, unknown>;
+  const dueRule = parseTemplateDueRule(meta);
   return {
-    dueDays: typeof metaRecord.dueDays === "number" && Number.isFinite(metaRecord.dueDays) ? metaRecord.dueDays : undefined,
-    temperatureAlertBelow: typeof metaRecord.temperatureAlertBelow === "number" && Number.isFinite(metaRecord.temperatureAlertBelow) ? metaRecord.temperatureAlertBelow : undefined,
-    temperatureAlertAbove: typeof metaRecord.temperatureAlertAbove === "number" && Number.isFinite(metaRecord.temperatureAlertAbove) ? metaRecord.temperatureAlertAbove : undefined,
+    dueRule,
+    temperatureAlertBelow:
+      typeof meta.temperatureAlertBelow === "number" && Number.isFinite(meta.temperatureAlertBelow)
+        ? meta.temperatureAlertBelow
+        : undefined,
+    temperatureAlertAbove:
+      typeof meta.temperatureAlertAbove === "number" && Number.isFinite(meta.temperatureAlertAbove)
+        ? meta.temperatureAlertAbove
+        : undefined,
   };
 }
 
@@ -138,7 +142,7 @@ export async function GET(req: Request) {
       sb.from("form_templates").select("id, schema").eq("tenant_id", tenantId),
       sb
         .from("audit_logs")
-        .select("id, updated_at, form_templates(id, schema)")
+        .select("id, created_at, updated_at, payload, form_templates(id, schema)")
         .eq("tenant_id", tenantId)
         .eq("status", "DRAFT")
         .order("updated_at", { ascending: false }),
@@ -172,22 +176,24 @@ export async function GET(req: Request) {
     const tpl = audit.form_templates as { id: string; schema: unknown } | null;
     return {
       id: audit.id as string,
+      createdAt: new Date(audit.created_at as string),
       updatedAt: new Date(audit.updated_at as string),
+      payload: audit.payload,
       template: tpl ? { id: tpl.id, schema: tpl.schema } : null,
     };
   });
 
   const liveOnlyTemplates = liveTemplates.filter((template) => templateIsLive(template.schema));
-  const dueRuleTemplates = liveOnlyTemplates.filter((template) => templateSettings(template.schema).dueDays !== undefined).length;
+  const dueRuleTemplates = liveOnlyTemplates.filter((template) => templateSettings(template.schema).dueRule !== null).length;
   const tempRuleTemplates = liveOnlyTemplates.filter((template) => {
     const settings = templateSettings(template.schema);
     return schemaHasTemperatureInputs(template.schema) && (typeof settings.temperatureAlertBelow === "number" || typeof settings.temperatureAlertAbove === "number");
   }).length;
   const overdueDrafts = draftAudits.filter((audit) => {
-    const settings = templateSettings(audit.template?.schema);
-    if (typeof settings.dueDays !== "number" || settings.dueDays <= 0) return false;
-    const ageMs = Date.now() - new Date(audit.updatedAt).getTime();
-    return ageMs > settings.dueDays * 24 * 60 * 60 * 1000;
+    const meta = templateMetaFromSchema(audit.template?.schema);
+    if (!meta) return false;
+    const dueAt = resolveTemplateDueReminderAt(meta);
+    return isPastDue(dueAt);
   }).length;
 
   const days = toDayRange(7);

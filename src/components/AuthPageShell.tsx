@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ShieldCheck, Sparkles, HardDriveDownload, Layers3 } from "lucide-react";
 
 type Props = {
   eyebrow: string;
@@ -18,6 +17,12 @@ type Props = {
   footerLabel: string;
 };
 
+const HSE_POINTS = [
+  "Structured inspections and corrective actions",
+  "Offline-capable for sites without signal",
+  "One workspace per brand, audit-ready records",
+] as const;
+
 export function AuthPageShell({
   eyebrow,
   onEyebrowClick,
@@ -32,72 +37,55 @@ export function AuthPageShell({
   footerLabel,
 }: Props) {
   return (
-    <main className="min-h-dvh bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-50 via-blue-50/30 to-white px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-6xl overflow-hidden rounded-[2.5rem] border border-white/60 bg-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.04),0_20px_60px_rgb(0,0,0,0.06),0_40px_100px_rgb(0,0,0,0.08)] backdrop-blur-xl md:grid-cols-[1.05fr_0.95fr]">
-        <section className="order-2 relative overflow-hidden border-t border-white/40 px-5 py-8 sm:px-10 md:order-1 md:border-b-0 md:border-r md:border-t-0 md:px-12 md:py-12">
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(59,130,246,0.03),rgba(147,51,234,0.02),rgba(255,255,255,0))]" />
-          <div className="absolute -right-20 top-12 h-56 w-56 rounded-full bg-gradient-to-br from-blue-400/20 via-purple-400/15 to-transparent blur-3xl" />
-          <div className="absolute -bottom-24 left-0 h-64 w-64 rounded-full bg-gradient-to-tr from-emerald-400/15 via-cyan-400/10 to-transparent blur-3xl" />
+    <main className="auth-shell min-h-dvh px-4 py-6 sm:px-6 lg:px-8">
+      <div className="auth-shell-card mx-auto grid w-full max-w-5xl overflow-hidden md:min-h-[calc(100dvh-3rem)] md:grid-cols-[1fr_0.95fr]">
+        <section className="auth-shell-brand relative order-2 border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] md:order-1 md:border-r md:border-t-0">
+          <div className="ws-header-accent absolute inset-x-0 top-0" />
+          <div className="relative flex h-full flex-col justify-center px-6 py-10 sm:px-10 md:py-12">
+            {onEyebrowClick ? (
+              <button
+                type="button"
+                onClick={onEyebrowClick}
+                title={eyebrowTitle}
+                className="auth-eyebrow mb-4 w-fit text-left transition hover:text-[var(--hse-copper)]"
+              >
+                {eyebrow}
+              </button>
+            ) : (
+              <p className="auth-eyebrow mb-4">{eyebrow}</p>
+            )}
 
-          <div className="relative flex h-full flex-col justify-between gap-6 md:gap-10">
-            <div className="space-y-4 md:space-y-6">
-              {onEyebrowClick ? (
-                <button
-                  type="button"
-                  onClick={onEyebrowClick}
-                  title={eyebrowTitle}
-                  className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60 transition hover:border-foreground/20 hover:text-foreground/80"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {eyebrow}
-                </button>
-              ) : (
-                <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {eyebrow}
-                </div>
-              )}
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--hse-teal-mid)]">
+              Health, Safety &amp; Environment
+            </p>
+            <h1 className="mt-2 max-w-md text-2xl font-bold tracking-tight text-[var(--hse-charcoal)] text-balance sm:text-3xl">
+              {title}
+            </h1>
+            <p className="mt-3 max-w-md text-sm leading-7 text-[var(--accent-soft)] sm:text-[15px]">{subtitle}</p>
 
-              <div className="max-w-xl space-y-3 md:space-y-4">
-                <h1 className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-2xl font-bold tracking-tight text-balance sm:text-4xl lg:text-5xl">{title}</h1>
-                <p className="max-w-lg text-sm leading-6 text-slate-600 sm:text-lg md:text-base md:leading-7">{subtitle}</p>
-              </div>
-
-              <div className="hidden gap-3 sm:grid sm:grid-cols-2">
-                <FeatureCard icon={<ShieldCheck className="h-4 w-4" />} title="Audit-ready" text="Saved forms, evidence photos, and signatures stay organized." />
-                <FeatureCard icon={<HardDriveDownload className="h-4 w-4" />} title="Offline-first" text="Workspace, schemas, and drafts cache locally for native-feeling use." />
-                <FeatureCard icon={<Layers3 className="h-4 w-4" />} title="Structured" text="Templates, categories, and quick actions stay aligned across devices." />
-                <FeatureCard icon={<Sparkles className="h-4 w-4" />} title="Fast sync" text="Background updates keep cross-device data current when online." />
-              </div>
-
-              <div className="grid gap-3 sm:hidden">
-                <FeatureCard icon={<ShieldCheck className="h-4 w-4" />} title="Audit-ready" text="Saved forms, evidence, and signatures stay organized." />
-                <FeatureCard icon={<HardDriveDownload className="h-4 w-4" />} title="Offline-first" text="Workspace and drafts cache locally for fast use." />
-              </div>
-            </div>
-
-            <div className="grid max-w-xl gap-3 sm:grid-cols-3">
-              <StatChip label="Cache-first" value="Workspace" />
-              <StatChip label="Mobile ready" value="Tablet + PWA" />
-              <StatChip label="Live sync" value="When online" />
-            </div>
+            <ul className="mt-8 hidden max-w-md space-y-2.5 md:block">
+              {HSE_POINTS.map((point) => (
+                <li key={point} className="flex gap-2.5 text-sm text-[var(--accent-soft)]">
+                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[var(--hse-copper)]" aria-hidden />
+                  {point}
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
-        <section className="order-1 flex items-center justify-center px-5 py-8 sm:px-10 md:order-2 md:px-12 md:py-12">
-          <div className="w-full max-w-md">
-            <div className="mb-5 space-y-2 md:mb-6">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">{formTitle}</div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{formSubtitle}</h2>
+        <section className="auth-shell-form order-1 flex items-center justify-center px-6 py-10 sm:px-10 md:order-2 md:py-12">
+          <div className="w-full max-w-sm">
+            <div className="mb-6 space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--hse-teal-mid)]">{formTitle}</p>
+              <h2 className="text-lg font-semibold text-[var(--hse-charcoal)]">{formSubtitle}</h2>
             </div>
 
-            <div className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white to-slate-50/80 p-4 shadow-md backdrop-blur-sm sm:p-6">
-              {children}
-            </div>
+            <div className="auth-form-panel">{children}</div>
 
-            <p className="mt-4 text-center text-sm text-slate-700 md:mt-5">
+            <p className="mt-5 text-center text-sm text-[var(--accent-soft)]">
               {footerText}{" "}
-              <Link href={footerHref} className="font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
+              <Link href={footerHref} className="auth-link">
                 {footerLabel}
               </Link>
             </p>
@@ -105,26 +93,5 @@ export function AuthPageShell({
         </section>
       </div>
     </main>
-  );
-}
-
-function FeatureCard({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white to-slate-50/50 p-3 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 sm:p-4">
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/60 bg-gradient-to-br from-blue-50 to-blue-100/50 text-blue-600 shadow-sm">
-        {icon}
-      </div>
-      <div className="mt-3 text-sm font-semibold text-slate-800">{title}</div>
-      <div className="mt-1 text-sm leading-6 text-slate-600">{text}</div>
-    </div>
-  );
-}
-
-function StatChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white to-slate-50/50 px-4 py-3 shadow-sm transition-all hover:shadow-md">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-800">{value}</div>
-    </div>
   );
 }

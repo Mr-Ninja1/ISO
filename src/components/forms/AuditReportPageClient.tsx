@@ -3,23 +3,23 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Printer } from "lucide-react";
+import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { useAuth } from "@/components/AuthProvider";
+import type { AuditReportData } from "@/types/auditReport";
 import { AuditReportDisplay } from "@/components/forms/AuditReportDisplay";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { auditIdFromPathname, useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import {
+  buildReportFromDeviceStores,
+  enrichReportWithCachedTemplateSchema,
+  parseReportSnapshotFromLocalStorage,
+} from "@/lib/client/loadLocalAuditReport";
 import type { FormSchemaV1 } from "@/types/forms";
 
-export type AuditReportData = {
-  id: string;
-  status: string;
-  createdAt: string;
-  payload: Record<string, unknown>;
-  tenant: { name: string; slug: string; logoUrl: string | null };
-  template: { title: string; schema: FormSchemaV1 | null };
-};
+export type { AuditReportData };
 
 export function AuditReportPageClient({
   routeSlug,
@@ -52,61 +52,56 @@ export function AuditReportPageClient({
       return;
     }
 
-    try {
-      const raw = localStorage.getItem(`audit-report-snapshot:v1:${tenantSlug}:${auditId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw) as {
-          title?: string;
-          status?: string;
-          createdAt?: string;
-          tenantName?: string;
-          payload?: Record<string, unknown>;
-        };
-        if (parsed?.payload) {
-          setAudit({
-            id: auditId,
-            status: parsed.status || "SUBMITTED",
-            createdAt: parsed.createdAt || new Date().toISOString(),
-            payload: parsed.payload,
-            tenant: { name: parsed.tenantName || tenantSlug, slug: tenantSlug, logoUrl: null },
-            template: { title: parsed.title || "Form", schema: null },
-          });
-        }
-      }
-    } catch {
-      // ignore cache read errors
-    }
-  }, [tenantSlug, auditId]);
-
-  useEffect(() => {
-    if (!tenantSlug || !auditId || !accessToken) {
-      if (!accessToken) setLoading(false);
-      return;
-    }
-    if (offline) {
-      setLoading(false);
-      if (!audit) setError("Connect to the internet to load this report, or open it once while online.");
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
-    setError("");
 
-    const url = new URL(apiUrl("/api/audit/report"));
-    url.searchParams.set("tenantSlug", tenantSlug);
-    url.searchParams.set("auditId", auditId);
+    void (async () => {
+      setLoading(true);
+      setError("");
 
-    fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Failed to load report (${res.status})`);
-        return json as { audit?: AuditReportData };
-      })
-      .then((json) => {
-        if (cancelled || !json.audit) return;
-        const next = {
+      const fromStorage = parseReportSnapshotFromLocalStorage(tenantSlug, auditId);
+      const fromDevice = (await buildReportFromDeviceStores(tenantSlug, auditId)) ?? null;
+      let localDisplayable = Boolean(fromStorage || fromDevice);
+
+      const applyLocal = async (row: AuditReportData | null) => {
+        if (!row || cancelled) return;
+        const enriched = await enrichReportWithCachedTemplateSchema(tenantSlug, row.templateId, row);
+        setAudit(enriched);
+      };
+
+      if (fromStorage) await applyLocal(fromStorage);
+      if (!cancelled && fromDevice && (!fromStorage || !fromStorage.template?.schema)) {
+        await applyLocal(fromDevice);
+      }
+
+      if (offline || !accessToken) {
+        if (!cancelled) {
+          setLoading(false);
+          if (!localDisplayable) {
+            setError("This form is not available offline on this device. Open it once while online after submitting, or stay offline and open it right after you submit.");
+          }
+        }
+        return;
+      }
+
+      try {
+        const url = new URL(apiUrl("/api/audit/report"));
+        url.searchParams.set("tenantSlug", tenantSlug);
+        url.searchParams.set("auditId", auditId);
+
+        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+        const json = (await res.json().catch(() => ({}))) as { audit?: AuditReportData & { templateId?: string }; error?: string };
+        if (!res.ok) {
+          throw new Error(json?.error || `Failed to load report (${res.status})`);
+        }
+        if (cancelled || !json.audit) {
+          if (!localDisplayable) throw new Error("Report data missing from server.");
+          return;
+        }
+
+        localDisplayable = true;
+        const next: AuditReportData = {
           ...json.audit,
+          templateId: json.audit.templateId,
           payload:
             json.audit.payload && typeof json.audit.payload === "object" && !Array.isArray(json.audit.payload)
               ? (json.audit.payload as Record<string, unknown>)
@@ -116,21 +111,29 @@ export function AuditReportPageClient({
             schema: (json.audit.template?.schema as FormSchemaV1 | null) ?? null,
           },
         };
-        setAudit(next);
-      })
-      .catch((err: unknown) => {
+
+        const withSchema =
+          next.template.schema || !next.templateId
+            ? next
+            : await enrichReportWithCachedTemplateSchema(tenantSlug, next.templateId, next);
+
+        if (!cancelled) {
+          setAudit(withSchema);
+          setError("");
+        }
+      } catch (err: unknown) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : "Failed to load report";
-        if (!audit) setError(message);
-      })
-      .finally(() => {
+        if (!localDisplayable) setError(message);
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [tenantSlug, auditId, accessToken, offline, audit]);
+  }, [tenantSlug, auditId, accessToken, offline]);
 
   if (!tenantSlug || !auditId) {
     return (
@@ -192,6 +195,18 @@ export function AuditReportPageClient({
         >
           Workspace
         </Link>
+        <PdfGeneratorButton
+          filename={`${tenantSlug}-form-${auditId.slice(0, 8)}.pdf`}
+          orientation="landscape"
+        />
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+          onClick={() => window.print()}
+        >
+          <Printer className="h-4 w-4" />
+          Print
+        </button>
       </div>
       <AuditReportDisplay audit={audit} tenantSlug={tenantSlug} auditId={auditId} />
     </div>

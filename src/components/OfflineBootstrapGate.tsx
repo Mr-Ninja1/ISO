@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { WorkspaceLoadingShell } from '@/components/WorkspaceLoadingShell';
 import { useAuth } from '@/components/AuthProvider';
+import { getWorkspaceAccessToken } from '@/lib/client/sessionAccessToken';
 import { isAppOffline } from '@/lib/client/appOffline';
 import {
   isOfflineBootstrapComplete,
@@ -85,7 +87,7 @@ function FirstTimeDownloadScreen({
             Categories, form cards, and checklists are saved on this device.
           </div>
           <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
-            After this you can open forms and continue drafts offline. Recent server drafts are saved as a preview.
+            After this you can open forms and submit offline. Drafts stay on this device only.
           </div>
         </div>
 
@@ -125,7 +127,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading } = useAuth();
-  const accessToken = session?.access_token || '';
+  const accessToken = getWorkspaceAccessToken(session);
   const userId = user?.id || session?.user?.id || null;
 
   const tenantSlug = useMemo(
@@ -232,7 +234,12 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, startBootstrap]);
 
   if (authLoading) {
-    return null;
+    return (
+      <WorkspaceLoadingShell
+        title="Signing in"
+        subtitle="Restoring your session before opening the workspace…"
+      />
+    );
   }
 
   if (!ready && needsBootstrap) {

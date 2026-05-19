@@ -4,13 +4,14 @@ import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
+import { INTERNET_REQUIRED_MESSAGE } from "@/lib/client/internetRequired";
 
 export function useRequiresInternet() {
   const router = useRouter();
 
   const blockIfOffline = useCallback((feature: string, message?: string) => {
     if (!isAppOffline()) return false;
-    showRequiresInternetDialog(feature, message);
+    showRequiresInternetDialog(feature, message ?? INTERNET_REQUIRED_MESSAGE);
     return true;
   }, []);
 

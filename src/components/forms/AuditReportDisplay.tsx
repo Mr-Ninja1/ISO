@@ -1,9 +1,14 @@
 "use client";
 
-import type { AuditReportData } from "@/components/forms/AuditReportPageClient";
+import type { AuditReportData } from "@/types/auditReport";
+import { AuditReportFooter, auditMetaFromPayload } from "@/components/forms/AuditReportFooter";
+import {
+  renderAuditReportFieldValue,
+  renderAuditReportTableCellValue,
+} from "@/components/forms/auditReportFieldRender";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { buildGridLayout } from "@/lib/gridLayout";
-import type { FieldDef, FormSchemaV1, FormSection } from "@/types/forms";
+import type { FormSchemaV1, FormSection } from "@/types/forms";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -13,12 +18,6 @@ function asText(value: unknown) {
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return JSON.stringify(value);
-}
-
-function asYesNo(value: unknown) {
-  if (value === "yes" || value === true) return "Yes";
-  if (value === "no" || value === false) return "No";
-  return asText(value);
 }
 
 function isDataUrl(value: unknown) {
@@ -44,36 +43,10 @@ function splitSections(schema: FormSchemaV1): FormSection[] {
 }
 
 function sectionColumnsClass(columns?: number) {
-  if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2";
-  if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
-  if (columns === 4) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4";
-  return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]";
-}
-
-function renderFieldValue(field: FieldDef, payload: Record<string, unknown>) {
-  const value = payload[field.id];
-
-  if (field.type === "signature") {
-    if (isDataUrl(value)) {
-      return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={value as string} alt={`${field.label} signature`} className="h-14 w-full object-contain" />
-      );
-    }
-    return <span className="text-foreground/50">Not signed</span>;
-  }
-
-  if (field.type === "photo") {
-    const items = photoList(value);
-    if (items.length > 0) return <ReportPhotoGallery photos={items} label={field.label} />;
-    return <span className="text-foreground/50">No photo</span>;
-  }
-
-  if (field.type === "checkbox") {
-    return <span>{value ? "Checked" : "Not checked"}</span>;
-  }
-
-  return <span>{asText(value) || "-"}</span>;
+  if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2 print:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-3";
+  if (columns === 4) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 print:grid-cols-4";
+  return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] print:grid-cols-2";
 }
 
 export function AuditReportDisplay({
@@ -85,11 +58,12 @@ export function AuditReportDisplay({
 }) {
   const payload = audit.payload;
   const schema = audit.template.schema;
+  const { submittedByName, submittedByEmail } = auditMetaFromPayload(payload);
 
   if (!schema) {
     const entries = Object.entries(payload).filter(([key]) => !key.startsWith("__"));
     return (
-      <div className="rounded-md border border-foreground/20 bg-background p-4">
+      <div className="report-export-root rounded-md border border-foreground/20 bg-background p-4">
         <h2 className="text-lg font-semibold">{audit.template.title}</h2>
         <p className="mt-1 text-sm text-foreground/70">
           {audit.status} • {new Date(audit.createdAt).toLocaleString()}
@@ -101,7 +75,7 @@ export function AuditReportDisplay({
               <div className="break-words text-sm">
                 {isDataUrl(value) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={value as string} alt={key} className="mt-1 max-h-24 object-contain" />
+                  <img src={value as string} alt={key} className="report-signature-img mt-1 object-contain" />
                 ) : (
                   asText(value) || "-"
                 )}
@@ -109,16 +83,16 @@ export function AuditReportDisplay({
             </div>
           ))}
         </div>
+        <AuditReportFooter
+          submittedByName={submittedByName}
+          submittedByEmail={submittedByEmail}
+          submittedAt={audit.createdAt}
+          status={audit.status}
+        />
       </div>
     );
   }
 
-  const auditMeta =
-    payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
-      ? (payload.__auditMeta as Record<string, unknown>)
-      : null;
-  const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
-  const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
   const sections = splitSections(schema);
   const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
   const payloadTempMeta =
@@ -130,7 +104,10 @@ export function AuditReportDisplay({
   const tenant = audit.tenant;
 
   return (
-    <div className="print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6" id="report-content">
+    <div
+      className="report-export-root print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6"
+      id="report-content"
+    >
       <div className="rounded-md border border-foreground/30 p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -182,7 +159,7 @@ export function AuditReportDisplay({
                       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
                         {field.label}
                       </div>
-                      <div className="text-sm">{renderFieldValue(field, payload)}</div>
+                      <div className="text-sm">{renderAuditReportFieldValue(field, payload)}</div>
                     </div>
                   ))}
                 </div>
@@ -200,7 +177,7 @@ export function AuditReportDisplay({
             <section key={`grid-${key}-${idx}`} className="rounded-md border border-foreground/20 p-3">
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title || "Log Sheet"}</h3>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-max border-collapse text-xs">
+                <table className="w-full min-w-max border-collapse text-sm">
                   <thead>
                     <tr>
                       {layout.columns.map((col) => (
@@ -220,15 +197,8 @@ export function AuditReportDisplay({
                             const col = cell.field;
                             const value = row[col.id];
                             return (
-                              <td key={`${rowIndex}-${colIndex}`} className="border border-foreground/20 px-2 py-1">
-                                {isDataUrl(value) ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={value as string} alt="" className="h-8 w-full object-contain" />
-                                ) : col.type === "yesno" ? (
-                                  asYesNo(value)
-                                ) : (
-                                  asText(value) || "-"
-                                )}
+                              <td key={`${rowIndex}-${colIndex}`} className="border border-foreground/20 px-2 py-1.5">
+                                {renderAuditReportTableCellValue(col, value)}
                               </td>
                             );
                           })}
@@ -249,6 +219,13 @@ export function AuditReportDisplay({
           </section>
         ) : null}
       </div>
+
+      <AuditReportFooter
+        submittedByName={submittedByName}
+        submittedByEmail={submittedByEmail}
+        submittedAt={audit.createdAt}
+        status={audit.status}
+      />
     </div>
   );
 }

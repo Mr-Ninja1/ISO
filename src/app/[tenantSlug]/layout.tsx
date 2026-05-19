@@ -10,7 +10,7 @@ import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
 import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
 import { capacitorTenantStaticParams } from "@/lib/capacitor/staticExport";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
-import { PageNavigationBar } from "@/components/PageNavigationBar";
+import { PageWayfinder } from "@/components/PageWayfinder";
 
 type TenantHeaderMeta = { name: string; slug: string; logoUrl: string | null; isActive?: boolean };
 
@@ -90,22 +90,24 @@ export default async function TenantLayout({
         title="Brand deactivated"
         message="This brand is currently inactive. Ask a system administrator to activate the brand before continuing."
         hint="Once the brand is reactivated, normal access will return automatically."
-        backHref="/dashboard"
-        backLabel="Back to lobby"
+        backHref="/workspace"
+        backLabel="Back to workspace"
       />
     );
   }
 
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-slate-50 via-white to-slate-50">
-      <PageNavigationBar />
+    <div className="tenant-shell min-h-dvh">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
-        <header className="sticky top-0 z-20 flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-white/60 bg-white/90 p-3 shadow-lg shadow-slate-200/40 backdrop-blur-xl sm:items-center sm:gap-4 sm:p-4 print:hidden">
-          <TenantLayoutHeader tenant={tenant} dbUnavailable={dbUnavailable} />
-          <TenantLayoutHeaderActions tenantSlug={tenant.slug} />
+        <header className="sticky top-0 z-20 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-lg shadow-[rgba(0,61,51,0.08)] backdrop-blur-xl print:hidden">
+          <div className="ws-header-accent" />
+          <div className="flex flex-wrap items-start justify-between gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
+            <TenantLayoutHeader tenant={tenant} dbUnavailable={dbUnavailable} />
+            <TenantLayoutHeaderActions tenantSlug={tenant.slug} />
+          </div>
         </header>
 
-        <main className="flex flex-col gap-6 rounded-2xl border border-white/60 bg-white/80 p-4 pb-20 shadow-lg shadow-slate-200/30 backdrop-blur-xl sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
+        <main className="flex flex-col gap-6 rounded-2xl border border-white/70 bg-white/90 p-4 pb-20 shadow-lg shadow-[rgba(0,61,51,0.06)] sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
           {children}
         </main>
       </div>
@@ -125,8 +127,9 @@ function TenantLayoutHeader({
   dbUnavailable: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm">
+    <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+      <PageWayfinder tenantSlug={tenant.slug} />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
         {tenant.logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={tenant.logoUrl} alt={`${tenant.name} logo`} className="h-8 w-8 object-contain" />

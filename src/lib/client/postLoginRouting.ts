@@ -72,7 +72,9 @@ export async function resolvePostLoginRoute(
 
       const caps = await fetchNavCapabilities(accessToken, tenantSlug).catch(() => null);
       if (caps?.canSeeAdminRoutes) {
-        return { path: "/dashboard" };
+        return {
+          path: `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}&view=admin`,
+        };
       }
 
       return { path: `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}` };

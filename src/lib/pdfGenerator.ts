@@ -35,11 +35,12 @@ async function captureForPdf(
   host.style.background = '#fff';
   host.style.zIndex = '-1';
 
-  clone.classList.add('pdf-generation-mode');
+  clone.classList.add('pdf-generation-mode', 'report-export-root');
   clone.style.width = `${targetWidthPx}px`;
   clone.style.maxWidth = `${targetWidthPx}px`;
   clone.style.margin = '0';
   clone.style.transform = 'none';
+  clone.style.fontSize = '14px';
 
   host.appendChild(clone);
   document.body.appendChild(host);
@@ -130,7 +131,7 @@ export async function generatePdfFromElement(
   filename: string = 'report.pdf',
   options?: PdfOptions
 ): Promise<void> {
-  const { scale = 2, orientation = 'landscape' } = options || {};
+  const { scale = 3, orientation = 'landscape' } = options || {};
 
   try {
     const canvas = await captureForPdf(element, orientation, scale);
@@ -147,7 +148,7 @@ export async function generatePdfBlobFromElement(
   element: HTMLElement,
   options?: PdfOptions
 ): Promise<Blob> {
-  const { scale = 2, orientation = 'landscape' } = options || {};
+  const { scale = 3, orientation = 'landscape' } = options || {};
 
   try {
     const canvas = await captureForPdf(element, orientation, scale);

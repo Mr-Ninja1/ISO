@@ -11,7 +11,6 @@ import {
   getPendingBackgroundMutationCount,
 } from "@/lib/client/backgroundMutationQueue";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
-import { prefetchRecentDraftAudits } from "@/lib/client/auditsListSync";
 import { cacheAllTenantTemplatesFromApi, isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
 import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
@@ -199,9 +198,6 @@ export function BackgroundSyncManager() {
         if (!isTenantTemplateBulkCached(tenantSlug)) {
           await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
         }
-
-        setBootstrapStage("Saving recent drafts");
-        await prefetchRecentDraftAudits(accessToken, user?.id || null, tenantSlug, 40);
 
         setBootstrapStage("Loading activity");
         const role = workspace.role || (workspace.capabilities?.canAccessSettings ? "ADMIN" : "MEMBER");

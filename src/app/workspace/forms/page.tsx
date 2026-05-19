@@ -19,7 +19,7 @@ function WorkspaceFormsRedirect() {
   useEffect(() => {
     const tenantSlug = searchParams.get("tenantSlug") || "";
     if (!tenantSlug) {
-      router.replace("/dashboard");
+      router.replace("/workspace");
       return;
     }
 

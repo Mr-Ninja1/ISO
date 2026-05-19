@@ -18,6 +18,7 @@ import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCach
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { AuditReportFromCacheClient } from "@/components/forms/AuditReportFromCacheClient";
 import { AuditReportPageClient } from "@/components/forms/AuditReportPageClient";
+import { AuditReportFooter } from "@/components/forms/AuditReportFooter";
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
 
@@ -83,7 +84,7 @@ function renderFieldValue(field: FieldDef, payload: Record<string, unknown>) {
   if (field.type === "signature") {
     if (isDataUrl(value)) {
       // eslint-disable-next-line @next/next/no-img-element
-      return <img src={value as string} alt={`${field.label} signature`} className="h-14 w-full object-contain" />;
+      return <img src={value as string} alt={`${field.label} signature`} className="report-signature-img h-20 w-full object-contain" />;
     }
     return <span className="text-foreground/50">Not signed</span>;
   }
@@ -217,7 +218,7 @@ export default async function AuditReportPage({
         </div>
       </div>
 
-      <div className="print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6" id="report-content">
+      <div className="report-export-root print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6" id="report-content">
         <div className="print-page-break-avoid rounded-md border border-foreground/30 p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -240,12 +241,6 @@ export default async function AuditReportPage({
             </div>
           </div>
           <div className="mt-3 text-center text-2xl font-bold tracking-tight">{schema.title || audit.template.title}</div>
-          {submittedByName || submittedByEmail ? (
-            <div className="mt-2 text-center text-xs text-foreground/70">
-              Submitted by {submittedByName || "Staff"}
-              {submittedByEmail ? ` (${submittedByEmail})` : ""}
-            </div>
-          ) : null}
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
@@ -372,7 +367,7 @@ export default async function AuditReportPage({
                                 >
                                   {isDataUrl(value) ? (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={value as string} alt={`${col.label} signature`} className="h-8 w-full object-contain" />
+                                    <img src={value as string} alt={`${col.label} signature`} className="report-signature-img h-16 w-full object-contain" />
                                   ) : (
                                     isImageSource(value)
                                       ? (
@@ -400,6 +395,13 @@ export default async function AuditReportPage({
             </section>
           ) : null}
         </div>
+
+        <AuditReportFooter
+          submittedByName={submittedByName}
+          submittedByEmail={submittedByEmail}
+          submittedAt={audit.createdAt}
+          status={audit.status}
+        />
       </div>
     </div>
   );

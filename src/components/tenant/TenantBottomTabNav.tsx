@@ -12,7 +12,7 @@ const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms
 function tabClass(active: boolean, loading: boolean) {
   return (
     "inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md text-xs font-medium transition-all " +
-    (active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100")
+    (active ? "bg-[var(--hse-teal)] text-white shadow-sm" : "text-[var(--hse-teal-mid)] hover:bg-[var(--hse-sky)]")
   );
 }
 
@@ -58,7 +58,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
   };
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-2 backdrop-blur md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-[var(--hse-cream)]/95 p-2 backdrop-blur md:hidden">
       <div className="mx-auto flex max-w-[760px] items-center gap-1">
         <Link 
           href={formsPath} 

@@ -21,12 +21,18 @@ export function normalizeTemplateSchema(raw: unknown, title: string): JsonObject
   next.title = title;
 
   const prevMeta = getTemplateSchemaMeta(next);
+  // Preserve all custom meta (dueRule, dueReminderAt, cardIcon, temperature alerts, etc.)
   next.meta = {
     ...existingMeta,
-    lineageId: prevMeta.lineageId,
-    templateVersion: typeof prevMeta.templateVersion === "number" ? prevMeta.templateVersion : 1,
-    isLive: prevMeta.isLive !== false,
-    previousTemplateId: prevMeta.previousTemplateId,
+    lineageId: prevMeta.lineageId ?? existingMeta.lineageId,
+    templateVersion:
+      typeof prevMeta.templateVersion === "number"
+        ? prevMeta.templateVersion
+        : typeof existingMeta.templateVersion === "number"
+          ? existingMeta.templateVersion
+          : 1,
+    isLive: typeof prevMeta.isLive === "boolean" ? prevMeta.isLive : existingMeta.isLive !== false,
+    previousTemplateId: prevMeta.previousTemplateId ?? existingMeta.previousTemplateId,
   };
 
   return next;

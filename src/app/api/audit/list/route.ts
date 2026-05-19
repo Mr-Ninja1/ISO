@@ -44,6 +44,9 @@ export async function GET(req: Request) {
     statusParam === "DRAFT" || statusParam === "SUBMITTED" ? (statusParam as "DRAFT" | "SUBMITTED") : null;
   const limitParam = Number(searchParams.get("limit") || "");
   const rowLimit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 200) : null;
+  const offsetParam = Number(searchParams.get("offset") || "0");
+  const offset =
+    Number.isFinite(offsetParam) && offsetParam >= 0 ? Math.min(Math.floor(offsetParam), 50_000) : 0;
 
   if (!tenantSlug) {
     return NextResponse.json({ error: "Missing tenantSlug" }, { status: 400 });
@@ -78,13 +81,14 @@ export async function GET(req: Request) {
     q = q.eq("status", statusFilter);
   }
 
+  let pageSize = 50;
   if (since) {
-    q = q.gt("updated_at", since.toISOString());
-    q = q.limit(rowLimit ?? 1000);
-  } else if (rowLimit) {
-    q = q.limit(rowLimit);
+    pageSize = rowLimit ?? 500;
+    q = q.gt("updated_at", since.toISOString()).limit(pageSize);
   } else {
-    q = q.limit(2000);
+    pageSize = Math.min(rowLimit ?? 50, 200);
+    const end = offset + pageSize - 1;
+    q = q.range(offset, end);
   }
 
   const { data: rows, error: listErr } = await q;
@@ -93,7 +97,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: listErr.message }, { status: 500 });
   }
 
-  const serialized = (rows || []).map((row: Record<string, unknown>) => {
+  const rowList = rows || [];
+  const hasMore = !since && rowList.length === pageSize;
+  const nextOffset = offset + rowList.length;
+
+  const serialized = rowList.map((row: Record<string, unknown>) => {
     const tpl = row.form_templates as { title?: string } | null | undefined;
     return {
       id: row.id as string,
@@ -113,6 +121,8 @@ export async function GET(req: Request) {
       rows: serialized,
       maxUpdatedAt,
       serverTime: new Date().toISOString(),
+      nextOffset,
+      hasMore,
     },
     {
       headers: {

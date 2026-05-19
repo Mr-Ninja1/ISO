@@ -66,8 +66,8 @@ export default function AdminPage() {
       <OfflineRouteBlock
         title="Admin console offline"
         message="The developer dashboard needs internet because it reads live metrics and brand controls from the database."
-        backHref="/dashboard"
-        backLabel="Back to lobby"
+        backHref="/workspace"
+        backLabel="Back to workspace"
       />
     );
   }
@@ -167,11 +167,11 @@ export default function AdminPage() {
               <div className="mt-1 text-xs text-foreground/60">Activate, deactivate, and send alerts to brands</div>
             </button>
             <Link
-              href="/dashboard"
+              href="/workspace"
               className="block w-full rounded-lg border border-foreground/15 bg-background px-4 py-3 text-left text-sm hover:bg-foreground/5 transition"
             >
-              <div className="font-medium">Back to lobby</div>
-              <div className="mt-1 text-xs text-foreground/60">Return to the main dashboard</div>
+              <div className="font-medium">Back to workspace</div>
+              <div className="mt-1 text-xs text-foreground/60">Return to your brands and forms</div>
             </Link>
           </div>
         </div>

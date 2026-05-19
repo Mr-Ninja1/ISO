@@ -50,17 +50,52 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data: row, error } = await sb
+  const { data: row, error: rowErr } = await sb
     .from("audit_logs")
-    .select("id, status, created_at, payload, form_templates(title, schema)")
+    .select("id, status, created_at, payload, template_id")
     .eq("id", auditId)
     .eq("tenant_id", tenant.id)
     .maybeSingle();
 
-  if (error || !row) return NextResponse.json({ error: "Audit not found" }, { status: 404 });
+  if (rowErr) {
+    return NextResponse.json({ error: rowErr.message || "Failed to load audit" }, { status: 500 });
+  }
+  if (!row) {
+    return NextResponse.json({ error: "Audit not found" }, { status: 404 });
+  }
 
-  const rawTpl = row.form_templates;
-  const tpl = (Array.isArray(rawTpl) ? rawTpl[0] : rawTpl) as { title?: string; schema?: unknown } | null | undefined;
+  const templateId = row.template_id as string;
+  const { data: tpl, error: tplErr } = await sb
+    .from("form_templates")
+    .select("title, schema")
+    .eq("id", templateId)
+    .eq("tenant_id", tenant.id)
+    .maybeSingle();
+
+  if (tplErr || !tpl) {
+    return NextResponse.json(
+      {
+        audit: {
+          id: row.id as string,
+          status: row.status as string,
+          createdAt: row.created_at as string,
+          payload: row.payload,
+          templateId,
+          tenant: {
+            name: tenant.name as string,
+            slug: tenant.slug as string,
+            logoUrl: (tenant.logo_url as string | null) ?? null,
+          },
+          template: {
+            title: "Form",
+            schema: null,
+          },
+        },
+        templateError: tplErr?.message || "Template not found",
+      },
+      { status: 200 }
+    );
+  }
 
   return NextResponse.json({
     audit: {
@@ -68,14 +103,15 @@ export async function GET(req: Request) {
       status: row.status as string,
       createdAt: row.created_at as string,
       payload: row.payload,
+      templateId,
       tenant: {
         name: tenant.name as string,
         slug: tenant.slug as string,
         logoUrl: (tenant.logo_url as string | null) ?? null,
       },
       template: {
-        title: tpl?.title ?? "Form",
-        schema: tpl?.schema ?? null,
+        title: tpl.title ?? "Form",
+        schema: tpl.schema ?? null,
       },
     },
   });

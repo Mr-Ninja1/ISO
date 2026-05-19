@@ -68,31 +68,31 @@ export default function LoginPage() {
 
   return (
     <AuthPageShell
-      eyebrow="Secure access"
+      eyebrow="ISO Pro"
       onEyebrowClick={handleSecureAccessClick}
       eyebrowTitle={secureAccessClicks > 0 ? `${6 - secureAccessClicks} clicks left` : "Developer access"}
-      title="Sign in to your operational workspace."
-      subtitle="Open your brand, continue drafts, review saved forms, and keep the workspace synced across devices."
-      formTitle="Welcome back"
-      formSubtitle="Enter your credentials to continue"
-      footerText="Need an account?"
+      title="HSE management for your organisation"
+      subtitle="Inspections, evidence, and corrective actions in one workspace—online or offline in the field."
+      formTitle="Sign in"
+      formSubtitle="Access your HSE workspace"
+      footerText="New to ISO Pro?"
       footerHref="/signup"
-      footerLabel="Create one"
+      footerLabel="Create an account"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {banner.verified ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
             Your email has been verified. You can sign in now.
           </div>
         ) : null}
         {banner.reset ? (
-          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
             Your password was updated. Sign in with your new password.
           </div>
         ) : null}
 
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-slate-700">
+          <label htmlFor="email" className="text-sm font-medium text-[var(--hse-charcoal)]">
             Email
           </label>
           <input
@@ -102,13 +102,13 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-500 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             placeholder="your@email.com"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium text-slate-700">
+          <label htmlFor="password" className="text-sm font-medium text-[var(--hse-charcoal)]">
             Password
           </label>
           <input
@@ -118,34 +118,39 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-500 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:bg-white disabled:opacity-60 disabled:cursor-not-allowed"
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-500 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             placeholder="••••••••"
           />
         </div>
 
-        {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+        {error ? (
+          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>
+        ) : null}
 
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-slate-900 to-slate-800 px-4 font-medium text-white shadow-lg shadow-slate-900/20 transition-all hover:shadow-xl hover:shadow-slate-900/30 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+          className="ws-btn-primary inline-flex h-11 w-full items-center justify-center gap-2 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {loading ? "Signing in..." : "Sign In"}
+          {loading ? "Signing in…" : "Sign in"}
         </button>
 
         <div className="flex items-center justify-between gap-3 text-sm">
-          <Link href="/forgot-password" className="font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
+          <Link
+            href="/forgot-password"
+            className="font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
+          >
             Forgot password?
           </Link>
-          <Link href="/verify-email" className="font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
-            Need verification?
+          <Link
+            href="/verify-email"
+            className="font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
+          >
+            Verify email
           </Link>
         </div>
 
-        <Link href="/developer-login" className="block text-center text-sm font-semibold text-slate-900 underline underline-offset-4 hover:text-black">
-          Developer sign in
-        </Link>
       </form>
     </AuthPageShell>
   );

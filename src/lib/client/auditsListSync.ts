@@ -11,6 +11,8 @@ import {
 export type FetchAuditsListOptions = {
   /** Max rows from server (default: server cap when omitted). */
   limit?: number;
+  /** Pagination offset (ignored when `since` is set). */
+  offset?: number;
   /** Only DRAFT or SUBMITTED rows. */
   status?: "DRAFT" | "SUBMITTED";
   /** Incremental sync — only rows updated after this ISO timestamp. */
@@ -23,6 +25,8 @@ export type FetchAuditsListResult = {
   rows: CachedAuditRow[];
   maxUpdatedAt: string | null;
   mergedIntoCache: boolean;
+  nextOffset: number | null;
+  hasMore: boolean;
 };
 
 /** Pull saved forms from the server and optionally merge into local cache. */
@@ -35,6 +39,9 @@ export async function fetchAndCacheAuditsList(
   const url = new URL(apiUrl("/api/audit/list"));
   url.searchParams.set("tenantSlug", tenantSlug);
   if (options.limit) url.searchParams.set("limit", String(options.limit));
+  if (typeof options.offset === "number" && options.offset > 0) {
+    url.searchParams.set("offset", String(options.offset));
+  }
   if (options.status) url.searchParams.set("status", options.status);
   if (options.since) url.searchParams.set("since", options.since);
 
@@ -45,6 +52,8 @@ export async function fetchAndCacheAuditsList(
     rows?: CachedAuditRow[];
     maxUpdatedAt?: string | null;
     error?: string;
+    nextOffset?: number;
+    hasMore?: boolean;
   };
   if (!res.ok) {
     const detail = typeof data?.error === "string" ? data.error : "";
@@ -60,16 +69,18 @@ export async function fetchAndCacheAuditsList(
 
   const incoming = Array.isArray(data.rows) ? data.rows : [];
   const maxUpdatedAt = data.maxUpdatedAt || null;
+  const nextOffset = typeof data.nextOffset === "number" ? data.nextOffset : null;
+  const hasMore = Boolean(data.hasMore);
 
   if (options.merge !== false) {
     const existing = readAuditsListCache(userId, tenantSlug);
     const merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
     writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
-    return { rows: merged, maxUpdatedAt, mergedIntoCache: true };
+    return { rows: merged, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
   }
 
   writeAuditsListCache(userId, tenantSlug, incoming, maxUpdatedAt);
-  return { rows: incoming, maxUpdatedAt, mergedIntoCache: true };
+  return { rows: incoming, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
 }
 
 /** Light first-time prefetch: recent drafts only (not entire history). */
@@ -86,6 +97,12 @@ export async function prefetchRecentDraftAudits(
       merge: true,
     });
   } catch {
-    return { rows: readAuditsListCache(userId, tenantSlug)?.rows ?? [], maxUpdatedAt: null, mergedIntoCache: false };
+    return {
+      rows: readAuditsListCache(userId, tenantSlug)?.rows ?? [],
+      maxUpdatedAt: null,
+      mergedIntoCache: false,
+      nextOffset: null,
+      hasMore: false,
+    };
   }
 }

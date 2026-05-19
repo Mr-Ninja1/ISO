@@ -1,6 +1,5 @@
 "use client";
 
-import { prefetchRecentDraftAudits } from "@/lib/client/auditsListSync";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { cacheAllTenantTemplatesFromApi, markTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { type WorkspaceData, writeWorkspaceCache } from "@/lib/client/workspaceCache";
@@ -12,7 +11,6 @@ export type OfflineBootstrapStage =
   | "workspace"
   | "categories"
   | "schemas"
-  | "drafts"
   | "permissions"
   | "done";
 
@@ -28,7 +26,6 @@ export type OfflineBootstrapResult = {
   tenantName: string;
   categoryCount: number;
   templateCount: number;
-  draftPreviewCount: number;
 };
 
 function bootstrapStorageKey(userId: string | null, tenantSlug: string) {
@@ -135,18 +132,7 @@ export async function runOfflineBootstrap({
   const templateCount = await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
   report("schemas", "Form schemas saved on device", 78, `${templateCount} form${templateCount === 1 ? "" : "s"}`);
 
-  report("drafts", "Saving recent drafts preview…", 82);
-  const draftPreview = await prefetchRecentDraftAudits(accessToken, userId, tenantSlug, 40);
-  report(
-    "drafts",
-    "Recent drafts saved locally",
-    90,
-    draftPreview.rows.length
-      ? `${Math.min(40, draftPreview.rows.filter((r) => r.status === "DRAFT").length)} recent draft(s)`
-      : "No server drafts yet"
-  );
-
-  report("permissions", "Finishing setup…", 94);
+  report("permissions", "Finishing setup…", 88);
   try {
     await fetchNavCapabilities(accessToken, tenantSlug);
   } catch {
@@ -161,6 +147,5 @@ export async function runOfflineBootstrap({
     tenantName: workspace.tenant.name,
     categoryCount: categories.length,
     templateCount,
-    draftPreviewCount: draftPreview.rows.filter((r) => r.status === "DRAFT").length,
   };
 }

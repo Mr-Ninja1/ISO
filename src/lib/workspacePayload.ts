@@ -1,4 +1,5 @@
 import { hasPermission, normalizeRole, type AppRole } from "@/lib/roleGate";
+import { parseTemplateDueRule, resolveTemplateDueReminderAt, type TemplateDueRule } from "@/lib/dueRules";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 export type WorkspaceTenantPayload = {
@@ -22,6 +23,9 @@ export type WorkspaceTemplatePayload = {
   hasTemperatureInputs?: boolean;
   settings?: {
     dueDays?: number;
+    dueRule?: TemplateDueRule | null;
+    dueReminderAt?: string;
+    dueRuleSetAt?: string;
     temperatureAlertBelow?: number;
     temperatureAlertAbove?: number;
     temperatureUnit?: "C" | "F";
@@ -95,8 +99,13 @@ function templateMetaSettings(schema: unknown): WorkspaceTemplatePayload["settin
   const meta = (schema as Record<string, unknown>).meta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return undefined;
   const m = meta as Record<string, unknown>;
+  const dueRule = parseTemplateDueRule(m);
+  const dueAt = resolveTemplateDueReminderAt(m);
   return {
-    dueDays: typeof m.dueDays === "number" ? m.dueDays : undefined,
+    dueDays: dueRule?.mode === "days" ? dueRule.days : typeof m.dueDays === "number" ? m.dueDays : undefined,
+    dueRule,
+    dueReminderAt: dueAt?.toISOString(),
+    dueRuleSetAt: typeof m.dueRuleSetAt === "string" ? m.dueRuleSetAt : undefined,
     temperatureAlertBelow: typeof m.temperatureAlertBelow === "number" ? m.temperatureAlertBelow : undefined,
     temperatureAlertAbove: typeof m.temperatureAlertAbove === "number" ? m.temperatureAlertAbove : undefined,
     temperatureUnit: m.temperatureUnit === "F" || m.temperatureUnit === "C" ? m.temperatureUnit : undefined,

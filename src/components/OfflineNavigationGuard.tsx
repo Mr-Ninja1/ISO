@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { defaultOfflineBackHref, isOfflineSafePath } from "@/lib/client/offlineNavigation";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
+import { INTERNET_REQUIRED_MESSAGE } from "@/lib/client/internetRequired";
 
 /**
  * Redirects away from online-only routes when the device is offline (Capacitor / PWA).
@@ -22,10 +23,7 @@ export function OfflineNavigationGuard() {
     const tenantSlug = tenantMatch?.[1] || null;
     const back = defaultOfflineBackHref(tenantSlug);
 
-    showRequiresInternetDialog(
-      "This page",
-      "This section needs internet to load. You can keep using your cached workspace and saved forms offline."
-    );
+    showRequiresInternetDialog("This page", INTERNET_REQUIRED_MESSAGE);
     router.replace(back);
   }, [pathname, router]);
 

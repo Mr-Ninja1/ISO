@@ -65,29 +65,30 @@ function scanLocalStorageDraftRows(userId: string | null, tenantSlug: string): C
   return rows;
 }
 
-/** Rows available on this device without calling the server. */
-export function collectDeviceAuditsRows(userId: string | null, tenantSlug: string): CachedAuditRow[] {
+/** Submitted forms on this device only (no drafts) — for stored forms list. */
+export function collectDeviceSubmittedRows(userId: string | null, tenantSlug: string): CachedAuditRow[] {
   if (!tenantSlug) return [];
 
-  const cached = readAuditsListCache(userId, tenantSlug)?.rows ?? [];
+  const cached = (readAuditsListCache(userId, tenantSlug)?.rows ?? []).filter((r) => r.status === "SUBMITTED");
   const pendingSubmitted = getOfflineSubmittedForms(tenantSlug).map(pendingSubmittedRow);
-  const queueRows = getAuditSyncQueueForTenant(tenantSlug).map((item) => {
-    const at = isoFromMs(item.queuedAt);
-    const auditId = item.auditId || `local-draft:${item.templateId}`;
-  return {
-      id: auditId,
-      status: item.mode === "submit" ? ("SUBMITTED" as const) : ("DRAFT" as const),
-      templateId: item.templateId,
-      createdAt: at,
-      updatedAt: at,
-      submittedAt: item.mode === "submit" ? at : null,
-      template: { title: "Form" },
-      devicePending: true,
-    };
-  });
-  const localDrafts = scanLocalStorageDraftRows(userId, tenantSlug);
+  const queueSubmitted = getAuditSyncQueueForTenant(tenantSlug)
+    .filter((item) => item.mode === "submit")
+    .map((item) => {
+      const at = isoFromMs(item.queuedAt);
+      const auditId = item.auditId || `pending:${item.id}`;
+      return {
+        id: auditId,
+        status: "SUBMITTED" as const,
+        templateId: item.templateId,
+        createdAt: at,
+        updatedAt: at,
+        submittedAt: at,
+        template: { title: "Form" },
+        devicePending: true,
+      };
+    });
 
-  return mergeAuditsRows(mergeAuditsRows(cached, pendingSubmitted), mergeAuditsRows(queueRows, localDrafts));
+  return mergeAuditsRows(mergeAuditsRows(cached, pendingSubmitted), queueSubmitted);
 }
 
 /** Enrich draft titles from IndexedDB template/draft stores. */
@@ -136,37 +137,17 @@ function outboxToRow(item: { id: string; templateId: string; mode: "draft" | "su
 }
 
 export async function loadDeviceAuditsRows(userId: string | null, tenantSlug: string): Promise<CachedAuditRow[]> {
-  let rows = collectDeviceAuditsRows(userId, tenantSlug);
+  let rows = collectDeviceSubmittedRows(userId, tenantSlug);
 
   const outbox = await dbListOutbox(tenantSlug);
   if (outbox.length) {
     const outboxRows: CachedAuditRow[] = [];
     for (const item of outbox) {
+      if (item.mode !== "submit") continue;
       const template = await dbGetTemplate(tenantSlug, item.templateId);
       outboxRows.push(outboxToRow(item, template?.title || "Form"));
     }
     rows = mergeAuditsRows(rows, outboxRows);
-  }
-
-  const drafts = await dbListDraftsForTenant(tenantSlug);
-  if (drafts.length) {
-    const draftRows: CachedAuditRow[] = [];
-    for (const draft of drafts) {
-      const template = await dbGetTemplate(tenantSlug, draft.templateId);
-      const at = isoFromMs(draft.updatedAtLocal);
-      const auditId = draft.auditId || `local-draft:${draft.templateId}`;
-      draftRows.push({
-        id: auditId,
-        status: "DRAFT",
-        templateId: draft.templateId,
-        createdAt: at,
-        updatedAt: at,
-        submittedAt: null,
-        template: { title: template?.title || "Draft form" },
-        devicePending: !draft.auditId,
-      });
-    }
-    rows = mergeAuditsRows(rows, draftRows);
   }
 
   return enrichDeviceAuditsRows(userId, tenantSlug, rows);

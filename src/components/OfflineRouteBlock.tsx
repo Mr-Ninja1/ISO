@@ -14,12 +14,12 @@ export function OfflineRouteBlock({
   title,
   message,
   hint,
-  backHref = "/dashboard",
-  backLabel = "Back to lobby",
+  backHref = "/workspace",
+  backLabel = "Back to workspace",
 }: Props) {
   return (
-    <main className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)] px-4 py-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 rounded-2xl border border-foreground/20 bg-background p-6 shadow-sm">
+    <main className="workspace-shell min-h-dvh px-4 py-10">
+      <div className="ui-card mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
         <div>
           <h1 className="text-xl font-semibold">{title}</h1>
           <p className="mt-2 text-sm text-foreground/70">{message}</p>
@@ -32,10 +32,10 @@ export function OfflineRouteBlock({
         {hint ? <p className="text-xs text-foreground/60">{hint}</p> : null}
 
         <div className="flex flex-wrap gap-2">
-          <Link href={backHref} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 text-sm hover:bg-foreground/5">
+          <Link href={backHref} className="ui-btn-secondary inline-flex h-10 items-center justify-center px-4 text-sm">
             {backLabel}
           </Link>
-          <Link href="/offline" className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 text-sm hover:bg-foreground/5">
+          <Link href="/offline" className="ui-btn-secondary inline-flex h-10 items-center justify-center px-4 text-sm">
             Offline help
           </Link>
         </div>

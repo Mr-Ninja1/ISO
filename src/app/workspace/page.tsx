@@ -4,9 +4,12 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Sparkles, Users2, X } from "lucide-react";
+import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Users2, X } from "lucide-react";
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
-import { createClient } from "@/lib/auth";
+import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
+import { hardNavigate } from "@/lib/client/appEntryNavigation";
+import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -23,7 +26,7 @@ import {
 import { writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
-import { dbGetDraft } from "@/lib/client/formsDb";
+import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
@@ -33,6 +36,22 @@ import {
 } from "@/lib/client/offlineTemplateWarmup";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
+import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
+import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
+import { DueReminderPoller } from "@/components/DueReminderPoller";
+import {
+  applyDueRuleToMeta,
+  dueRuleToFormState,
+  formatDueRuleSummary,
+  isPastDue,
+  isReminderDue,
+  parseTemplateDueRule,
+  resolveTemplateDueReminderAt,
+  templateToReminderTarget,
+  type TemplateDueRule,
+  type TemplateReminderTarget,
+} from "@/lib/dueRules";
+import { DUE_REMINDER_EVENT, ensureNotificationPermission, type DueReminderDetail } from "@/lib/client/dueReminderNotify";
 
 type TenantSummary = {
   id: string;
@@ -55,6 +74,9 @@ type TemplateSummary = {
   hasTemperatureInputs?: boolean;
   settings?: {
     dueDays?: number;
+    dueRule?: TemplateDueRule | null;
+    dueReminderAt?: string;
+    dueRuleSetAt?: string;
     temperatureAlertBelow?: number;
     temperatureAlertAbove?: number;
     temperatureUnit?: "C" | "F";
@@ -84,7 +106,7 @@ type WorkspaceCacheEnvelope = {
 };
 
 const RECENT_TEMPLATES_LIMIT = 6;
-type WorkspaceTheme = "default" | "slate-soft" | "warm-paper" | "mint-soft";
+type WorkspaceTheme = "hse-pro" | "default" | "slate-soft" | "warm-paper" | "mint-soft";
 const THEME_STORAGE_KEY = "iso-theme-v1";
 
 function templateCardClasses(color: string | undefined) {
@@ -248,36 +270,34 @@ function normalizeTenantSlug(value: string | null | undefined) {
 }
 
 function WorkspaceSkeleton() {
-  return null;
+  return <WorkspaceLoadingShell />;
 }
 
 function WorkspaceUnavailable({
   tenantSlug,
   message,
   onRetry,
-  onLobby,
+  onSwitchBrand,
 }: {
   tenantSlug: string;
   message: string;
   onRetry: () => void;
-  onLobby: () => void;
+  onSwitchBrand?: () => void;
 }) {
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="workspace-shell min-h-dvh">
       <div className="mx-auto max-w-7xl p-6">
         <h1 className="text-xl font-semibold">Workspace</h1>
-        <div className="mt-4 rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">{message}</div>
+        <div className="ui-card-muted mt-4 p-3 text-sm">{message}</div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" className="h-10 rounded-md bg-foreground px-4 text-background" onClick={onRetry}>
+          <button type="button" className="ui-btn-primary h-10 px-4" onClick={onRetry}>
             Retry
           </button>
-          <button
-            type="button"
-            className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
-            onClick={onLobby}
-          >
-            Back to Lobby
-          </button>
+          {onSwitchBrand ? (
+            <button type="button" className="ui-btn-secondary inline-flex h-10 items-center justify-center px-4" onClick={onSwitchBrand}>
+              Switch brand
+            </button>
+          ) : null}
           {tenantSlug ? (
             <button
               type="button"
@@ -311,8 +331,7 @@ function WorkspaceCardSkeletonGrid() {
   );
 }
 
-type QuickTemplateSettings = {
-  dueDays: string;
+type QuickTemplateSettings = DueRuleFormState & {
   temperatureAlertBelow: string;
   temperatureAlertAbove: string;
   temperatureUnit: "C" | "F";
@@ -338,7 +357,10 @@ function TemplateQuickSettingsModal({
   onSave: (settings: QuickTemplateSettings) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<QuickTemplateSettings>({
-    dueDays: "",
+    mode: "none",
+    days: "",
+    durationMinutes: "",
+    fixedLocal: "",
     temperatureAlertBelow: "",
     temperatureAlertAbove: "",
     temperatureUnit: "C",
@@ -348,8 +370,9 @@ function TemplateQuickSettingsModal({
 
   useEffect(() => {
     if (!open || !template) return;
+    const dueForm = dueRuleToFormState(template.settings?.dueRule ?? parseTemplateDueRule({ dueDays: template.settings?.dueDays }));
     setDraft({
-      dueDays: typeof template.settings?.dueDays === "number" ? String(template.settings.dueDays) : "",
+      ...dueForm,
       temperatureAlertBelow:
         typeof template.settings?.temperatureAlertBelow === "number" ? String(template.settings.temperatureAlertBelow) : "",
       temperatureAlertAbove:
@@ -412,17 +435,16 @@ function TemplateQuickSettingsModal({
               <option value="rose">Rose</option>
             </select>
           </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-foreground/70">Due in days</span>
-            <input
-              type="number"
-              min={0}
-              className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
-              value={draft.dueDays}
-              onChange={(e) => setDraft((prev) => ({ ...prev, dueDays: e.target.value }))}
-              placeholder="Optional"
-            />
-          </label>
+          <TemplateDueRuleFields
+            value={{
+              mode: draft.mode,
+              days: draft.days,
+              durationMinutes: draft.durationMinutes,
+              fixedLocal: draft.fixedLocal,
+            }}
+            disabled={saving}
+            onChange={(due) => setDraft((prev) => ({ ...prev, ...due }))}
+          />
           {showTemperatureSettings ? (
             <>
               <label className="grid gap-1 text-sm">
@@ -493,7 +515,7 @@ function WorkspacePageInner() {
   const forceRefresh = searchParams.get("refresh") === "1";
   const requestedView = searchParams.get("view");
 
-  const accessToken = session?.access_token || "";
+  const accessToken = getWorkspaceAccessToken(session);
   const cacheUserId = user?.id || null;
 
   const [tenantChoices, setTenantChoices] = useState<TenantSummary[]>([]);
@@ -512,7 +534,7 @@ function WorkspacePageInner() {
   const [addFormOpen, setAddFormOpen] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [theme, setTheme] = useState<WorkspaceTheme>("default");
+  const [theme, setTheme] = useState<WorkspaceTheme>("hse-pro");
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
   const [cardMenuTemplateId, setCardMenuTemplateId] = useState<string | null>(null);
@@ -531,14 +553,17 @@ function WorkspacePageInner() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [draftTemplateIds, setDraftTemplateIds] = useState<Set<string>>(new Set());
+  const [reminderDueTemplateIds, setReminderDueTemplateIds] = useState<Set<string>>(new Set());
   const [revalidateTick, setRevalidateTick] = useState(0);
   const [confirmOfflineOpen, setConfirmOfflineOpen] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
+  const [openingStaff, setOpeningStaff] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [openingActivity, setOpeningActivity] = useState(false);
   const [openingAdminDashboard, setOpeningAdminDashboard] = useState(false);
   const [openingAudits, setOpeningAudits] = useState(false);
-  const [openingLobby, setOpeningLobby] = useState(false);
+  const [openingFormsNav, setOpeningFormsNav] = useState(false);
+  const [openingAdminNav, setOpeningAdminNav] = useState(false);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const workspaceRetryTimerRef = useRef<number | null>(null);
   /** Limits infinite skeleton when /api/workspace keeps returning 503 (e.g. dev DB pool saturated). */
@@ -547,7 +572,7 @@ function WorkspacePageInner() {
   const forceWorkspaceNetworkRefetchRef = useRef(false);
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
-  const { blockIfOffline, pushIfOnline } = useRequiresInternet();
+  const { blockIfOffline } = useRequiresInternet();
   const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
@@ -749,52 +774,69 @@ function WorkspacePageInner() {
   function clearNavLoading(delayMs = 600) {
     window.setTimeout(() => {
       setOpeningSettings(false);
+      setOpeningStaff(false);
       setOpeningActivity(false);
       setOpeningAdminDashboard(false);
-      setOpeningLobby(false);
       setOpeningAudits(false);
+      setOpeningFormsNav(false);
+      setOpeningAdminNav(false);
     }, delayMs);
+  }
+
+  function handleOpenFormsWorkspace() {
+    if (!workspace) return;
+    if (openingFormsNav) return;
+    setOpeningFormsNav(true);
+    router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}`);
+    clearNavLoading();
+  }
+
+  function handleOpenAdminView() {
+    if (!workspace) return;
+    if (openingAdminNav) return;
+    setOpeningAdminNav(true);
+    router.replace(`/workspace?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}&view=admin`);
+    clearNavLoading(400);
+  }
+
+  function handleSwitchBrand() {
+    setMenuOpen(false);
+    if (blockIfOffline("Switch brand")) return;
+    try {
+      localStorage.removeItem("lastTenantSlug");
+    } catch {
+      // ignore
+    }
+    router.push("/workspace");
   }
 
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
     setMenuOpen(false);
     setOpeningSettings(true);
-    if (!pushIfOnline("Settings", `/${targetTenantSlug}/settings`)) {
-      setOpeningSettings(false);
-      return;
-    }
+    router.push(`/${targetTenantSlug}/settings`);
     clearNavLoading();
   }
 
   function handleOpenStaffManagement(targetTenantSlug: string) {
-    if (openingSettings) return;
+    if (openingStaff) return;
     setMenuOpen(false);
-    setOpeningSettings(true);
-    if (!pushIfOnline("Staff management", `/${targetTenantSlug}/settings?focus=staff`)) {
-      setOpeningSettings(false);
-      return;
-    }
+    setOpeningStaff(true);
+    router.push(`/${targetTenantSlug}/settings?focus=staff`);
     clearNavLoading();
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
     setOpeningActivity(true);
-    if (!pushIfOnline("Activity monitor", `/${targetTenantSlug}/activity`)) {
-      setOpeningActivity(false);
-      return;
-    }
+    router.push(`/${targetTenantSlug}/activity`);
     clearNavLoading();
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
     setOpeningAdminDashboard(true);
-    if (!pushIfOnline("Admin dashboard", `/${targetTenantSlug}/dashboard`)) {
-      setOpeningAdminDashboard(false);
-      return;
-    }
+    router.push(`/${targetTenantSlug}/dashboard`);
     clearNavLoading();
   }
 
@@ -802,16 +844,6 @@ function WorkspacePageInner() {
     if (openingAudits) return;
     setOpeningAudits(true);
     router.push(`/${targetTenantSlug}/audits`);
-    clearNavLoading();
-  }
-
-  function handleOpenLobby() {
-    if (openingLobby) return;
-    setOpeningLobby(true);
-    if (!pushIfOnline("Brand lobby", "/dashboard")) {
-      setOpeningLobby(false);
-      return;
-    }
     clearNavLoading();
   }
 
@@ -865,7 +897,19 @@ function WorkspacePageInner() {
             : Array.isArray(data?.template?.schema?.fields) && data.template.schema.fields.some((field: any) => field?.type === "temp" && field?.isActive !== false)
         ),
         settings: {
-          dueDays: typeof meta.dueDays === "number" ? meta.dueDays : template.settings?.dueDays,
+          dueRule: parseTemplateDueRule(meta) ?? template.settings?.dueRule ?? null,
+          dueDays:
+            typeof meta.dueDays === "number"
+              ? meta.dueDays
+              : template.settings?.dueDays,
+          dueReminderAt:
+            typeof meta.dueReminderAt === "string"
+              ? meta.dueReminderAt
+              : template.settings?.dueReminderAt,
+          dueRuleSetAt:
+            typeof meta.dueRuleSetAt === "string"
+              ? meta.dueRuleSetAt
+              : template.settings?.dueRuleSetAt,
           temperatureAlertBelow:
             typeof meta.temperatureAlertBelow === "number"
               ? meta.temperatureAlertBelow
@@ -911,21 +955,39 @@ function WorkspacePageInner() {
         ? schema.meta
         : {};
 
-      const nextSettings = {
-        dueDays: settings.dueDays.trim() === "" ? undefined : Number(settings.dueDays),
+      const nextMeta = applyDueRuleToMeta(meta as Record<string, unknown>, {
+        mode: settings.mode,
+        days: settings.days,
+        durationMinutes: settings.durationMinutes,
+        fixedLocal: settings.fixedLocal,
+      });
+
+      Object.assign(nextMeta, {
         temperatureAlertBelow: settings.temperatureAlertBelow.trim() === "" ? undefined : Number(settings.temperatureAlertBelow),
         temperatureAlertAbove: settings.temperatureAlertAbove.trim() === "" ? undefined : Number(settings.temperatureAlertAbove),
         temperatureUnit: settings.temperatureUnit,
         cardIcon: settings.cardIcon || undefined,
         cardColor: settings.cardColor || undefined,
-      };
+      });
 
       const nextSchema = {
         ...schema,
-        meta: {
-          ...meta,
-          ...nextSettings,
-        },
+        meta: nextMeta,
+      };
+
+      const dueAt = resolveTemplateDueReminderAt(nextMeta);
+      const nextSettings = {
+        dueRule: parseTemplateDueRule(nextMeta),
+        dueDays: typeof nextMeta.dueDays === "number" ? nextMeta.dueDays : undefined,
+        dueReminderAt: dueAt?.toISOString(),
+        dueRuleSetAt: typeof nextMeta.dueRuleSetAt === "string" ? nextMeta.dueRuleSetAt : undefined,
+        temperatureAlertBelow:
+          typeof nextMeta.temperatureAlertBelow === "number" ? nextMeta.temperatureAlertBelow : undefined,
+        temperatureAlertAbove:
+          typeof nextMeta.temperatureAlertAbove === "number" ? nextMeta.temperatureAlertAbove : undefined,
+        temperatureUnit: nextMeta.temperatureUnit === "F" || nextMeta.temperatureUnit === "C" ? nextMeta.temperatureUnit : undefined,
+        cardIcon: typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : undefined,
+        cardColor: typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : undefined,
       };
 
       const saveRes = await fetch(apiUrl("/api/templates/save-changes"), {
@@ -959,6 +1021,33 @@ function WorkspacePageInner() {
 
       setQuickSettingsTemplate((prev) => (prev ? { ...prev, settings: nextSettings } : prev));
       setQuickSettingsTemplate(null);
+
+      try {
+        const cachedTpl = await dbGetTemplate(tenantSlug, quickSettingsTemplate.id);
+        if (cachedTpl) {
+          await dbPutTemplate({
+            ...cachedTpl,
+            schema: nextSchema as typeof cachedTpl.schema,
+          });
+        }
+        writeAuditTemplateCache(tenantSlug, quickSettingsTemplate.id, {
+          tenant: {
+            slug: tenantSlug,
+            name: workspace?.tenant.name || tenantSlug,
+            logoUrl: workspace?.tenant.logoUrl ?? null,
+          },
+          template: {
+            id: quickSettingsTemplate.id,
+            title: quickSettingsTemplate.title,
+            schema: nextSchema,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      } catch {
+        // offline cache sync is best-effort
+      }
+
+      void ensureNotificationPermission();
     } catch (err: any) {
       setQuickSettingsError(err?.message || "Failed to save quick settings");
     } finally {
@@ -970,7 +1059,7 @@ function WorkspacePageInner() {
     try {
       const stored = localStorage.getItem(THEME_STORAGE_KEY) as WorkspaceTheme | null;
       if (!stored) return;
-      if (!["default", "slate-soft", "warm-paper", "mint-soft"].includes(stored)) return;
+      if (!["hse-pro", "default", "slate-soft", "warm-paper", "mint-soft"].includes(stored)) return;
       setTheme(stored);
     } catch {
       // ignore storage errors
@@ -981,6 +1070,8 @@ function WorkspacePageInner() {
     const root = document.documentElement;
     if (theme === "default") {
       root.removeAttribute("data-theme");
+    } else if (theme === "hse-pro") {
+      root.setAttribute("data-theme", "hse-pro");
     } else {
       root.setAttribute("data-theme", theme);
     }
@@ -1022,6 +1113,60 @@ function WorkspacePageInner() {
       .map((id) => byId.get(id))
       .filter((t): t is TemplateSummary => Boolean(t));
   }, [workspace, recentTemplateIds]);
+
+  const reminderTargets = useMemo((): TemplateReminderTarget[] => {
+    if (!workspace?.templates?.length) return [];
+    return workspace.templates
+      .map((t) =>
+        templateToReminderTarget(t.id, t.title, {
+          dueRule: t.settings?.dueRule,
+          dueDays: t.settings?.dueDays,
+          dueReminderAt: t.settings?.dueReminderAt,
+          dueRuleSetAt: t.settings?.dueRuleSetAt,
+        })
+      )
+      .filter((x): x is TemplateReminderTarget => Boolean(x));
+  }, [workspace?.templates]);
+
+  useEffect(() => {
+    if (!workspace?.templates?.length) {
+      setReminderDueTemplateIds(new Set());
+      return;
+    }
+    const due = new Set(
+      workspace.templates
+        .filter((t) =>
+          isReminderDue({
+            dueRule: t.settings?.dueRule,
+            dueDays: t.settings?.dueDays,
+            dueReminderAt: t.settings?.dueReminderAt,
+            dueRuleSetAt: t.settings?.dueRuleSetAt,
+          })
+        )
+        .map((t) => t.id)
+    );
+    setReminderDueTemplateIds(due);
+  }, [workspace?.templates]);
+
+  useEffect(() => {
+    if (reminderTargets.length > 0) {
+      void ensureNotificationPermission();
+    }
+  }, [reminderTargets.length]);
+
+  useEffect(() => {
+    const onReminder = (event: Event) => {
+      const detail = (event as CustomEvent<DueReminderDetail>).detail;
+      if (!detail || detail.tenantSlug !== tenantSlug) return;
+      setNotification({
+        title: `Reminder: ${detail.title}`,
+        message: detail.body,
+        tone: "warning",
+      });
+    };
+    window.addEventListener(DUE_REMINDER_EVENT, onReminder as EventListener);
+    return () => window.removeEventListener(DUE_REMINDER_EVENT, onReminder as EventListener);
+  }, [tenantSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1107,6 +1252,19 @@ function WorkspacePageInner() {
     router.push("/login");
   }, [authLoading, user, router]);
 
+  const sessionRestorePending =
+    Boolean(user?.id) && !hasWorkspaceAccessToken(session) && !cachedWorkspaceForUi;
+
+  useEffect(() => {
+    if (!sessionRestorePending) return;
+    const timeoutId = window.setTimeout(() => {
+      if (!hasWorkspaceAccessToken(session) && !readPersistedSupabaseSession()?.access_token) {
+        router.replace("/login");
+      }
+    }, 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [sessionRestorePending, session, router]);
+
   useEffect(() => {
     if (authLoading || !user) return;
     if (!accessToken) return;
@@ -1119,7 +1277,12 @@ function WorkspacePageInner() {
       localStorage.removeItem("lastTenantSlug");
     }
     if (last) {
-      router.replace(`/workspace?tenantSlug=${encodeURIComponent(last)}`);
+      const url = `/workspace?tenantSlug=${encodeURIComponent(last)}`;
+      if (isCapacitorNativeApp()) {
+        hardNavigate(url);
+      } else {
+        router.replace(url);
+      }
       return;
     }
 
@@ -1144,7 +1307,12 @@ function WorkspacePageInner() {
         if (tenants.length === 1) {
           const slug = tenants[0].slug;
           localStorage.setItem("lastTenantSlug", slug);
-          router.replace(`/workspace?tenantSlug=${encodeURIComponent(slug)}`);
+          const url = `/workspace?tenantSlug=${encodeURIComponent(slug)}`;
+          if (isCapacitorNativeApp()) {
+            hardNavigate(url);
+          } else {
+            router.replace(url);
+          }
           return;
         }
       })
@@ -1700,8 +1868,18 @@ function WorkspacePageInner() {
     workspaceTourSeenKey,
   ]);
 
-  if (authLoading && !cachedWorkspaceForUi) return <WorkspaceSkeleton />;
-  if (user && !session && !cachedWorkspaceForUi) return <WorkspaceSkeleton />;
+  if (authLoading && !cachedWorkspaceForUi && !hasWorkspaceAccessToken(session)) {
+    return <WorkspaceSkeleton />;
+  }
+
+  if (sessionRestorePending) {
+    return (
+      <WorkspaceLoadingShell
+        title="Restoring session"
+        subtitle="Verifying your sign-in before opening the workspace…"
+      />
+    );
+  }
 
   // Only show the full skeleton for first paint / initial checks.
   if (tenantChoiceLoading) return <WorkspaceSkeleton />;
@@ -1709,10 +1887,10 @@ function WorkspacePageInner() {
 
   if (showTenantPicker) {
     return (
-      <div className="min-h-dvh bg-background">
+      <div className="workspace-shell min-h-dvh">
         <div className="mx-auto max-w-7xl p-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm">
               <LayoutDashboard className="h-5 w-5" />
             </div>
             <div>
@@ -1722,7 +1900,7 @@ function WorkspacePageInner() {
           </div>
 
           {error ? (
-            <div className="mt-4 rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm">
+            <div className="ui-card-muted mt-4 p-3 text-sm">
               {error}
             </div>
           ) : null}
@@ -1736,10 +1914,10 @@ function WorkspacePageInner() {
                   localStorage.setItem("lastTenantSlug", t.slug);
                   router.push(`/workspace?tenantSlug=${encodeURIComponent(t.slug)}`);
                 }}
-                className="rounded-md border border-foreground/20 bg-background p-4 text-left hover:bg-foreground/5"
+                className="ui-card p-4 text-left transition hover:-translate-y-0.5"
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-md border border-foreground/20">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
                     {t.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={t.logoUrl} alt={t.name} className="h-10 w-10 object-contain" />
@@ -1757,10 +1935,7 @@ function WorkspacePageInner() {
           </div>
 
           <div className="mt-6">
-            <Link
-              href="/onboarding"
-              className="inline-flex h-11 items-center justify-center rounded-md border border-foreground/20 px-4"
-            >
+            <Link href="/onboarding" className="ui-btn-secondary inline-flex h-11 items-center justify-center px-4">
               Create New Brand
             </Link>
           </div>
@@ -1770,7 +1945,16 @@ function WorkspacePageInner() {
   }
 
   if (!tenantSlug) {
-    return <WorkspaceSkeleton />;
+    return (
+      <WorkspaceLoadingShell
+        title="Opening workspace"
+        subtitle={
+          accessToken
+            ? "Loading your brand…"
+            : "Restoring your session…"
+        }
+      />
+    );
   }
 
   if (error && !cachedWorkspaceForUi) {
@@ -1801,12 +1985,8 @@ function WorkspacePageInner() {
             >
               Retry
             </button>
-            <button
-              type="button"
-              className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4"
-              onClick={() => pushIfOnline("Brand lobby", "/dashboard")}
-            >
-              Back to Lobby
+            <button type="button" className="ui-btn-secondary inline-flex h-10 items-center justify-center px-4" onClick={handleSwitchBrand}>
+              Switch brand
             </button>
           </div>
         </div>
@@ -1824,7 +2004,7 @@ function WorkspacePageInner() {
           forceWorkspaceNetworkRefetchRef.current = true;
           setRevalidateTick((x) => x + 1);
         }}
-        onLobby={() => pushIfOnline("Brand lobby", "/dashboard")}
+        onSwitchBrand={handleSwitchBrand}
       />
     );
   }
@@ -1844,11 +2024,13 @@ function WorkspacePageInner() {
   const hasCategories = categories.length > 0;
 
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,rgba(23,23,23,0.03)_0%,rgba(23,23,23,0.015)_35%,rgba(23,23,23,0.04)_100%)]">
-      <div className="sticky top-0 z-10 border-b border-foreground/10 bg-background/95 shadow-sm backdrop-blur">
+    <div className="workspace-shell min-h-dvh">
+      <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
+      <div className="ws-header-accent" />
+      <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-foreground/20 bg-background">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
               {tenant.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -1862,10 +2044,12 @@ function WorkspacePageInner() {
             </div>
             <div className="min-w-0 flex flex-col">
               <div className="flex items-center gap-2">
-                <LayoutDashboard className="h-4 w-4 text-foreground/70" />
-                <h1 className="truncate text-base font-semibold">{tenant.name}</h1>
+                <LayoutDashboard className="h-4 w-4 text-[var(--hse-teal)]" />
+                <h1 className="truncate text-base font-semibold text-[var(--hse-charcoal)]">{tenant.name}</h1>
               </div>
-              <p className="hidden text-sm text-foreground/70 sm:block">Workspace</p>
+              <p className="hidden text-sm text-[var(--hse-teal-mid)] sm:block">
+                {isAdminView ? "HSE management · ISO Pro" : "Field inspections · ISO Pro"}
+              </p>
             </div>
           </div>
 
@@ -1874,51 +2058,16 @@ function WorkspacePageInner() {
               <LoggedInStaffBadge tenantSlug={tenant.slug} />
             </div>
             <ConnectivityIndicator />
-            {nativeWarmupRunning ? (
-              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Optimizing local cache...
-              </span>
-            ) : null}
-            {prefetchingSchemas && prefetchProgress.total > 0 ? (
-              <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
-                Preloading forms {prefetchProgress.done}/{prefetchProgress.total}
-              </span>
-            ) : null}
-            {isOfflineBootstrapComplete(cacheUserId, tenant.slug) ? (
-              <span className="hidden rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline">
-                Offline ready
-              </span>
-            ) : null}
-            {nativeWarmupRunning ||
-            (!isOfflineBootstrapComplete(cacheUserId, tenant.slug) && !offlineFromHook) ? (
-              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Caching form schemas...
-              </span>
-            ) : null}
-            {openingSettings ? (
-              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Opening settings...
-              </span>
-            ) : null}
-            {loggingOut ? (
-              <span className="hidden items-center gap-1 rounded-full border border-foreground/20 px-2 py-0.5 text-xs text-foreground/70 sm:inline-flex">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Signing out...
-              </span>
-            ) : null}
 
             <div className="relative">
               <button
                 type="button"
-                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3"
+                className="ws-btn-ghost inline-flex h-9 items-center justify-center px-3"
                 aria-label="Workspace menu"
                 title="Menu"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                disabled={openingSettings || loggingOut}
+                disabled={openingSettings || openingStaff || loggingOut}
                 onClick={() => setMenuOpen((v) => !v)}
               >
                 <MoreVertical className="h-4 w-4" />
@@ -1933,7 +2082,7 @@ function WorkspacePageInner() {
                     onClick={() => setMenuOpen(false)}
                   />
                   <div
-                    className="absolute right-0 top-11 z-20 w-56 rounded-md border border-foreground/20 bg-background p-1 shadow-sm"
+                    className="ui-menu absolute right-0 top-11 z-20 w-56 p-1"
                     role="menu"
                   >
                     {canManageCategories ? (
@@ -1997,7 +2146,8 @@ function WorkspacePageInner() {
                         value={theme}
                         onChange={(e) => setTheme(e.target.value as WorkspaceTheme)}
                       >
-                        <option value="default">Default (current)</option>
+                        <option value="hse-pro">HSE Professional</option>
+                        <option value="default">Classic</option>
                         <option value="slate-soft">Slate soft</option>
                         <option value="warm-paper">Warm paper</option>
                         <option value="mint-soft">Mint soft</option>
@@ -2022,10 +2172,20 @@ function WorkspacePageInner() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100"
                       onClick={clearTenantLocalCache}
                     >
                       Clear local cache
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100"
+                      onClick={handleSwitchBrand}
+                    >
+                      <LayoutDashboard className="h-4 w-4" />
+                      Switch brand
                     </button>
 
                     {canAccessSettings ? (
@@ -2037,7 +2197,7 @@ function WorkspacePageInner() {
                         disabled={openingSettings || loggingOut}
                       >
                         {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
-                        {openingSettings ? "Opening settings..." : "Settings"}
+                        {openingSettings ? "Opening…" : "Settings"}
                       </button>
                     ) : null}
 
@@ -2047,10 +2207,10 @@ function WorkspacePageInner() {
                         role="menuitem"
                         className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={() => handleOpenStaffManagement(tenant.slug)}
-                        disabled={openingSettings || loggingOut}
+                        disabled={openingStaff || loggingOut}
                       >
-                        {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
-                        {openingSettings ? "Opening staff..." : "Staff management"}
+                        {openingStaff ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                        {openingStaff ? "Opening…" : "Staff management"}
                       </button>
                     ) : null}
 
@@ -2059,10 +2219,10 @@ function WorkspacePageInner() {
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-700 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={handleLogout}
-                      disabled={openingSettings || loggingOut}
+                      disabled={openingSettings || openingStaff || loggingOut}
                     >
                       {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {loggingOut ? "Signing out..." : "Log out"}
+                      {loggingOut ? "Signing out…" : "Log out"}
                     </button>
                   </div>
                 </>
@@ -2102,8 +2262,8 @@ function WorkspacePageInner() {
                     disabled={offlineWarmupBlocking}
                     className={
                       active
-                        ? "h-9 shrink-0 rounded-full bg-foreground px-4 text-sm font-medium text-background"
-                        : "h-9 shrink-0 rounded-full border border-foreground/20 bg-background px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                        ? "ws-category-active h-9 shrink-0 rounded-full px-4 text-sm font-medium"
+                        : "ws-category-inactive h-9 shrink-0 rounded-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
                     }
                   >
                     {c.name}
@@ -2134,47 +2294,31 @@ function WorkspacePageInner() {
         ) : null}
 
         {isAdminView ? (
-          <section className="mb-4 overflow-hidden rounded-[1.25rem] border border-foreground/20 bg-background shadow-sm">
-            <div className="relative overflow-hidden border-b border-foreground/10 px-4 py-5 sm:px-5 sm:py-6">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(15,23,42,0.05),transparent_45%),linear-gradient(145deg,rgba(15,23,42,0.03),rgba(255,255,255,0))]" />
-              <div className="absolute -right-12 top-0 h-32 w-32 rounded-full bg-amber-300/15 blur-3xl" />
+          <section className="ws-panel mb-4 overflow-hidden">
+            <div className="ws-admin-hero relative overflow-hidden border-b border-[color-mix(in_srgb,var(--hse-teal)_12%,transparent)] px-4 py-5 sm:px-5 sm:py-6">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,61,51,0.08),transparent_50%)]" />
+              <div className="absolute -right-12 top-0 h-32 w-32 rounded-full bg-sky-300/25 blur-3xl" />
               <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div className="max-w-2xl space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-background/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/55">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Admin console
-                  </div>
-                  <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    Manage the brand before opening the forms workspace.
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--hse-teal-mid)]">
+                    HSE console
+                  </p>
+                  <h2 className="text-2xl font-semibold tracking-tight text-[var(--hse-charcoal)] sm:text-3xl">
+                    Health, safety &amp; environment management
                   </h2>
-                  <p className="max-w-xl text-sm leading-6 text-foreground/65 sm:text-base">
-                    Use the tools first, then open the form workspace only when you need audits, drafts, or submitted records.
+                  <p className="max-w-xl text-sm leading-6 text-[var(--accent-soft)] sm:text-base">
+                    Configure categories, staff, and compliance settings for this brand. Open field inspections when your team is ready to run checklists or review submissions.
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`)}
-                  className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background transition hover:translate-y-[-1px]"
+                  onClick={handleOpenFormsWorkspace}
+                  disabled={openingFormsNav}
+                  className="ws-btn-primary inline-flex h-11 items-center justify-center gap-2 px-4 text-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Open workspace forms
-                </button>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`)}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
-                >
-                  Go to forms
-                </button>
-                <button
-                  type="button"
-                  onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
-                >
-                  Stay on admin
+                  {openingFormsNav ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {openingFormsNav ? "Opening forms…" : "Open forms workspace"}
                 </button>
               </div>
 
@@ -2186,10 +2330,11 @@ function WorkspacePageInner() {
                       if (blockIfOffline("Categories")) return;
                       setSeedOpen(true);
                     }}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
+                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={seedBusy}
                   >
-                    <Plus className="h-4 w-4" />
-                    Create categories
+                    {seedBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {seedBusy ? "Creating…" : "Create categories"}
                   </button>
                 ) : null}
 
@@ -2200,7 +2345,7 @@ function WorkspacePageInner() {
                       if (blockIfOffline("Create forms")) return;
                       setAddFormOpen(true);
                     }}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5"
+                    className="ws-toolbar-btn"
                   >
                     <FileText className="h-4 w-4" />
                     Create forms
@@ -2212,10 +2357,10 @@ function WorkspacePageInner() {
                     type="button"
                     onClick={() => handleOpenSettings(tenant.slug)}
                     disabled={openingSettings}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
-                    {openingSettings ? "Opening settings..." : "Settings"}
+                    {openingSettings ? "Opening…" : "Settings"}
                   </button>
                 ) : null}
 
@@ -2223,11 +2368,11 @@ function WorkspacePageInner() {
                   <button
                     type="button"
                     onClick={() => handleOpenStaffManagement(tenant.slug)}
-                    disabled={openingSettings}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={openingStaff}
+                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
-                    {openingSettings ? "Opening..." : "Staff management"}
+                    {openingStaff ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                    {openingStaff ? "Opening…" : "Staff management"}
                   </button>
                 ) : null}
               </div>
@@ -2238,14 +2383,14 @@ function WorkspacePageInner() {
                 type="button"
                 onClick={() => handleOpenAudits(tenant.slug)}
                 disabled={openingAudits}
-                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="flex items-start gap-3">
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                  <span className="ws-icon-indigo inline-flex h-11 w-11 items-center justify-center rounded-2xl">
                     {openingAudits ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{openingAudits ? "Opening..." : "View forms"}</span>
+                    <span className="block text-sm font-medium">{openingAudits ? "Opening…" : "View forms"}</span>
                     <span className="mt-1 block text-xs text-foreground/65">Drafts and submitted records</span>
                   </span>
                 </div>
@@ -2253,19 +2398,16 @@ function WorkspacePageInner() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (blockIfOffline("Activity monitor")) return;
-                  handleOpenActivity(tenant.slug);
-                }}
+                onClick={() => handleOpenActivity(tenant.slug)}
                 disabled={openingActivity}
-                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="flex items-start gap-3">
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                  <span className="ws-icon-sky inline-flex h-11 w-11 items-center justify-center rounded-2xl">
                     {openingActivity ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{openingActivity ? "Opening..." : "Activity monitor"}</span>
+                    <span className="block text-sm font-medium">{openingActivity ? "Opening…" : "Activity monitor"}</span>
                     <span className="mt-1 block text-xs text-foreground/65">Track staff and system actions</span>
                   </span>
                 </div>
@@ -2274,16 +2416,35 @@ function WorkspacePageInner() {
               {canAccessSettings ? (
                 <button
                   type="button"
-                  onClick={() => handleOpenAdminDashboard(tenant.slug)}
-                  disabled={openingAdminDashboard}
-                  className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => handleOpenSettings(tenant.slug)}
+                  disabled={openingSettings}
+                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="flex items-start gap-3">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
+                    <span className="ws-icon-violet inline-flex h-11 w-11 items-center justify-center rounded-2xl">
+                      {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{openingSettings ? "Opening…" : "Brand settings"}</span>
+                      <span className="mt-1 block text-xs text-foreground/65">Logo, compliance, and preferences</span>
+                    </span>
+                  </div>
+                </button>
+              ) : null}
+
+              {canAccessSettings ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenAdminDashboard(tenant.slug)}
+                  disabled={openingAdminDashboard}
+                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="ws-icon-violet inline-flex h-11 w-11 items-center justify-center rounded-2xl">
                       {openingAdminDashboard ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium">{openingAdminDashboard ? "Opening..." : "Admin dashboard"}</span>
+                      <span className="block text-sm font-medium">{openingAdminDashboard ? "Opening…" : "Admin dashboard"}</span>
                       <span className="mt-1 block text-xs text-foreground/65">Compliance metrics, alerts, and staff performance</span>
                     </span>
                   </div>
@@ -2294,15 +2455,15 @@ function WorkspacePageInner() {
                 <button
                   type="button"
                   onClick={() => handleOpenStaffManagement(tenant.slug)}
-                  disabled={openingSettings}
-                  className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={openingStaff}
+                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="flex items-start gap-3">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
-                      {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
+                    <span className="ws-icon-emerald inline-flex h-11 w-11 items-center justify-center rounded-2xl">
+                      {openingStaff ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium">{openingSettings ? "Opening..." : "Staff management"}</span>
+                      <span className="block text-sm font-medium">{openingStaff ? "Opening…" : "Staff management"}</span>
                       <span className="mt-1 block text-xs text-foreground/65">Invite, update, and remove brand staff</span>
                     </span>
                   </div>
@@ -2311,17 +2472,16 @@ function WorkspacePageInner() {
 
               <button
                 type="button"
-                onClick={handleOpenLobby}
-                disabled={openingLobby}
-                className="group rounded-2xl border border-foreground/20 bg-background p-4 text-left transition hover:-translate-y-0.5 hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleSwitchBrand}
+                className="group ui-card-muted p-4 text-left transition hover:-translate-y-0.5"
               >
                 <div className="flex items-start gap-3">
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-foreground/20 bg-foreground/[0.03]">
-                    {openingLobby ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutDashboard className="h-4 w-4" />}
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+                    <LayoutDashboard className="h-4 w-4" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{openingLobby ? "Opening..." : "Lobby"}</span>
-                    <span className="mt-1 block text-xs text-foreground/65">Switch brands and account scope</span>
+                    <span className="block text-sm font-medium">Switch brand</span>
+                    <span className="mt-1 block text-xs text-foreground/65">Choose another brand for this account</span>
                   </span>
                 </div>
               </button>
@@ -2331,33 +2491,36 @@ function WorkspacePageInner() {
 
         {isFormsView ? (
           <div id="workspace-forms" className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-foreground/20 bg-background px-4 py-3">
+            <div className="ws-panel flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Forms workspace</div>
-                <div className="text-sm text-foreground/65">Categories and forms stay here, separate from the admin console.</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--hse-teal)]">Field inspections</div>
+                <div className="text-sm text-slate-600">Start checklists, resume drafts, and review submitted HSE records.</div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => handleOpenAudits(tenant.slug)}
                   disabled={openingAudits}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-btn-ghost inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {openingAudits ? "Opening..." : "View submitted forms"}
+                  {openingAudits ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {openingAudits ? "Opening…" : "Submitted forms"}
                 </button>
                 {canAccessSettings ? (
                   <button
                     type="button"
-                    onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenant.slug)}&view=admin`)}
-                    className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/15 bg-background px-4 text-sm font-medium transition hover:bg-foreground/5"
+                    onClick={handleOpenAdminView}
+                    disabled={openingAdminNav}
+                    className="ws-btn-ghost inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:opacity-60"
                   >
-                    Back to admin
+                    {openingAdminNav ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    HSE console
                   </button>
                 ) : null}
               </div>
             </div>
 
-            <div className="rounded-lg border border-foreground/20 bg-background p-3 sm:p-4">
+            <div className="ws-panel p-3 sm:p-4">
               <div className="relative flex items-center justify-between gap-2">
                 <button
                   type="button"
@@ -2576,10 +2739,18 @@ function WorkspacePageInner() {
                             )}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <div className="inline-flex rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 py-0.5 text-[11px] font-medium text-foreground/60">
-                              {typeof t.settings?.dueDays === "number"
-                                ? `Due in ${t.settings.dueDays} days`
-                                : "Due date: Not set"}
+                            <div
+                              className={
+                                "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium " +
+                                (reminderDueTemplateIds.has(t.id)
+                                  ? "border-red-300/80 bg-red-50 text-red-800"
+                                  : "border-foreground/15 bg-foreground/[0.03] text-foreground/60")
+                              }
+                            >
+                              {formatDueRuleSummary(
+                                t.settings?.dueRule ?? null,
+                                t.settings?.dueReminderAt ? new Date(t.settings.dueReminderAt) : null
+                              )}
                             </div>
                             {draftTemplateIds.has(t.id) ? (
                               <div className="inline-flex rounded-full border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
@@ -2685,7 +2856,7 @@ function WorkspacePageInner() {
           </div>
         ) : canSeeAdminHub ? (
           <div className="rounded-xl border border-dashed border-foreground/20 bg-background/80 p-5 text-sm text-foreground/70">
-            Forms workspace is hidden by default for admins so the console stays clean. Open it when you need drafts, submitted records, or category work.
+            Admins land on HSE management first. Open field inspections when you need checklists, drafts, or submitted records.
           </div>
         ) : null}
       </div>

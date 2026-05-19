@@ -13,6 +13,7 @@ import {
   writeCachedAuthUser,
 } from "@/lib/auth";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 type AuthContextType = {
   session: Session | null;
@@ -56,6 +57,25 @@ async function hydrateSupabaseSession(
   return data.session ?? fallback;
 }
 
+const SESSION_HYDRATE_TIMEOUT_MS = isCapacitorNativeApp() ? 2000 : 4000;
+
+async function hydrateSupabaseSessionWithTimeout(
+  supabase: ReturnType<typeof createClient>
+): Promise<Session | null> {
+  const fallback = readPersistedSupabaseSession();
+  try {
+    const resolved = await Promise.race<Session | null>([
+      hydrateSupabaseSession(supabase),
+      new Promise((resolve) => {
+        window.setTimeout(() => resolve(fallback), SESSION_HYDRATE_TIMEOUT_MS);
+      }),
+    ]);
+    return resolved ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => readPersistedSupabaseSession());
   const [user, setUser] = useState<{ id: string; email: string } | null>(() => {
@@ -67,7 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     return null;
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !hasPersistedAuthCredentials() && !readPersistedSupabaseSession()?.access_token;
+  });
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
@@ -75,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let timeoutId = window.setTimeout(() => {
       if (cancelled) return;
       setLoading(false);
-    }, 3000);
+    }, SESSION_HYDRATE_TIMEOUT_MS + 500);
 
     const applySession = (resolved: Session | null) => {
       if (cancelled) return;
@@ -89,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const getSession = async () => {
       try {
-        const resolved = await hydrateSupabaseSession(supabase);
+        const resolved = await hydrateSupabaseSessionWithTimeout(supabase);
         applySession(resolved);
       } catch {
         if (cancelled) return;

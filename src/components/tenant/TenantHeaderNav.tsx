@@ -222,20 +222,6 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               {loadingPath === `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Workspace
             </Link>
-            <Link
-              href="/dashboard"
-              onClick={(e) => {
-                if (offline) {
-                  blockOffline("Brand lobby", e);
-                  return;
-                }
-                handleLinkClick("/dashboard");
-              }}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
-            >
-              {loadingPath === "/dashboard" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Lobby
-            </Link>
           </div>
         </details>
       </nav>
@@ -343,20 +329,6 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
           >
             {loadingPath === `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Workspace
-          </Link>
-          <Link
-            href="/dashboard"
-            onClick={(e) => {
-              if (offline) {
-                blockOffline("Brand lobby", e);
-                return;
-              }
-              handleLinkClick("/dashboard");
-            }}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-100"
-          >
-            {loadingPath === "/dashboard" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Lobby
           </Link>
         </div>
       </details>

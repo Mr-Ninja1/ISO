@@ -22,7 +22,7 @@ export function PdfGeneratorButton({ filename, orientation = "landscape" }: Prop
         throw new Error("Report content not found");
       }
 
-      await generatePdfFromElement(element, filename, { scale: 2, orientation });
+      await generatePdfFromElement(element, filename, { scale: 3, orientation });
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       alert("Failed to generate PDF. Please try again.");

@@ -1,8 +1,11 @@
 "use client";
 
 import { apiUrl } from "@/lib/client/apiBase";
+import { copyAuditReportSnapshot, writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
+import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
+import { dbDeleteOutbox, dbGetTemplate, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
+
 type QueueMode = "draft" | "submit";
-import { dbDeleteOutbox, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
 
 export type AuditSyncItem = {
   id: string;
@@ -134,9 +137,37 @@ export async function flushAuditSyncQueue(accessToken: string) {
           continue;
         }
 
-        // If the legacy offline-submitted list used the same id, remove it.
+        const json = (await res.json().catch(() => ({}))) as { auditId?: string };
+        const serverAuditId = typeof json.auditId === "string" ? json.auditId : "";
+
         if (item.mode === "submit") {
           removeOfflineSubmittedByQueueId(item.id);
+          const pendingId = `pending:${item.id}`;
+          if (serverAuditId) {
+            copyAuditReportSnapshot(item.tenantSlug, pendingId, serverAuditId);
+            const tpl = await dbGetTemplate(item.tenantSlug, item.templateId);
+            const title = tpl?.title || "Form";
+            const payload =
+              item.payload && typeof item.payload === "object" && !Array.isArray(item.payload)
+                ? item.payload
+                : {};
+            writeAuditReportSnapshot(item.tenantSlug, serverAuditId, {
+              title,
+              status: "SUBMITTED",
+              tenantName: tpl?.tenantName || item.tenantSlug,
+              payload: payload as Record<string, unknown>,
+            });
+            const savedAt = new Date().toISOString();
+            upsertCachedAuditRow(null, item.tenantSlug, {
+              id: serverAuditId,
+              status: "SUBMITTED",
+              templateId: item.templateId,
+              createdAt: savedAt,
+              updatedAt: savedAt,
+              submittedAt: savedAt,
+              template: { title },
+            });
+          }
         }
 
         await dbDeleteOutbox(item.id);
@@ -176,8 +207,15 @@ export async function flushAuditSyncQueue(accessToken: string) {
         continue;
       }
 
+      const json = (await res.json().catch(() => ({}))) as { auditId?: string };
+      const serverAuditId = typeof json.auditId === "string" ? json.auditId : "";
+
       if (item.mode === "submit") {
         removeOfflineSubmittedByQueueId(item.id);
+        const pendingId = `pending:${item.id}`;
+        if (serverAuditId) {
+          copyAuditReportSnapshot(item.tenantSlug, pendingId, serverAuditId);
+        }
       }
 
       processed += 1;

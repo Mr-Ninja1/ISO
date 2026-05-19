@@ -18,8 +18,6 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
 
-type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
-
 function CardMenu({
   tenantSlug,
   auditId,
@@ -114,6 +112,10 @@ function CardMenu({
   );
 }
 
+function onlySubmittedRows(rows: CachedAuditRow[]) {
+  return rows.filter((r) => r.status === "SUBMITTED");
+}
+
 function rowSignature(row: CachedAuditRow) {
   return [row.id, row.status, row.templateId, row.createdAt, row.updatedAt, row.submittedAt || "", row.template.title].join("|");
 }
@@ -128,24 +130,24 @@ function rowsAreEqual(left: CachedAuditRow[], right: CachedAuditRow[]) {
 
 export function AuditsListClient({
   tenantSlug,
-  initialStatus,
   initialQuery,
   rows,
 }: {
   tenantSlug: string;
-  initialStatus: StatusFilter;
   initialQuery: string;
   rows: CachedAuditRow[];
 }) {
   const { session, user } = useAuth();
   const offline = useAppOffline();
   const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [query, setQuery] = useState(initialQuery);
   const [allRows, setAllRows] = useState<CachedAuditRow[]>(rows);
   const [syncing, setSyncing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [hasLoadedFromServer, setHasLoadedFromServer] = useState(false);
+  const [nextServerOffset, setNextServerOffset] = useState(0);
+  const [serverHasMore, setServerHasMore] = useState(false);
   const [deviceReady, setDeviceReady] = useState(false);
 
   useEffect(() => {
@@ -172,7 +174,7 @@ export function AuditsListClient({
     if (!activeTenantSlug) return;
     const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
     if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
-    writeAuditsListCache(user?.id || null, activeTenantSlug, allRows, undefined, { broadcast: false });
+    writeAuditsListCache(user?.id || null, activeTenantSlug, onlySubmittedRows(allRows), undefined, { broadcast: false });
   }, [allRows, activeTenantSlug, user?.id]);
 
   useEffect(() => {
@@ -193,24 +195,66 @@ export function AuditsListClient({
     };
   }, [activeTenantSlug, user?.id]);
 
-  async function syncFromServer(fullHistory: boolean) {
+  /** First page of server history (recent across statuses) + merge with device cache. */
+  useEffect(() => {
+    const token = session?.access_token || "";
+    if (!token || !activeTenantSlug || offline) return;
+
+    let cancelled = false;
+    setSyncing(true);
+    setSyncError("");
+
+    void (async () => {
+      try {
+        const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
+          limit: 50,
+          offset: 0,
+          merge: true,
+        });
+        if (cancelled) return;
+        setAllRows(onlySubmittedRows(result.rows));
+        setNextServerOffset(result.nextOffset ?? 0);
+        setServerHasMore(result.hasMore);
+        setHasLoadedFromServer(true);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Could not load saved forms";
+        const localCount = onlySubmittedRows(readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? allRows).length;
+        if (localCount > 0) {
+          setSyncError(`${message} Showing ${localCount} form(s) saved on this device.`);
+        } else {
+          setSyncError(message);
+        }
+        setHasLoadedFromServer(true);
+      } finally {
+        if (!cancelled) setSyncing(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTenantSlug, offline, session?.access_token, user?.id]);
+
+  async function refreshFromServer() {
     const token = session?.access_token || "";
     if (!token || !activeTenantSlug || offline) return;
 
     setSyncing(true);
     setSyncError("");
     try {
-      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
       const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
-        since: fullHistory ? undefined : cached?.maxUpdatedAt || undefined,
-        limit: fullHistory ? 200 : 80,
+        limit: 200,
+        offset: 0,
         merge: true,
       });
-      setAllRows(result.rows);
+      setAllRows(onlySubmittedRows(result.rows));
+      setNextServerOffset(result.nextOffset ?? 0);
+      setServerHasMore(result.hasMore);
       setHasLoadedFromServer(true);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Could not load saved forms";
-      const localCount = readAuditsListCache(user?.id || null, activeTenantSlug)?.rows?.length ?? allRows.length;
+      const localCount = onlySubmittedRows(readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? allRows).length;
       if (localCount > 0) {
         setSyncError(`${message} Showing ${localCount} form(s) saved on this device.`);
       } else {
@@ -221,52 +265,79 @@ export function AuditsListClient({
     }
   }
 
-  // Server history loads only when the user taps "Load from server" (on-demand).
+  async function loadMoreFromServer() {
+    const token = session?.access_token || "";
+    if (!token || !activeTenantSlug || offline || !serverHasMore || loadingMore) return;
 
-  const draftCount = useMemo(() => allRows.filter((r) => r.status === "DRAFT").length, [allRows]);
-  const submittedCount = useMemo(() => allRows.filter((r) => r.status === "SUBMITTED").length, [allRows]);
+    setLoadingMore(true);
+    setSyncError("");
+    try {
+      const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
+        limit: 100,
+        offset: nextServerOffset,
+        merge: true,
+      });
+      setAllRows(onlySubmittedRows(result.rows));
+      setNextServerOffset(result.nextOffset ?? nextServerOffset);
+      setServerHasMore(result.hasMore);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not load more";
+      setSyncError(message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
-  const filteredRows = useMemo(() => {
+  const submittedRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return allRows.filter((row) => {
-      if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
-      if (!normalizedQuery) return true;
-      return row.template.title.toLowerCase().includes(normalizedQuery);
-    });
-  }, [allRows, statusFilter, query]);
+    const base = onlySubmittedRows(allRows);
+    if (!normalizedQuery) return base;
+    return base.filter((row) => row.template.title.toLowerCase().includes(normalizedQuery));
+  }, [allRows, query]);
 
-  const draftRows = useMemo(() => filteredRows.filter((r) => r.status === "DRAFT"), [filteredRows]);
-  const submittedRows = useMemo(() => filteredRows.filter((r) => r.status === "SUBMITTED"), [filteredRows]);
-
-  const exportStatus = statusFilter === "ALL" ? undefined : statusFilter;
   const exportQuery = query.trim();
 
   return (
     <>
-      {offline || !hasLoadedFromServer ? (
+      {offline ? (
         <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           {deviceReady
-            ? "Showing forms saved on this device. When online, tap Load from server to fetch more history."
+            ? "Offline — showing forms saved on this device. Connect to load more from the server."
             : "Loading forms saved on this device…"}
+        </div>
+      ) : syncing && !hasLoadedFromServer ? (
+        <div className="rounded-md border border-foreground/20 bg-foreground/5 px-3 py-2 text-sm text-foreground/70">
+          Loading recent forms from the server…
+        </div>
+      ) : hasLoadedFromServer ? (
+        <div className="rounded-md border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+          Showing recent server forms plus anything saved on this device. Use Load more for older history.
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
-        <AuditsExportButton tenantSlug={activeTenantSlug} status={exportStatus} query={exportQuery} />
+        <AuditsExportButton tenantSlug={activeTenantSlug} query={exportQuery} />
         {!offline ? (
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={() => void syncFromServer(true)}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
-          >
-            {syncing ? "Loading…" : hasLoadedFromServer ? "Refresh from server" : "Load from server"}
-          </button>
-        ) : null}
-        {syncing ? (
-          <div className="inline-flex h-9 items-center rounded-md border border-foreground/20 px-3 text-xs text-foreground/70">
-            Syncing…
-          </div>
+          <>
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={() => void refreshFromServer()}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+            >
+              {syncing ? "Refreshing…" : "Refresh from server"}
+            </button>
+            {serverHasMore ? (
+              <button
+                type="button"
+                disabled={loadingMore || syncing}
+                onClick={() => void loadMoreFromServer()}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+              >
+                {loadingMore ? "Loading more…" : "Load more"}
+              </button>
+            ) : null}
+          </>
         ) : null}
       </div>
 
@@ -277,36 +348,6 @@ export function AuditsListClient({
       ) : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <button
-          type="button"
-          onClick={() => setStatusFilter("ALL")}
-          className={
-            "shrink-0 rounded-md border px-3 py-2 text-sm " +
-            (statusFilter === "ALL" ? "border-foreground bg-foreground text-background" : "border-foreground/20")
-          }
-        >
-          All ({draftCount + submittedCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatusFilter("DRAFT")}
-          className={
-            "shrink-0 rounded-md border px-3 py-2 text-sm " +
-            (statusFilter === "DRAFT" ? "border-foreground bg-foreground text-background" : "border-foreground/20")
-          }
-        >
-          Drafts ({draftCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatusFilter("SUBMITTED")}
-          className={
-            "shrink-0 rounded-md border px-3 py-2 text-sm " +
-            (statusFilter === "SUBMITTED" ? "border-foreground bg-foreground text-background" : "border-foreground/20")
-          }
-        >
-          Submitted ({submittedCount})
-        </button>
         <Link
           href={`/${activeTenantSlug}/templates`}
           className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
@@ -334,54 +375,21 @@ export function AuditsListClient({
         </div>
       </div>
 
-      {filteredRows.length === 0 ? (
+      {submittedRows.length === 0 ? (
         <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
-          No forms found for this filter.
+          {query.trim()
+            ? "No forms match your search."
+            : offline
+              ? "No forms on this device yet. Connect and open a form to cache it."
+              : syncing
+                ? "Loading forms…"
+                : "No forms yet. Run a form from workspace or load more from the server."}
         </div>
       ) : (
-        <div className="space-y-6">
-          {draftRows.length > 0 ? (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground/90">Drafts ({draftRows.length})</h3>
-              <div className="space-y-2">
-                {draftRows.map((row) => (
-                  <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="line-clamp-2 font-medium">{row.template.title}</div>
-                        <div className="mt-0.5 text-xs text-foreground/70 break-words">
-                          Updated {new Date(row.updatedAt).toLocaleString()}
-                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
-                            <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
-                              On device
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="flex w-full items-center gap-2 sm:w-auto">
-                        <Link
-                          href={`/${activeTenantSlug}/audits/new?templateId=${encodeURIComponent(row.templateId)}${
-                            isDevicePendingAuditId(row.id) ? "" : `&auditId=${encodeURIComponent(row.id)}`
-                          }`}
-                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm sm:w-auto"
-                        >
-                          <FileText className="h-4 w-4" />
-                          <span className="hidden sm:inline">Continue draft</span>
-                          <span className="sm:hidden">Continue</span>
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {submittedRows.length > 0 ? (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-foreground/90">Submitted forms ({submittedRows.length})</h3>
-              <div className="space-y-2">
-                {submittedRows.map((row) => (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground/90">Submitted forms ({submittedRows.length})</h3>
+          <div className="space-y-2">
+            {submittedRows.map((row) => (
                   <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -397,25 +405,13 @@ export function AuditsListClient({
                       </div>
                       <div className="flex w-full items-center gap-2 sm:w-auto">
                         <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
-                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
-                            <Link
-                              href={`/${activeTenantSlug}/audits/local`}
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
-                            >
-                              <FileText className="h-4 w-4" />
-                              Queued details
-                            </Link>
-                          ) : (
                           <Link
                             href={`/${activeTenantSlug}/audits/${row.id}`}
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
                           >
                             <FileText className="h-4 w-4" />
-                            View report
+                            {row.devicePending || isDevicePendingAuditId(row.id) ? "View (device)" : "View report"}
                           </Link>
-                          )}
-                          {row.devicePending || isDevicePendingAuditId(row.id) ? null : (
-                          <>
                           <button
                             type="button"
                             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
@@ -438,8 +434,6 @@ export function AuditsListClient({
                             <Printer className="h-4 w-4" />
                             <span className="hidden sm:inline">PDF</span>
                           </button>
-                          </>
-                          )}
                         </div>
                         <div className="flex sm:hidden">
                           <CardMenu
@@ -452,10 +446,8 @@ export function AuditsListClient({
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+            ))}
+          </div>
         </div>
       )}
     </>

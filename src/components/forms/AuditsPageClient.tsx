@@ -8,18 +8,12 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RefreshPageButton } from "@/components/RefreshPageButton";
 import { AdminBackButton } from "@/components/forms/AdminBackButton";
 
-type StatusFilter = "ALL" | "DRAFT" | "SUBMITTED";
-
 export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string }) {
   const tenantSlug = useResolvedTenantSlug(routeSlug);
   const searchParams = useSearchParams();
-  const statusParam = searchParams.get("status");
   const notice = searchParams.get("notice");
   const auditId = searchParams.get("auditId");
   const q = (searchParams.get("q") || "").trim();
-
-  const initialStatus: StatusFilter =
-    statusParam === "DRAFT" || statusParam === "SUBMITTED" ? statusParam : "ALL";
 
   return (
     <div className="flex flex-col gap-4">
@@ -27,8 +21,8 @@ export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string
         <div>
           <h2 className="text-xl font-semibold">Stored forms</h2>
           <p className="text-sm text-foreground/70">
-            Draft and submitted records load on demand — nothing is downloaded until you open this page or tap Load
-            from server.
+            Recent submitted forms load automatically when online, including forms you submitted on this device.
+            Use Load more for older history.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-5 sm:items-center">
@@ -56,8 +50,8 @@ export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string
       </div>
 
       <FeatureSyncNotice
-        title="On-demand saved forms"
-        message="Your device keeps a local copy of forms you load here. Large brands are not fully downloaded at login — use Load from server when online to fetch more history."
+        title="Saved forms"
+        message="The first 50 recent submitted forms load when you open this page. Forms you submit on this device appear here too. Tap Load more for older history."
         tone="info"
       />
 
@@ -78,12 +72,7 @@ export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string
         </div>
       ) : null}
 
-      <AuditsListClient
-        tenantSlug={tenantSlug}
-        initialStatus={initialStatus}
-        initialQuery={q}
-        rows={[]}
-      />
+      <AuditsListClient tenantSlug={tenantSlug} initialQuery={q} rows={[]} />
     </div>
   );
 }

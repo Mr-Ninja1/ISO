@@ -5,12 +5,15 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
 import { SmallScreenModal } from '@/components/SmallScreenModal';
 import { CapacitorBootstrap } from '@/components/CapacitorBootstrap';
+import { CapacitorAppRecovery } from '@/components/CapacitorAppRecovery';
+import { CapacitorEntryRedirect } from '@/components/CapacitorEntryRedirect';
 import { CapacitorBackButtonHandler } from '@/components/CapacitorBackButtonHandler';
+import { PushNotificationsBootstrap } from '@/components/PushNotificationsBootstrap';
 import { RequiresInternetDialogHost } from '@/components/RequiresInternetDialog';
 import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
 import { InternetStatusBar } from '@/components/InternetStatusBar';
-import { Suspense } from 'react';
+import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
 
 export const metadata: Metadata = {
   title: 'ISO Pro',
@@ -43,7 +46,7 @@ export default function RootLayout({
         <meta name='mobile-web-app-capable' content='yes' />
         <meta name='apple-mobile-web-app-capable' content='yes' />
         <meta name='apple-mobile-web-app-status-bar-style' content='default' />
-        <meta name='theme-color' content='#0f172a' />
+        <meta name='theme-color' content='#003d33' />
         <link rel='manifest' href='/manifest.webmanifest' />
         <link rel='apple-touch-icon' sizes='180x180' href='/apple-touch-icon-180.png' />
         <link rel='apple-touch-icon' sizes='152x152' href='/apple-touch-icon-152.png' />
@@ -54,12 +57,15 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <CapacitorEntryRedirect />
+          <CapacitorAppRecovery />
           <CapacitorBackButtonHandler />
+          <PushNotificationsBootstrap />
           <RequiresInternetDialogHost />
           <OfflineNavigationGuard />
-          <Suspense fallback={null}>
+          <SearchParamsBoundary fullScreen>
             <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
-          </Suspense>
+          </SearchParamsBoundary>
         </AuthProvider>
         <SmallScreenModal />
       </body>
