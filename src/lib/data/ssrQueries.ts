@@ -131,7 +131,8 @@ export async function ssrAuditRowsForTenant(tenantId: string) {
   if (error || !data) return [];
 
   return data.map((row: Record<string, unknown>) => {
-    const tpl = row.form_templates as { title?: string } | null;
+    const rawTpl = row.form_templates;
+    const tpl = (Array.isArray(rawTpl) ? rawTpl[0] : rawTpl) as { title?: string } | null | undefined;
     return {
       id: row.id as string,
       status: row.status as "DRAFT" | "SUBMITTED",

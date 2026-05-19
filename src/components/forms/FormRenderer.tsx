@@ -831,17 +831,19 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         </div>
         <button
           type="button"
-          className="h-11 w-full rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50 sm:h-12 sm:w-auto"
+          className="h-11 w-full rounded-md border border-foreground/20 px-4 text-foreground disabled:opacity-50 sm:h-12 sm:w-auto inline-flex items-center justify-center gap-2"
           onClick={onSaveDraft}
           disabled={isSavingDraft || form.formState.isSubmitting}
         >
+          {isSavingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {isSavingDraft ? "Saving draft..." : "Save draft"}
         </button>
         <button
           type="submit"
-          className="h-11 w-full rounded-md bg-foreground px-4 text-background disabled:opacity-50 sm:h-12 sm:w-auto"
+          className="h-11 w-full rounded-md bg-foreground px-4 text-background disabled:opacity-50 sm:h-12 sm:w-auto inline-flex items-center justify-center gap-2"
           disabled={isSavingDraft || form.formState.isSubmitting}
         >
+          {form.formState.isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {form.formState.isSubmitting ? "Submitting..." : "Submit"}
         </button>
       </div>

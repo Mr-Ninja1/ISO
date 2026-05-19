@@ -746,38 +746,73 @@ function WorkspacePageInner() {
     }
   }
 
+  function clearNavLoading(delayMs = 600) {
+    window.setTimeout(() => {
+      setOpeningSettings(false);
+      setOpeningActivity(false);
+      setOpeningAdminDashboard(false);
+      setOpeningLobby(false);
+      setOpeningAudits(false);
+    }, delayMs);
+  }
+
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
     setMenuOpen(false);
-    pushIfOnline("Settings", `/${targetTenantSlug}/settings`);
+    setOpeningSettings(true);
+    if (!pushIfOnline("Settings", `/${targetTenantSlug}/settings`)) {
+      setOpeningSettings(false);
+      return;
+    }
+    clearNavLoading();
   }
 
   function handleOpenStaffManagement(targetTenantSlug: string) {
     if (openingSettings) return;
     setMenuOpen(false);
-    pushIfOnline("Staff management", `/${targetTenantSlug}/settings?focus=staff`);
+    setOpeningSettings(true);
+    if (!pushIfOnline("Staff management", `/${targetTenantSlug}/settings?focus=staff`)) {
+      setOpeningSettings(false);
+      return;
+    }
+    clearNavLoading();
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
-    pushIfOnline("Activity monitor", `/${targetTenantSlug}/activity`);
+    setOpeningActivity(true);
+    if (!pushIfOnline("Activity monitor", `/${targetTenantSlug}/activity`)) {
+      setOpeningActivity(false);
+      return;
+    }
+    clearNavLoading();
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
-    pushIfOnline("Admin dashboard", `/${targetTenantSlug}/dashboard`);
+    setOpeningAdminDashboard(true);
+    if (!pushIfOnline("Admin dashboard", `/${targetTenantSlug}/dashboard`)) {
+      setOpeningAdminDashboard(false);
+      return;
+    }
+    clearNavLoading();
   }
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
     setOpeningAudits(true);
     router.push(`/${targetTenantSlug}/audits`);
-    window.setTimeout(() => setOpeningAudits(false), 500);
+    clearNavLoading();
   }
 
   function handleOpenLobby() {
     if (openingLobby) return;
-    pushIfOnline("Brand lobby", "/dashboard");
+    setOpeningLobby(true);
+    if (!pushIfOnline("Brand lobby", "/dashboard")) {
+      setOpeningLobby(false);
+      return;
+    }
+    clearNavLoading();
   }
 
   function handleAddFromTemplates(selectedCategoryId: string | null) {
@@ -2378,10 +2413,9 @@ function WorkspacePageInner() {
                                   setRecentOpen(false);
                                   setOpeningTemplateId(t.id);
                                   rememberRecentTemplate(t.id);
-                                  prefetchTemplateSchema(t.id).catch(() => {
-                                    // keep navigation moving even if prefetch fails
-                                  });
+                                  prefetchTemplateSchema(t.id).catch(() => {});
                                   router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                  window.setTimeout(() => setOpeningTemplateId(null), 600);
                                 }}
                                 className="rounded-md px-2 py-2 text-left text-sm hover:bg-foreground/5"
                               >
@@ -2503,20 +2537,18 @@ function WorkspacePageInner() {
                       onClick={() => {
                         setOpeningTemplateId(t.id);
                         rememberRecentTemplate(t.id);
-                        prefetchTemplateSchema(t.id).catch(() => {
-                          // keep navigation moving even if prefetch fails
-                        });
+                        prefetchTemplateSchema(t.id).catch(() => {});
                         router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       onKeyDown={(e) => {
                         if (e.key !== "Enter" && e.key !== " ") return;
                         e.preventDefault();
                         setOpeningTemplateId(t.id);
                         rememberRecentTemplate(t.id);
-                        prefetchTemplateSchema(t.id).catch(() => {
-                          // keep navigation moving even if prefetch fails
-                        });
+                        prefetchTemplateSchema(t.id).catch(() => {});
                         router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       className={
                         "relative w-full rounded-lg border p-4 text-left focus:outline-none focus:ring-2 focus:ring-foreground/30 " +

@@ -24,8 +24,9 @@ export function useRequiresInternet() {
 
   const pushIfOnline = useCallback(
     (feature: string, href: string, message?: string) => {
-      if (blockIfOffline(feature, message)) return;
+      if (blockIfOffline(feature, message)) return false;
       router.push(href);
+      return true;
     },
     [blockIfOffline, router]
   );

@@ -5,6 +5,7 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
 import { SmallScreenModal } from '@/components/SmallScreenModal';
 import { CapacitorBootstrap } from '@/components/CapacitorBootstrap';
+import { CapacitorBackButtonHandler } from '@/components/CapacitorBackButtonHandler';
 import { RequiresInternetDialogHost } from '@/components/RequiresInternetDialog';
 import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
@@ -53,6 +54,7 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <CapacitorBackButtonHandler />
           <RequiresInternetDialogHost />
           <OfflineNavigationGuard />
           <Suspense fallback={null}>
