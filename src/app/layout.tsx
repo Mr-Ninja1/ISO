@@ -40,13 +40,15 @@ export default function RootLayout({
     <html
       lang='en'
       className='h-full antialiased'
+      style={{ colorScheme: 'light' }}
       suppressHydrationWarning
     >
       <head>
         <meta name='mobile-web-app-capable' content='yes' />
         <meta name='apple-mobile-web-app-capable' content='yes' />
         <meta name='apple-mobile-web-app-status-bar-style' content='default' />
-        <meta name='theme-color' content='#003d33' />
+        <meta name='color-scheme' content='light' />
+        <meta name='theme-color' content='#f5efe6' />
         <link rel='manifest' href='/manifest.webmanifest' />
         <link rel='apple-touch-icon' sizes='180x180' href='/apple-touch-icon-180.png' />
         <link rel='apple-touch-icon' sizes='152x152' href='/apple-touch-icon-152.png' />

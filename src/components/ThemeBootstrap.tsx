@@ -9,6 +9,7 @@ export function ThemeBootstrap() {
     try {
       const value = localStorage.getItem(THEME_STORAGE_KEY) || "hse-pro";
       document.documentElement.setAttribute("data-theme", value);
+      document.documentElement.style.colorScheme = "light";
     } catch {
       // ignore theme bootstrap failures
     }
