@@ -25,11 +25,37 @@ type AdminBrandsResponse = {
   brands: BrandRow[];
 };
 
+type AlertDelivery = "inbox" | "toast" | "modal";
+
 type ComposeState = {
   brandId: string;
   title: string;
   message: string;
+  delivery: AlertDelivery;
 };
+
+function AlertDeliveryField({
+  value,
+  onChange,
+}: {
+  value: AlertDelivery;
+  onChange: (value: AlertDelivery) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-sm">
+      <span className="font-medium">Delivery</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as AlertDelivery)}
+        className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+      >
+        <option value="modal">Urgent — full-screen popup (recommended)</option>
+        <option value="toast">Notice — slide-in alert + inbox</option>
+        <option value="inbox">Inbox only — badge, sound, and inbox list</option>
+      </select>
+    </label>
+  );
+}
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -68,6 +94,7 @@ export function BrandOversightPanel() {
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [broadcastDelivery, setBroadcastDelivery] = useState<AlertDelivery>("modal");
   const [savingBroadcast, setSavingBroadcast] = useState(false);
 
   const filteredBrands = useMemo(() => {
@@ -229,7 +256,7 @@ export function BrandOversightPanel() {
           Authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ title: compose.title, message: compose.message }),
+        body: JSON.stringify({ title: compose.title, message: compose.message, delivery: compose.delivery }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (res.status === 403) {
@@ -260,7 +287,7 @@ export function BrandOversightPanel() {
           Authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ title: broadcastTitle, message: broadcastMessage }),
+        body: JSON.stringify({ title: broadcastTitle, message: broadcastMessage, delivery: broadcastDelivery }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (res.status === 403) {
@@ -386,6 +413,7 @@ export function BrandOversightPanel() {
                 setBroadcastOpen(true);
                 setBroadcastTitle("");
                 setBroadcastMessage("");
+                setBroadcastDelivery("modal");
               }}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-foreground/15 bg-background px-3 text-sm font-medium hover:bg-foreground/5"
               title="Send one message to every brand workspace developer inbox"
@@ -467,7 +495,7 @@ export function BrandOversightPanel() {
                   disabled={savingBrandId === brand.id}
                   onClick={() => {
                     setBroadcastOpen(false);
-                    setCompose({ brandId: brand.id, title: "", message: "" });
+                    setCompose({ brandId: brand.id, title: "", message: "", delivery: "modal" });
                   }}
                 >
                   Send alert
@@ -523,6 +551,8 @@ export function BrandOversightPanel() {
                   placeholder="e.g. Scheduled maintenance tonight"
                 />
               </label>
+
+              <AlertDeliveryField value={broadcastDelivery} onChange={setBroadcastDelivery} />
 
               <label className="grid gap-1 text-sm">
                 <span className="font-medium">Message</span>
@@ -582,6 +612,11 @@ export function BrandOversightPanel() {
                   placeholder="e.g. Please review your corrective actions"
                 />
               </label>
+
+              <AlertDeliveryField
+                value={compose.delivery}
+                onChange={(delivery) => setCompose((prev) => (prev ? { ...prev, delivery } : prev))}
+              />
 
               <label className="grid gap-1 text-sm">
                 <span className="font-medium">Message</span>

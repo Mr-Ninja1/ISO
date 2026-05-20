@@ -6,7 +6,7 @@ import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
-import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
+import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
 import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
 import { capacitorTenantStaticParams } from "@/lib/capacitor/staticExport";
@@ -112,7 +112,6 @@ export default async function TenantLayout({
           {children}
         </main>
       </div>
-      <BrandAlertListener tenantSlug={tenant.slug} />
       <TenantDueReminderWatcher tenantSlug={tenant.slug} />
       <div className="print:hidden">
         <TenantBottomTabNav tenantSlug={tenant.slug} />
@@ -165,6 +164,7 @@ function TenantLayoutHeaderActions({ tenantSlug }: { tenantSlug: string }) {
           <BackgroundSyncManager />
         </SearchParamsBoundary>
       </div>
+      <WorkspaceMessageInboxButton />
       <TenantHeaderNav tenantSlug={tenantSlug} />
     </div>
   );

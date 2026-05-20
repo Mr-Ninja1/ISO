@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Printer } from "lucide-react";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { useAuth } from "@/components/AuthProvider";
+import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import type { AuditReportData } from "@/types/auditReport";
 import { AuditReportDisplay } from "@/components/forms/AuditReportDisplay";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
@@ -39,7 +40,7 @@ export function AuditReportPageClient({
 
   const { session } = useAuth();
   const offline = useAppOffline();
-  const accessToken = session?.access_token || "";
+  const accessToken = getWorkspaceAccessToken(session);
 
   const [audit, setAudit] = useState<AuditReportData | null>(null);
   const [loading, setLoading] = useState(true);

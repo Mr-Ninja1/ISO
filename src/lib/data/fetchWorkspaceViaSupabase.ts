@@ -47,8 +47,12 @@ export async function fetchWorkspaceViaSupabase(
   }
 
   if ((tenantRow as Record<string, unknown>).is_active === false) {
-    const err = new Error("This brand has been deactivated") as Error & { status?: number };
+    const err = new Error("This brand has been deactivated") as Error & {
+      status?: number;
+      code?: string;
+    };
     err.status = 403;
+    err.code = "TENANT_DEACTIVATED";
     throw err;
   }
 

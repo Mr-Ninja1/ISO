@@ -5,7 +5,7 @@ import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
 import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
-import { BrandAlertListener } from "@/components/tenant/BrandAlertListener";
+import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
 import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
@@ -51,7 +51,6 @@ export function TenantLayoutClient({
           {children}
         </main>
       </div>
-      <BrandAlertListener tenantSlug={tenantSlug} />
       <TenantDueReminderWatcher tenantSlug={tenantSlug} />
       <TenantLayoutClientBottomNav tenantSlug={tenantSlug} />
     </div>
@@ -88,6 +87,7 @@ function TenantLayoutClientHeaderActions({ tenantSlug }: { tenantSlug: string })
           <BackgroundSyncManager />
         </SearchParamsBoundary>
       </div>
+      <WorkspaceMessageInboxButton />
       <TenantHeaderNav tenantSlug={tenantSlug} />
     </div>
   );

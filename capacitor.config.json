@@ -6,6 +6,9 @@
   "plugins": {
     "CapacitorHttp": {
       "enabled": true
+    },
+    "LiveUpdate": {
+      "readyTimeout": 10000
     }
   },
   "server": {

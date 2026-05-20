@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, ShieldCheck, Activity, MessageSquare, Users, Building2, TrendingUp } from "lucide-react";
 import { BrandOversightPanel } from "@/components/admin/BrandOversightPanel";
+import { PlatformOtaPanel } from "@/components/admin/PlatformOtaPanel";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
@@ -154,6 +155,8 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      <PlatformOtaPanel />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-foreground/15 bg-background p-5">

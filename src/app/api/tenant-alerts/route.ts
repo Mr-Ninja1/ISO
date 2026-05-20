@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
-
-function getBearerToken(req: Request) {
-  const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] || null;
-}
+import { getBearerToken, getRouteUser, resolveSupabasePublicEnv } from "@/lib/supabase/routeAuth";
+import { markAnnouncementRead } from "@/lib/data/markAnnouncementRead";
 
 type AlertRow = {
   id: string;
@@ -16,23 +11,48 @@ type AlertRow = {
   createdAt: string;
   isRead: boolean;
   source: "tenant" | "global";
+  delivery: "inbox" | "toast" | "modal";
 };
+
+function mapDelivery(value: unknown): AlertRow["delivery"] {
+  if (value === "inbox" || value === "toast" || value === "modal") return value;
+  return "modal";
+}
+
+async function resolveActiveTenant(sb: ReturnType<typeof createSupabaseWithBearer>, tenantSlug: string) {
+  const { data: tenant, error: tenantErr } = await sb
+    .from("tenants")
+    .select("id,is_active")
+    .eq("slug", tenantSlug)
+    .maybeSingle();
+
+  if (tenantErr || !tenant) {
+    return { error: NextResponse.json({ error: "Tenant not found" }, { status: 404 }) };
+  }
+
+  if ((tenant as Record<string, unknown>).is_active === false) {
+    return {
+      error: NextResponse.json(
+        { error: "This brand has been deactivated", code: "TENANT_DEACTIVATED" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { tenantId: String((tenant as Record<string, unknown>).id || "") };
+}
 
 export async function GET(req: Request) {
   try {
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseAnonKey) {
+    const env = resolveSupabasePublicEnv();
+    if (!env.supabaseUrl || !env.supabaseAnonKey) {
       return NextResponse.json({ error: "Supabase environment variables are not configured." }, { status: 500 });
     }
 
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false } });
-    const {
-      data: { user },
-    } = await authClient.auth.getUser(token);
+    const { user } = await getRouteUser(token);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const url = new URL(req.url);
@@ -40,24 +60,9 @@ export async function GET(req: Request) {
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
 
     const sb = createSupabaseWithBearer(token);
-    const { data: tenant, error: tenantErr } = await sb
-      .from("tenants")
-      .select("id,is_active")
-      .eq("slug", tenantSlug)
-      .maybeSingle();
-
-    if (tenantErr || !tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
-
-    if ((tenant as Record<string, unknown>).is_active === false) {
-      return NextResponse.json(
-        { error: "This brand has been deactivated", code: "TENANT_DEACTIVATED" },
-        { status: 403 }
-      );
-    }
-
-    const tenantId = String((tenant as Record<string, unknown>).id || "");
+    const tenantResult = await resolveActiveTenant(sb, tenantSlug);
+    if ("error" in tenantResult && tenantResult.error) return tenantResult.error;
+    const tenantId = tenantResult.tenantId!;
 
     const svc = createServiceRoleSupabase();
     let minNativeBuild: number | null = null;
@@ -80,7 +85,7 @@ export async function GET(req: Request) {
 
     const { data: tenantAlerts, error: tenantAlertsErr } = await sb
       .from("tenant_announcements")
-      .select("id,title,message,created_at")
+      .select("id,title,message,created_at,delivery")
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .order("created_at", { ascending: false })
@@ -112,13 +117,14 @@ export async function GET(req: Request) {
         createdAt: String(mapped.created_at || ""),
         isRead: tenantReadSet.has(id),
         source: "tenant" as const,
+        delivery: mapDelivery(mapped.delivery),
       };
     });
 
     let globalMapped: AlertRow[] = [];
     const { data: globalRows, error: globalErr } = await sb
       .from("global_announcements")
-      .select("id,title,message,created_at")
+      .select("id,title,message,created_at,delivery")
       .eq("is_active", true)
       .order("created_at", { ascending: false })
       .limit(16);
@@ -145,6 +151,7 @@ export async function GET(req: Request) {
           createdAt: String(mapped.created_at || ""),
           isRead: globalReadSet.has(id),
           source: "global" as const,
+          delivery: mapDelivery(mapped.delivery),
         };
       });
     }
@@ -166,5 +173,54 @@ export async function GET(req: Request) {
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/** Mark one alert read — same auth path as GET (workspace-style bearer client + RLS). */
+export async function POST(req: Request) {
+  try {
+    const token = getBearerToken(req);
+    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const env = resolveSupabasePublicEnv();
+    if (!env.supabaseUrl || !env.supabaseAnonKey) {
+      return NextResponse.json({ error: "Supabase environment variables are not configured." }, { status: 500 });
+    }
+
+    const { user } = await getRouteUser(token);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const url = new URL(req.url);
+    const tenantSlug = (url.searchParams.get("tenantSlug") || "").trim();
+    if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
+
+    const body = (await req.json().catch(() => ({}))) as {
+      announcementId?: string;
+      source?: "tenant" | "global";
+    };
+
+    const announcementId = (body.announcementId || "").trim();
+    const source = body.source === "global" ? "global" : "tenant";
+
+    if (!announcementId) {
+      return NextResponse.json({ error: "announcementId is required" }, { status: 400 });
+    }
+
+    await markAnnouncementRead({
+      accessToken: token,
+      user,
+      tenantSlug,
+      announcementId,
+      source,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const err = error as Error & { status?: number; code?: string };
+    const status = typeof err.status === "number" ? err.status : 500;
+    if (err.code === "TENANT_DEACTIVATED") {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 403 });
+    }
+    return NextResponse.json({ error: err.message || "Server error" }, { status });
   }
 }

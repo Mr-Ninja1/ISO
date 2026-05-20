@@ -17,9 +17,15 @@ export async function POST(req: Request) {
     const svc = createServiceRoleSupabase();
     if (!svc) return NextResponse.json({ error: "Service role is not configured" }, { status: 500 });
 
-    const body = (await req.json().catch(() => ({}))) as { title?: string; message?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      title?: string;
+      message?: string;
+      delivery?: string;
+    };
     const title = String(body.title || "").trim();
     const message = String(body.message || "").trim();
+    const deliveryRaw = String(body.delivery || "modal").trim().toLowerCase();
+    const delivery = deliveryRaw === "inbox" || deliveryRaw === "toast" ? deliveryRaw : "modal";
     if (!title || !message) {
       return NextResponse.json({ error: "Title and message are required" }, { status: 400 });
     }
@@ -31,6 +37,7 @@ export async function POST(req: Request) {
         message,
         created_by_email: adminUser?.email || null,
         is_active: true,
+        delivery,
       })
       .select("id,title,message,created_at,is_active")
       .single();

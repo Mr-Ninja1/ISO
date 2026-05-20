@@ -105,16 +105,22 @@ export function DeveloperWorkspaceInbox({ tenantSlug, accessToken, onTenantDeact
     if (!accessToken || markingId) return;
     setMarkingId(alert.id);
     try {
-      const path =
-        alert.source === "global"
-          ? `/api/global-announcements/${encodeURIComponent(alert.id)}/read`
-          : `/api/tenant/${encodeURIComponent(tenantSlug)}/announcements/${encodeURIComponent(alert.id)}/read`;
-      const res = await fetch(apiUrl(path), {
+      const url = new URL(apiUrl("/api/tenant-alerts"));
+      url.searchParams.set("tenantSlug", tenantSlug);
+      const res = await fetch(url.toString(), {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          announcementId: alert.id,
+          source: alert.source === "global" ? "global" : "tenant",
+        }),
       });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError("Could not mark message as read.");
+        setError(json.error || `Could not mark message as read (${res.status})`);
         return;
       }
       setAlerts((prev) => prev.map((a) => (a.id === alert.id ? { ...a, isRead: true } : a)));

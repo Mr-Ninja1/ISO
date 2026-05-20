@@ -14,6 +14,8 @@ import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
 import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
 import { NativeUpdateNudge } from '@/components/NativeUpdateNudge';
+import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
+import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
 
 export const metadata: Metadata = {
   title: 'ISO Pro',
@@ -64,6 +66,7 @@ export default function RootLayout({
         <AuthProvider>
           <CapacitorBootstrap />
           <NativeUpdateNudge />
+          <LiveUpdateBootstrap />
           <CapacitorEntryRedirect />
           <CapacitorAppRecovery />
           <CapacitorBackButtonHandler />
@@ -71,7 +74,9 @@ export default function RootLayout({
           <RequiresInternetDialogHost />
           <OfflineNavigationGuard />
           <SearchParamsBoundary fullScreen>
-            <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
+            <TenantMessageProvider>
+              <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
+            </TenantMessageProvider>
           </SearchParamsBoundary>
         </AuthProvider>
         <SmallScreenModal />

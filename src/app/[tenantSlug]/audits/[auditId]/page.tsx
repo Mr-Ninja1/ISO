@@ -19,7 +19,6 @@ import { renderAuditReportFieldValue } from "@/components/forms/auditReportField
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
-import { AuditReportFromCacheClient } from "@/components/forms/AuditReportFromCacheClient";
 import { AuditReportPageClient } from "@/components/forms/AuditReportPageClient";
 import { AuditReportFooter } from "@/components/forms/AuditReportFooter";
 
@@ -91,19 +90,9 @@ export default async function AuditReportPage({
 
   audit = await ssrAuditReportForPrint(auditId, tenantSlug);
 
-  const unavailableFallback = (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
-        The live report could not be loaded right now. If you opened this form before, the cached snapshot should still be available on this device.
-      </div>
-      <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />
-      <Link href={`/${tenantSlug}/audits`} className="text-sm underline">
-        Back to stored forms
-      </Link>
-    </div>
-  );
-
-  if (!audit) return unavailableFallback;
+  if (!audit) {
+    return <AuditReportPageClient routeSlug={tenantSlug} routeAuditId={auditId} />;
+  }
 
   try {
     const tenant = audit.tenant;
@@ -381,6 +370,6 @@ export default async function AuditReportPage({
   );
   } catch (error) {
     console.error("AuditReportPage render failed", { tenantSlug, auditId, error });
-    return unavailableFallback;
+    return <AuditReportPageClient routeSlug={tenantSlug} routeAuditId={auditId} />;
   }
 }

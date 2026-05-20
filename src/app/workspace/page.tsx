@@ -36,9 +36,17 @@ import {
   isTenantTemplateBulkCached,
 } from "@/lib/client/offlineTemplateWarmup";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
-import { DeveloperWorkspaceInbox } from "@/components/workspace/DeveloperWorkspaceInbox";
+import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
+import {
+  clearTenantDeactivatedBlocked,
+  isTenantDeactivatedBlocked,
+  isTenantDeactivatedError,
+  setTenantDeactivatedBlocked,
+} from "@/lib/client/brandAccess";
+import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
+import { AppBundleLabel } from "@/components/AppBundleLabel";
 import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
 import { DueReminderPoller } from "@/components/DueReminderPoller";
 import {
@@ -659,9 +667,10 @@ function WorkspacePageInner() {
     }
   }
 
-  function handleTenantDeactivatedFromInbox() {
+  function handleTenantDeactivatedExit() {
     if (!tenantSlug) return;
     clearTenantLocalCache({ showToast: false });
+    setTenantDeactivatedBlocked(tenantSlug);
     try {
       if (localStorage.getItem("lastTenantSlug") === tenantSlug) {
         localStorage.removeItem("lastTenantSlug");
@@ -676,6 +685,17 @@ function WorkspacePageInner() {
     setError("This brand has been deactivated. Choose another brand or contact support.");
     router.replace("/workspace");
   }
+
+  useEffect(() => {
+    function onTenantDeactivated(ev: Event) {
+      const slug = (ev as CustomEvent<{ tenantSlug?: string }>).detail?.tenantSlug;
+      if (!slug || slug !== tenantSlug) return;
+      handleTenantDeactivatedExit();
+    }
+    window.addEventListener("iso-tenant-deactivated", onTenantDeactivated);
+    return () => window.removeEventListener("iso-tenant-deactivated", onTenantDeactivated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
 
   async function prefetchTemplateSchema(templateId: string) {
     if (!accessToken || !tenantSlug) return;
@@ -1375,6 +1395,11 @@ function WorkspacePageInner() {
     if (!accessToken) return;
     if (!tenantSlug) return;
 
+    if (isTenantDeactivatedBlocked(tenantSlug)) {
+      handleTenantDeactivatedExit();
+      return;
+    }
+
     if (workspaceBusyRetriesSlugRef.current !== tenantSlug) {
       workspaceBusyRetriesSlugRef.current = tenantSlug;
       workspaceBusyRetriesRef.current = 0;
@@ -1530,9 +1555,14 @@ function WorkspacePageInner() {
       })
       .catch((err) => {
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
+        if (isTenantDeactivatedError(err)) {
+          keepLoading = false;
+          handleTenantDeactivatedExit();
+          return;
+        }
         const authOrAccess =
           err?.status === 401 ||
-          err?.status === 403 ||
+          (err?.status === 403 && !isTenantDeactivatedError(err)) ||
           /Forbidden|Unauthorized/i.test(String(err?.message || ""));
         if (!hasCached) {
           if (busy || authOrAccess) {
@@ -1929,6 +1959,17 @@ function WorkspacePageInner() {
   }
 
   // Only show the full skeleton for first paint / initial checks.
+  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
+    return (
+      <OfflineRouteBlock
+        title="Brand deactivated"
+        message="This brand is no longer active. Choose another brand to continue."
+        backHref="/workspace"
+        backLabel="Choose another brand"
+      />
+    );
+  }
+
   if (tenantChoiceLoading) return <WorkspaceSkeleton />;
   if (!cachedWorkspaceForUi && workspaceLoading) return <WorkspaceSkeleton />;
 
@@ -1958,6 +1999,7 @@ function WorkspacePageInner() {
                 key={t.id}
                 type="button"
                 onClick={() => {
+                  clearTenantDeactivatedBlocked(t.slug);
                   localStorage.setItem("lastTenantSlug", t.slug);
                   router.push(`/workspace?tenantSlug=${encodeURIComponent(t.slug)}`);
                 }}
@@ -2056,6 +2098,17 @@ function WorkspacePageInner() {
     );
   }
 
+  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
+    return (
+      <OfflineRouteBlock
+        title="Brand deactivated"
+        message="This brand is no longer active. Choose another brand to continue."
+        backHref="/workspace"
+        backLabel="Choose another brand"
+      />
+    );
+  }
+
   const workspaceForRender = cachedWorkspaceForUi;
   const { tenant, categories, selectedCategoryId, templates } = workspaceForRender;
   const role = workspaceRole;
@@ -2073,6 +2126,9 @@ function WorkspacePageInner() {
   return (
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
+      <div className="mx-auto max-w-7xl px-4 pt-3">
+        <AppBundleLabel />
+      </div>
       <div className="ws-header-accent" />
       <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
@@ -2106,13 +2162,7 @@ function WorkspacePageInner() {
             </div>
             <ConnectivityIndicator />
 
-            {accessToken && tenantSlug ? (
-              <DeveloperWorkspaceInbox
-                tenantSlug={tenantSlug}
-                accessToken={accessToken}
-                onTenantDeactivated={handleTenantDeactivatedFromInbox}
-              />
-            ) : null}
+            {accessToken && tenantSlug ? <WorkspaceMessageInboxButton /> : null}
 
             <div className="relative">
               <button

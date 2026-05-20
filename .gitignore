@@ -16,6 +16,10 @@
 # next.js
 /.next/
 /out/
+/ota-dist/
+
+# OTA zips are large — manifest.json may be committed
+/public/ota/**/*.zip
 
 # production
 /build

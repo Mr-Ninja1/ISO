@@ -12,6 +12,7 @@ import {
   runOfflineBootstrap,
   type OfflineBootstrapProgress,
 } from '@/lib/client/offlineBootstrap';
+import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
 
 const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
 
@@ -212,6 +213,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       return;
     }
     if (skip || !tenantSlug) {
+      setReady(true);
+      return;
+    }
+    if (isTenantDeactivatedBlocked(tenantSlug)) {
       setReady(true);
       return;
     }

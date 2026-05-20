@@ -25,6 +25,12 @@ const nativeBuild =
   process.env.CAPACITOR_NATIVE_BUILD?.trim() ||
   "1";
 
+/** Visible on native workspace — use different values for APK vs OTA to verify updates. */
+const appBundleLabel =
+  process.env.NEXT_PUBLIC_APP_BUNDLE_LABEL?.trim() ||
+  process.env.APP_BUNDLE_LABEL?.trim() ||
+  "";
+
 function run(command, args, env = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -37,15 +43,18 @@ function run(command, args, env = {}) {
   }
 }
 
+/** Copy + delete avoids EPERM on Windows when the IDE locks src/app/api. */
 function moveApiAside() {
   if (fs.existsSync(apiBackup) && !fs.existsSync(apiDir)) {
-    fs.renameSync(apiBackup, apiDir);
+    fs.cpSync(apiBackup, apiDir, { recursive: true });
+    fs.rmSync(apiBackup, { recursive: true, force: true });
   }
   if (!fs.existsSync(apiDir)) return;
   if (fs.existsSync(apiBackup)) {
     fs.rmSync(apiBackup, { recursive: true, force: true });
   }
-  fs.renameSync(apiDir, apiBackup);
+  fs.cpSync(apiDir, apiBackup, { recursive: true });
+  fs.rmSync(apiDir, { recursive: true, force: true });
 }
 
 function restoreApi() {
@@ -53,7 +62,8 @@ function restoreApi() {
   if (fs.existsSync(apiDir)) {
     fs.rmSync(apiDir, { recursive: true, force: true });
   }
-  fs.renameSync(apiBackup, apiDir);
+  fs.cpSync(apiBackup, apiDir, { recursive: true });
+  fs.rmSync(apiBackup, { recursive: true, force: true });
 }
 
 function listHtmlFiles(dir, base = dir) {
@@ -113,6 +123,9 @@ function writeCapacitorWebConfig() {
       CapacitorHttp: {
         enabled: true,
       },
+      LiveUpdate: {
+        readyTimeout: 10000,
+      },
     },
     server: {
       androidScheme: "https",
@@ -132,14 +145,33 @@ try {
   moveApiAside();
   const nextDir = path.join(root, ".next");
   if (fs.existsSync(nextDir)) {
-    fs.rmSync(nextDir, { recursive: true, force: true });
+    try {
+      fs.rmSync(nextDir, { recursive: true, force: true });
+    } catch (err) {
+      const code = err && typeof err === "object" && "code" in err ? err.code : "";
+      if (code === "EBUSY" || code === "EPERM") {
+        console.warn("[capacitor-build] Could not clear .next (file locked). Stop npm start / close Android Studio, or continue with incremental build.");
+        try {
+          fs.rmSync(path.join(nextDir, "cache"), { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      } else {
+        throw err;
+      }
+    }
   }
-  run("npm", ["run", "build"], {
+  // Capacitor uses static export (out/) — do not run standalone copy step.
+  run("npx", ["next", "build", "--webpack"], {
     CAPACITOR_BUILD: "1",
     NEXT_PUBLIC_API_BASE_URL: apiBase,
     NEXT_PUBLIC_CAPACITOR_APP: "1",
     NEXT_PUBLIC_NATIVE_BUILD: nativeBuild,
+    ...(appBundleLabel ? { NEXT_PUBLIC_APP_BUNDLE_LABEL: appBundleLabel } : {}),
   });
+  if (appBundleLabel) {
+    console.log(`[capacitor-build] App bundle label: ${appBundleLabel}`);
+  }
   mirrorTenantShellRoutes();
   writeCapacitorWebConfig();
   run("npx", ["cap", "copy", "android"]);

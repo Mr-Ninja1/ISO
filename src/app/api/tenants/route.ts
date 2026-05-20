@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     const sb = createSupabaseWithBearer(token);
     const { data: rows, error } = await sb
       .from("tenant_members")
-      .select("tenants(id, name, slug, logo_url)")
+      .select("tenants(id, name, slug, logo_url, is_active)")
       .eq("user_id", user.id);
 
     if (error) {
@@ -46,11 +46,18 @@ export async function GET(req: Request) {
 
     const tenants = (rows || [])
       .map((r) => {
-        const embedded = r.tenants as { id: string; name: string; slug: string; logo_url: string | null } | null | undefined | Array<{ id: string; name: string; slug: string; logo_url: string | null }>;
+        const embedded = r.tenants as
+          | { id: string; name: string; slug: string; logo_url: string | null; is_active?: boolean }
+          | null
+          | undefined
+          | Array<{ id: string; name: string; slug: string; logo_url: string | null; is_active?: boolean }>;
         if (Array.isArray(embedded)) return embedded[0] ?? null;
         return embedded ?? null;
       })
-      .filter((t): t is { id: string; name: string; slug: string; logo_url: string | null } => Boolean(t))
+      .filter(
+        (t): t is { id: string; name: string; slug: string; logo_url: string | null; is_active?: boolean } =>
+          t != null && t.is_active !== false
+      )
       .map((t) => ({
         id: t.id,
         name: t.name,

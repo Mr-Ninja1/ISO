@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileText, MoreVertical, Share2, Printer, Loader2 } from "lucide-react";
+import { FileText, MoreVertical, Share2, Printer, Loader2 } from "lucide-react";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
 import { shareAuditLink } from "@/components/forms/AuditShareControls";
 import { useAuth } from "@/components/AuthProvider";
+import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import {
   mergeAuditsRows,
   readAuditsListCache,
@@ -18,96 +20,140 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
 
-function CardMenu({
+type FormAction = "view" | "share" | "pdf";
+
+function actionButtonClass(busy: boolean) {
+  return (
+    "inline-flex h-10 min-w-[7.5rem] items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm transition-colors " +
+    (busy ? "cursor-wait bg-foreground/10 opacity-80" : "hover:bg-foreground/5 active:scale-[0.98]")
+  );
+}
+
+function SavedFormRowActions({
   tenantSlug,
   auditId,
   templateTitle,
   status,
+  layout,
 }: {
   tenantSlug: string;
   auditId: string;
   templateTitle: string;
   status: "DRAFT" | "SUBMITTED";
+  layout: "row" | "menu";
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState<FormAction | null>(null);
 
-  const handleDownloadPdf = async () => {
+  async function runAction(action: FormAction) {
+    if (busy) return;
+    setBusy(action);
     setOpen(false);
-    setGenerating(true);
     try {
-      const reportUrl = `/${tenantSlug}/audits/${auditId}`;
-      window.open(reportUrl, "_blank");
-      // The report page will handle PDF generation via its own print button
+      const reportPath = `/${tenantSlug}/audits/${auditId}`;
+      if (action === "view") {
+        router.push(reportPath);
+        return;
+      }
+      if (action === "share") {
+        const reportUrl = `${window.location.origin}${reportPath}`;
+        await shareAuditLink(reportUrl, templateTitle);
+        return;
+      }
+      window.open(reportPath, "_blank", "noopener,noreferrer");
     } finally {
-      setGenerating(false);
+      setBusy(null);
     }
-  };
+  }
 
-  const handleShare = async () => {
-    setOpen(false);
-    setGenerating(true);
-    try {
-      const reportUrl = `${window.location.origin}/${tenantSlug}/audits/${auditId}`;
-      void shareAuditLink(reportUrl, templateTitle);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const viewLabel = busy === "view" ? "Opening…" : "View report";
+  const shareLabel = busy === "share" ? "Sharing…" : "Share";
+  const pdfLabel = busy === "pdf" ? "Opening PDF…" : "PDF";
 
-  const handleView = () => {
-    setOpen(false);
-    window.location.href = `/${tenantSlug}/audits/${auditId}`;
-  };
+  if (layout === "menu") {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          disabled={Boolean(busy)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-60"
+          aria-label="More options"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+        </button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-[250]" onClick={() => setOpen(false)} aria-hidden />
+            <div className="absolute right-0 top-full z-[251] mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => void runAction("view")}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+              >
+                {busy === "view" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                {viewLabel}
+              </button>
+              {status === "SUBMITTED" && (
+                <>
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void runAction("pdf")}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+                  >
+                    {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                    {pdfLabel}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void runAction("share")}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+                  >
+                    {busy === "share" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+                    Share / WhatsApp
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="relative">
+    <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        disabled={generating}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-60"
-        aria-label="More options"
+        disabled={Boolean(busy)}
+        onClick={() => void runAction("view")}
+        className={actionButtonClass(busy === "view")}
       >
-        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+        {busy === "view" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+        {viewLabel}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-[250]" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 top-full z-[251] mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
-            <button
-              type="button"
-              onClick={handleView}
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-            >
-              <FileText className="h-4 w-4" />
-              View report
-            </button>
-            {status === "SUBMITTED" && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleDownloadPdf}
-                  disabled={generating}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
-                >
-                  <Printer className="h-4 w-4" />
-                  Download PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={handleShare}
-                  disabled={generating}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
-                >
-                  <Share2 className="h-4 w-4" />
-                  Share / WhatsApp
-                </button>
-              </>
-            )}
-          </div>
-        </>
-      )}
+      <button
+        type="button"
+        disabled={Boolean(busy)}
+        onClick={() => void runAction("share")}
+        className={actionButtonClass(busy === "share")}
+      >
+        {busy === "share" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+        <span className="hidden sm:inline">{shareLabel}</span>
+      </button>
+      <button
+        type="button"
+        disabled={Boolean(busy)}
+        onClick={() => void runAction("pdf")}
+        className={actionButtonClass(busy === "pdf")}
+      >
+        {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+        <span className="hidden sm:inline">{pdfLabel}</span>
+      </button>
     </div>
   );
 }
@@ -138,6 +184,7 @@ export function AuditsListClient({
   rows: CachedAuditRow[];
 }) {
   const { session, user } = useAuth();
+  const accessToken = getWorkspaceAccessToken(session);
   const offline = useAppOffline();
   const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
   const [query, setQuery] = useState(initialQuery);
@@ -197,8 +244,7 @@ export function AuditsListClient({
 
   /** First page of server history (recent across statuses) + merge with device cache. */
   useEffect(() => {
-    const token = session?.access_token || "";
-    if (!token || !activeTenantSlug || offline) return;
+    if (!accessToken || !activeTenantSlug || offline) return;
 
     let cancelled = false;
     setSyncing(true);
@@ -206,7 +252,7 @@ export function AuditsListClient({
 
     void (async () => {
       try {
-        const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
+        const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
           limit: 50,
           offset: 0,
           merge: true,
@@ -234,16 +280,15 @@ export function AuditsListClient({
     return () => {
       cancelled = true;
     };
-  }, [activeTenantSlug, offline, session?.access_token, user?.id]);
+  }, [activeTenantSlug, offline, accessToken, user?.id]);
 
   async function refreshFromServer() {
-    const token = session?.access_token || "";
-    if (!token || !activeTenantSlug || offline) return;
+    if (!accessToken || !activeTenantSlug || offline) return;
 
     setSyncing(true);
     setSyncError("");
     try {
-      const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
+      const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
         limit: 200,
         offset: 0,
         merge: true,
@@ -266,13 +311,12 @@ export function AuditsListClient({
   }
 
   async function loadMoreFromServer() {
-    const token = session?.access_token || "";
-    if (!token || !activeTenantSlug || offline || !serverHasMore || loadingMore) return;
+    if (!accessToken || !activeTenantSlug || offline || !serverHasMore || loadingMore) return;
 
     setLoadingMore(true);
     setSyncError("");
     try {
-      const result = await fetchAndCacheAuditsList(token, user?.id || null, activeTenantSlug, {
+      const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
         limit: 100,
         offset: nextServerOffset,
         merge: true,
@@ -404,43 +448,20 @@ export function AuditsListClient({
                         </div>
                       </div>
                       <div className="flex w-full items-center gap-2 sm:w-auto">
-                        <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
-                          <Link
-                            href={`/${activeTenantSlug}/audits/${row.id}`}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm"
-                          >
-                            <FileText className="h-4 w-4" />
-                            {row.devicePending || isDevicePendingAuditId(row.id) ? "View (device)" : "View report"}
-                          </Link>
-                          <button
-                            type="button"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-                            onClick={() => {
-                              const reportUrl = `${window.location.origin}/${activeTenantSlug}/audits/${row.id}`;
-                              void shareAuditLink(reportUrl, row.template.title);
-                            }}
-                          >
-                            <Share2 className="h-4 w-4" />
-                            <span className="hidden sm:inline">Share</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-                            onClick={() => {
-                              const reportUrl = `/${activeTenantSlug}/audits/${row.id}`;
-                              window.open(reportUrl, "_blank");
-                            }}
-                          >
-                            <Printer className="h-4 w-4" />
-                            <span className="hidden sm:inline">PDF</span>
-                          </button>
-                        </div>
+                        <SavedFormRowActions
+                          tenantSlug={activeTenantSlug}
+                          auditId={row.id}
+                          templateTitle={row.template.title}
+                          status={row.status}
+                          layout="row"
+                        />
                         <div className="flex sm:hidden">
-                          <CardMenu
+                          <SavedFormRowActions
                             tenantSlug={activeTenantSlug}
                             auditId={row.id}
                             templateTitle={row.template.title}
                             status={row.status}
+                            layout="menu"
                           />
                         </div>
                       </div>
