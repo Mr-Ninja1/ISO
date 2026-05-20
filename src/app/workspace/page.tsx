@@ -36,6 +36,7 @@ import {
   isTenantTemplateBulkCached,
 } from "@/lib/client/offlineTemplateWarmup";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
+import { DeveloperWorkspaceInbox } from "@/components/workspace/DeveloperWorkspaceInbox";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
 import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
@@ -625,7 +626,7 @@ function WorkspacePageInner() {
     setWorkspaceTourOpen(false);
   }
 
-  function clearTenantLocalCache() {
+  function clearTenantLocalCache(options?: { showToast?: boolean }) {
     if (!tenantSlug) return;
 
     const prefixA = `workspace-cache:v2:${cacheUserId || "anon"}:${tenantSlug}:`;
@@ -649,11 +650,31 @@ function WorkspacePageInner() {
 
     setRecentTemplateIds([]);
     setMenuOpen(false);
-    setNotification({
-      title: "Cache cleared",
-      message: "Local workspace and form caches were removed for this brand.",
-      tone: "success",
-    });
+    if (options?.showToast !== false) {
+      setNotification({
+        title: "Cache cleared",
+        message: "Local workspace and form caches were removed for this brand.",
+        tone: "success",
+      });
+    }
+  }
+
+  function handleTenantDeactivatedFromInbox() {
+    if (!tenantSlug) return;
+    clearTenantLocalCache({ showToast: false });
+    try {
+      if (localStorage.getItem("lastTenantSlug") === tenantSlug) {
+        localStorage.removeItem("lastTenantSlug");
+      }
+    } catch {
+      // ignore
+    }
+    setWorkspace(null);
+    setUiActiveCategoryId(null);
+    setWorkspaceLoading(false);
+    setSwitchingCategory(false);
+    setError("This brand has been deactivated. Choose another brand or contact support.");
+    router.replace("/workspace");
   }
 
   async function prefetchTemplateSchema(templateId: string) {
@@ -2085,6 +2106,14 @@ function WorkspacePageInner() {
             </div>
             <ConnectivityIndicator />
 
+            {accessToken && tenantSlug ? (
+              <DeveloperWorkspaceInbox
+                tenantSlug={tenantSlug}
+                accessToken={accessToken}
+                onTenantDeactivated={handleTenantDeactivatedFromInbox}
+              />
+            ) : null}
+
             <div className="relative">
               <button
                 type="button"
@@ -2200,7 +2229,7 @@ function WorkspacePageInner() {
                       type="button"
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100"
-                      onClick={clearTenantLocalCache}
+                      onClick={() => clearTenantLocalCache()}
                     >
                       Clear local cache
                     </button>

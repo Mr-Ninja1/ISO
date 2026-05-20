@@ -19,6 +19,12 @@ const apiBase =
   process.env.CAPACITOR_API_BASE_URL?.trim() ||
   "https://isopro.me";
 
+/** Embedded in the static bundle; bump per APK when native/plugins change. */
+const nativeBuild =
+  process.env.NEXT_PUBLIC_NATIVE_BUILD?.trim() ||
+  process.env.CAPACITOR_NATIVE_BUILD?.trim() ||
+  "1";
+
 function run(command, args, env = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -120,6 +126,9 @@ function writeCapacitorWebConfig() {
 
 try {
   console.log(`[capacitor-build] API base: ${apiBase}`);
+  if (!process.env.NEXT_PUBLIC_NATIVE_BUILD?.trim() && !process.env.CAPACITOR_NATIVE_BUILD?.trim()) {
+    console.log("[capacitor-build] NEXT_PUBLIC_NATIVE_BUILD not set; using 1. Set it when shipping a new APK.");
+  }
   moveApiAside();
   const nextDir = path.join(root, ".next");
   if (fs.existsSync(nextDir)) {
@@ -129,6 +138,7 @@ try {
     CAPACITOR_BUILD: "1",
     NEXT_PUBLIC_API_BASE_URL: apiBase,
     NEXT_PUBLIC_CAPACITOR_APP: "1",
+    NEXT_PUBLIC_NATIVE_BUILD: nativeBuild,
   });
   mirrorTenantShellRoutes();
   writeCapacitorWebConfig();

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import '@/components/CapacitorBootstrap';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
 import { SmallScreenModal } from '@/components/SmallScreenModal';
@@ -14,6 +13,7 @@ import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
 import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
+import { NativeUpdateNudge } from '@/components/NativeUpdateNudge';
 
 export const metadata: Metadata = {
   title: 'ISO Pro',
@@ -63,6 +63,7 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <NativeUpdateNudge />
           <CapacitorEntryRedirect />
           <CapacitorAppRecovery />
           <CapacitorBackButtonHandler />

@@ -91,43 +91,47 @@ export default async function AuditReportPage({
 
   audit = await ssrAuditReportForPrint(auditId, tenantSlug);
 
-  if (!audit) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
-          The live report could not be loaded right now. If you opened this form before, the cached snapshot should still be available on this device.
-        </div>
-        <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />
-        <Link href={`/${tenantSlug}/audits`} className="text-sm underline">
-          Back to stored forms
-        </Link>
+  const unavailableFallback = (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
+        The live report could not be loaded right now. If you opened this form before, the cached snapshot should still be available on this device.
       </div>
-    );
-  }
+      <AuditReportFromCacheClient tenantSlug={tenantSlug} auditId={auditId} />
+      <Link href={`/${tenantSlug}/audits`} className="text-sm underline">
+        Back to stored forms
+      </Link>
+    </div>
+  );
 
-  const tenant = audit.tenant;
-  const schema = normalizeFormSchema(audit.template.schema);
-  const payload =
-    audit.payload && typeof audit.payload === "object" && !Array.isArray(audit.payload)
-      ? (audit.payload as Record<string, unknown>)
-      : {};
-  const auditMeta =
-    payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
-      ? (payload.__auditMeta as Record<string, unknown>)
-      : null;
-  const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
-  const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
-  const sections = splitReportSections(schema);
-  const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
-  const payloadTempMeta =
-    payload && typeof payload.__temperatureMeta === "object" && payload.__temperatureMeta !== null
-      ? (payload.__temperatureMeta as Record<string, unknown>)
-      : null;
-  const correctiveAction = payloadTempMeta && typeof payloadTempMeta.correctiveAction === "string"
-    ? payloadTempMeta.correctiveAction
-    : "";
-  const trends = collectTemperatureSeries(schema, payload);
-  const resolvedOrientation = orientation || "landscape";
+  if (!audit) return unavailableFallback;
+
+  try {
+    const tenant = audit.tenant;
+    const schema = normalizeFormSchema(audit.template.schema);
+    const payload =
+      audit.payload && typeof audit.payload === "object" && !Array.isArray(audit.payload)
+        ? (audit.payload as Record<string, unknown>)
+        : {};
+    const auditMeta =
+      payload && typeof payload.__auditMeta === "object" && payload.__auditMeta !== null
+        ? (payload.__auditMeta as Record<string, unknown>)
+        : null;
+    const submittedByName = auditMeta && typeof auditMeta.submittedByName === "string" ? auditMeta.submittedByName : "";
+    const submittedByEmail = auditMeta && typeof auditMeta.submittedByEmail === "string" ? auditMeta.submittedByEmail : "";
+    const sections = splitReportSections(schema);
+    const defaultEvidence = payload[DEFAULT_EVIDENCE_FIELD_ID];
+    const payloadTempMeta =
+      payload && typeof payload.__temperatureMeta === "object" && payload.__temperatureMeta !== null
+        ? (payload.__temperatureMeta as Record<string, unknown>)
+        : null;
+    const correctiveAction = payloadTempMeta && typeof payloadTempMeta.correctiveAction === "string"
+      ? payloadTempMeta.correctiveAction
+      : "";
+    const trends = collectTemperatureSeries(schema, payload);
+    const resolvedOrientation = orientation || "landscape";
+    const templateTitle = typeof audit.template.title === "string" && audit.template.title.trim()
+      ? audit.template.title
+      : "Form";
 
   const printCss = `
     @page { size: A4 ${resolvedOrientation}; margin: 10mm; }
@@ -169,13 +173,13 @@ export default async function AuditReportPage({
         </div>
         <div className="flex items-center gap-2">
           <PdfGeneratorButton
-            filename={`${tenant.slug}-${audit.template.title.replace(/[^a-z0-9]/gi, '-')}-${auditId}.pdf`}
+            filename={`${tenant.slug}-${templateTitle.replace(/[^a-z0-9]/gi, '-')}-${auditId}.pdf`}
             orientation={resolvedOrientation}
           />
           <AuditReportShareControls
             tenantSlug={tenantSlug}
             auditId={auditId}
-            title={schema.title || audit.template.title}
+            title={schema.title || templateTitle}
             enablePdfShare={true}
           />
           <PrintButton />
@@ -375,4 +379,8 @@ export default async function AuditReportPage({
       </div>
     </div>
   );
+  } catch (error) {
+    console.error("AuditReportPage render failed", { tenantSlug, auditId, error });
+    return unavailableFallback;
+  }
 }

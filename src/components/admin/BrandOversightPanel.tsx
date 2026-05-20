@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowUpRight, Loader2, MessageSquare, Power, PowerOff, Search, ShieldCheck, SortAsc, SortDesc, Users } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Loader2, Megaphone, MessageSquare, Power, PowerOff, Search, ShieldCheck, SortAsc, SortDesc, Users } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
@@ -65,6 +65,10 @@ export function BrandOversightPanel() {
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [accessDenied, setAccessDenied] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [savingBroadcast, setSavingBroadcast] = useState(false);
 
   const filteredBrands = useMemo(() => {
     let result = [...brands];
@@ -243,6 +247,39 @@ export function BrandOversightPanel() {
     }
   }
 
+  async function sendBroadcast() {
+    const token = session?.access_token || "";
+    if (!token) return;
+    setSavingBroadcast(true);
+    setBusyMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/admin/broadcast", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ title: broadcastTitle, message: broadcastMessage }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 403) {
+        setAccessDenied(true);
+        throw new Error(json?.error || "Forbidden");
+      }
+      if (!res.ok) throw new Error(json?.error || `Failed to broadcast (${res.status})`);
+      setBusyMessage("Broadcast sent to all brand workspace inboxes.");
+      setBroadcastOpen(false);
+      setBroadcastTitle("");
+      setBroadcastMessage("");
+      await refreshBrands();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send broadcast");
+    } finally {
+      setSavingBroadcast(false);
+    }
+  }
+
   if (authLoading) {
     return <AppLoadingScreen title="Loading admin console" subtitle="Checking permissions and loading all brands..." />;
   }
@@ -342,6 +379,20 @@ export function BrandOversightPanel() {
             >
               {sortOrder === "asc" ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCompose(null);
+                setBroadcastOpen(true);
+                setBroadcastTitle("");
+                setBroadcastMessage("");
+              }}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-foreground/15 bg-background px-3 text-sm font-medium hover:bg-foreground/5"
+              title="Send one message to every brand workspace developer inbox"
+            >
+              <Megaphone className="h-4 w-4" />
+              Broadcast all
+            </button>
           </div>
         </div>
         <div className="text-xs text-foreground/60">
@@ -414,7 +465,10 @@ export function BrandOversightPanel() {
                   type="button"
                   className="inline-flex h-10 items-center justify-center rounded-full border border-foreground/15 px-4 text-sm font-medium hover:bg-foreground/5 disabled:opacity-60"
                   disabled={savingBrandId === brand.id}
-                  onClick={() => setCompose({ brandId: brand.id, title: "", message: "" })}
+                  onClick={() => {
+                    setBroadcastOpen(false);
+                    setCompose({ brandId: brand.id, title: "", message: "" });
+                  }}
                 >
                   Send alert
                 </button>
@@ -432,6 +486,77 @@ export function BrandOversightPanel() {
           );
         })}
       </div>
+
+      {broadcastOpen ? (
+        <div className="fixed inset-0 z-[71] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close broadcast composer"
+            onClick={() => !savingBroadcast && setBroadcastOpen(false)}
+          />
+          <div className="relative w-full max-w-xl rounded-3xl border border-foreground/10 bg-background p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">Broadcast to all brands</h2>
+                <p className="mt-1 text-sm text-foreground/70">
+                  Creates a platform-wide announcement. It appears in every brand workspace developer inbox and alongside per-brand alerts.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-foreground/10 px-3 py-1 text-sm disabled:opacity-50"
+                disabled={savingBroadcast}
+                onClick={() => setBroadcastOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Title</span>
+                <input
+                  value={broadcastTitle}
+                  onChange={(e) => setBroadcastTitle(e.target.value)}
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                  placeholder="e.g. Scheduled maintenance tonight"
+                />
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Message</span>
+                <textarea
+                  value={broadcastMessage}
+                  onChange={(e) => setBroadcastMessage(e.target.value)}
+                  className="min-h-32 rounded-xl border border-foreground/15 bg-background px-3 py-2"
+                  placeholder="Message shown in every brand workspace inbox."
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="h-11 rounded-full border border-foreground/15 px-5 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
+                disabled={savingBroadcast}
+                onClick={() => setBroadcastOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
+                disabled={savingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
+                onClick={() => void sendBroadcast()}
+              >
+                {savingBroadcast ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Send broadcast
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {compose ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">

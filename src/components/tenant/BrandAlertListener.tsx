@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
@@ -11,6 +11,8 @@ type TenantAlert = {
   message: string;
   createdAt: string;
   isRead: boolean;
+  /** Present when API merges global platform announcements. */
+  source?: "tenant" | "global";
 };
 
 const ALERT_SEEN_PREFIX = "tenant-alert-seen:v1:";
@@ -34,18 +36,22 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
     }
   }, [tenantSlug]);
 
-  async function markSeen(alertId: string) {
+  async function markSeen(alert: TenantAlert) {
     try {
-      localStorage.setItem(storageKey(tenantSlug), alertId);
+      localStorage.setItem(storageKey(tenantSlug), alert.id);
     } catch {
       // ignore storage failures
     }
-    setSeenId(alertId);
+    setSeenId(alert.id);
 
-    // Also mark as read on the server
+    const src = alert.source ?? "tenant";
+    const readPath =
+      src === "global"
+        ? `/api/global-announcements/${encodeURIComponent(alert.id)}/read`
+        : `/api/tenant/${encodeURIComponent(tenantSlug)}/announcements/${encodeURIComponent(alert.id)}/read`;
+
     try {
-      const url = new URL(apiUrl(`/api/tenant/${tenantSlug}/announcements/${alertId}/read`));
-      await fetch(url.toString(), {
+      await fetch(apiUrl(readPath), {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -54,43 +60,46 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
     }
   }
 
-  useEffect(() => {
+  const loadAlerts = useCallback(async () => {
     if (!tenantSlug || !accessToken) return;
+    try {
+      const url = new URL(apiUrl("/api/tenant-alerts"));
+      url.searchParams.set("tenantSlug", tenantSlug);
 
-    let cancelled = false;
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
 
-    async function loadAlerts() {
-      try {
-        const url = new URL(apiUrl("/api/tenant-alerts"));
-        url.searchParams.set("tenantSlug", tenantSlug);
+      const json = (await res.json().catch(() => ({}))) as { alerts?: TenantAlert[]; error?: string };
+      if (!res.ok) return;
 
-        const res = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+      const nextAlerts = Array.isArray(json.alerts) ? (json.alerts as TenantAlert[]) : [];
+      setAlerts(nextAlerts);
 
-        const json = (await res.json().catch(() => ({}))) as { alerts?: TenantAlert[]; error?: string };
-        if (!res.ok) return;
-        if (cancelled) return;
-
-        const nextAlerts = Array.isArray(json.alerts) ? (json.alerts as TenantAlert[]) : [];
-        setAlerts(nextAlerts);
-
-        // Use server-side read state if available, fall back to local storage
-        const nextUnread = nextAlerts.find((alert) => !alert.isRead && alert.id !== seenId) || null;
-        setActiveAlert((current) => current && nextAlerts.some((alert) => alert.id === current.id) ? current : nextUnread);
-      } catch {
-        // silent polling fallback
-      }
+      const nextUnread = nextAlerts.find((alert) => !alert.isRead && alert.id !== seenId) || null;
+      setActiveAlert((current) =>
+        current && nextAlerts.some((alert) => alert.id === current.id) ? current : nextUnread
+      );
+    } catch {
+      // silent polling fallback
     }
-
-    void loadAlerts();
-    const timer = window.setInterval(loadAlerts, 15000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
   }, [accessToken, tenantSlug, seenId]);
+
+  useEffect(() => {
+    void loadAlerts();
+    const timer = window.setInterval(() => void loadAlerts(), 15000);
+    return () => window.clearInterval(timer);
+  }, [loadAlerts]);
+
+  useEffect(() => {
+    function onTenantAlertsUpdated(ev: Event) {
+      const detail = (ev as CustomEvent<{ tenantSlug?: string }>).detail;
+      if (detail?.tenantSlug !== tenantSlug) return;
+      void loadAlerts();
+    }
+    window.addEventListener("iso-tenant-alerts-updated", onTenantAlertsUpdated);
+    return () => window.removeEventListener("iso-tenant-alerts-updated", onTenantAlertsUpdated);
+  }, [tenantSlug, loadAlerts]);
 
   const unreadCount = useMemo(() => alerts.filter((alert) => !alert.isRead && alert.id !== seenId).length, [alerts, seenId]);
 
@@ -104,17 +113,17 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
       actionLabel={unreadCount > 1 ? `Acknowledge (${unreadCount})` : "Acknowledge"}
       cancelLabel="Later"
       onClose={() => {
-        markSeen(activeAlert.id);
+        void markSeen(activeAlert);
         const remaining = alerts.find((alert) => alert.id !== activeAlert.id && alert.id !== seenId) || null;
         setActiveAlert(remaining);
       }}
       onAction={() => {
-        markSeen(activeAlert.id);
+        void markSeen(activeAlert);
         const remaining = alerts.find((alert) => alert.id !== activeAlert.id && alert.id !== seenId) || null;
         setActiveAlert(remaining);
       }}
       onCancel={() => {
-        markSeen(activeAlert.id);
+        void markSeen(activeAlert);
         const remaining = alerts.find((alert) => alert.id !== activeAlert.id && alert.id !== seenId) || null;
         setActiveAlert(remaining);
       }}
