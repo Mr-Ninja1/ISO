@@ -173,9 +173,19 @@ try {
     console.log(`[capacitor-build] App bundle label: ${appBundleLabel}`);
   }
   mirrorTenantShellRoutes();
-  writeCapacitorWebConfig();
-  run("npx", ["cap", "copy", "android"]);
-  console.log("[capacitor-build] Done. Open Android Studio: npm run cap:open-android");
+
+  const skipCapSync =
+    process.env.CI === "true" ||
+    process.env.CI === "1" ||
+    process.env.SKIP_CAP_SYNC === "1";
+
+  if (skipCapSync) {
+    console.log("[capacitor-build] CI mode — skipping cap copy (OTA-only build).");
+  } else {
+    writeCapacitorWebConfig();
+    run("npx", ["cap", "copy", "android"]);
+    console.log("[capacitor-build] Done. Open Android Studio: npm run cap:open-android");
+  }
 } finally {
   restoreApi();
 }

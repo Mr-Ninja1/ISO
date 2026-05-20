@@ -19,6 +19,7 @@
     "package:ota": "node tools/package-ota-bundle.mjs",
     "publish:ota:public": "node tools/publish-ota-public.mjs",
     "release:ota": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
+    "release:ota:ci": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
     "lint": "eslint"
   },
   "dependencies": {

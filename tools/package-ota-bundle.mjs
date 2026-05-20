@@ -26,6 +26,9 @@ const zipName = `bundle-${bundleId}.zip`;
 const zipPath = path.join(distDir, zipName);
 
 function defaultBundleId() {
+  const fromCi = process.env.GITHUB_RUN_NUMBER?.trim();
+  if (fromCi) return `ci.${fromCi}`;
+
   const d = new Date();
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");

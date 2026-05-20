@@ -54,6 +54,14 @@ Run migration `20260520143000_global_announcements_platform_settings.sql` if not
 
 ## Releasing an OTA web update (routine)
 
+### Production (automated)
+
+Push to `main`. GitHub Actions (`main_iso-pro.yml`) runs `npm run release:ota:ci`, then builds the site and deploys `public/ota/production/` (manifest + zip) to Azure. Bundle id: `ci.<github.run_number>`.
+
+You only need Supabase/console to point `live_update_bundle_url` at `https://isopro.me/ota/production/manifest.json` once.
+
+### Local / manual (optional)
+
 ### Step 1 — Build the Capacitor web bundle
 
 ```powershell

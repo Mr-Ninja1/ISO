@@ -1,6 +1,6 @@
 # Learn OTA — full process (ISO Pro)
 
-This is the exact workflow we use. **Website deploy and OTA are separate.**
+This is the exact workflow we use. **Website and OTA ship on the same `git push` to `main`.**
 
 ---
 
@@ -9,10 +9,10 @@ This is the exact workflow we use. **Website deploy and OTA are separate.**
 | Layer | What | When you change it |
 |-------|------|-------------------|
 | **1. APIs** | `https://isopro.me/api/...` (Supabase) | Deploy backend / env — same for browser and app |
-| **2. Website** | Browser at `isopro.me` | `git push` → hosting build |
-| **3. App UI (OTA)** | Zip in WebView | `npm run release:ota` → **upload zip** → manifest URL in Supabase |
+| **2. Website** | Browser at `isopro.me` | `git push` → GitHub Actions → Azure |
+| **3. App UI (OTA)** | Zip in WebView | **Same push** — CI runs `release:ota:ci` and deploys `public/ota/production/` |
 
-OTA only updates **layer 3**. Layers 1–2 are independent.
+OTA only updates **layer 3** on the phone. Layers 1–2 use the same deploy; you do not upload zips by hand anymore.
 
 ---
 
@@ -50,17 +50,17 @@ npm run publish:ota:public
 - `public/ota/production/manifest.json` — tells the app *which* zip to download
 - `public/ota/production/bundle-20260521.lesson-v3.zip` — the actual UI (~2 MB)
 
-### Step 3 — Publish to HTTPS (critical)
+### Step 3 — Publish to HTTPS (automatic on `main`)
 
-**Both** must return 200 in a browser:
+GitHub Actions builds the zip and copies it into the deploy bundle. After deploy, **both** must return 200:
 
 1. https://isopro.me/ota/production/manifest.json  
-2. https://isopro.me/ota/production/bundle-XXXX.zip  
+2. https://isopro.me/ota/production/bundle-ci.RUN_NUMBER.zip  
 
-- `manifest.json` is usually committed in git and deploys with the site.  
-- **`.zip` is gitignored** — upload via hosting panel, FTP, or CI artifact.
+- Zips are **gitignored** locally but **built in CI** every deploy.  
+- Manual upload is only needed if you skip CI or deploy OTA files elsewhere.
 
-If manifest works but zip is **404**, the app will never finish OTA.
+If manifest works but zip is **404**, check the latest Actions run (OTA build step failed or deploy did not include `public/ota/`).
 
 ### Step 4 — Supabase points apps at manifest
 
@@ -97,7 +97,20 @@ $env:NEXT_PUBLIC_NATIVE_BUILD="1"
 npm run release:ota
 ```
 
-Then deploy + upload zip.
+Then `git push` to `main` (CI deploys zip + manifest) — no manual upload.
+
+---
+
+## What CI does (`.github/workflows/main_iso-pro.yml`)
+
+On each `main` push:
+
+1. `npm run release:ota:ci` with `OTA_BUNDLE_ID=ci.<run_number>`, `SKIP_CAP_SYNC=1`
+2. Verifies `public/ota/production/manifest.json` and `bundle-ci.<run>.zip` exist
+3. `npm run build` (standalone website)
+4. `cp -R public deploy-bundle/public` → Azure
+
+Phones still read the manifest URL from Supabase (`live_update_bundle_url`).
 
 ---
 

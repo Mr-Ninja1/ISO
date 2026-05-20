@@ -31,8 +31,27 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          CI: true
+          NEXT_PUBLIC_API_BASE_URL: https://isopro.me
+          NEXT_PUBLIC_NATIVE_BUILD: "1"
+          APP_BUNDLE_LABEL: deploy-${{ github.run_number }}
+          OTA_BUNDLE_ID: ci.${{ github.run_number }}
+          OTA_PUBLIC_BASE_URL: https://isopro.me/ota/production
+          OTA_CHANNEL: production
+          OTA_MIN_NATIVE_BUILD: "1"
+          OTA_RELEASE_NOTES: Deploy ${{ github.sha }} (run ${{ github.run_number }})
+          SKIP_CAP_SYNC: "1"
         run: |
           npm install
+
+          # OTA: static Capacitor bundle + zip → public/ota/production/ (deployed with the site)
+          echo "=== Building OTA bundle for native apps ==="
+          npm run release:ota:ci
+          ls -la public/ota/production/
+          test -f public/ota/production/manifest.json
+          test -f public/ota/production/bundle-ci.${{ github.run_number }}.zip
+
+          echo "=== Building hosted website (standalone) ==="
           npm run build
           pwd
           ls -la
@@ -67,6 +86,8 @@ jobs:
           cp -R .next/standalone/. deploy-bundle/
           cp -R .next/static deploy-bundle/.next/static
           cp -R public deploy-bundle/public
+          echo "OTA files included in deploy:"
+          ls -la deploy-bundle/public/ota/production/ || true
           # Ensure Azure runs the standalone server (API routes require Node, not static-only hosting).
           node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...j.scripts,start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
           rm -f node-app.tar.gz
