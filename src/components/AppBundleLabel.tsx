@@ -11,10 +11,10 @@ export function AppBundleLabel() {
 
   return (
     <div
-      className="rounded-lg border border-emerald-400/60 bg-emerald-50 px-3 py-2 text-center text-sm font-semibold text-emerald-950 shadow-sm"
+      className="rounded-lg border-2 border-emerald-500 bg-emerald-100 px-4 py-3 text-center text-base font-bold text-emerald-950 shadow-md"
       role="status"
     >
-      App bundle: {label}
+      ✓ OTA bundle active: {label}
     </div>
   );
 }

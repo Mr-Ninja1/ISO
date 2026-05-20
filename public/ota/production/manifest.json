@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260521.ota-test-2",
-  "version": "20260521.ota-test-2",
+  "bundleId": "20260521.lesson-v3",
+  "version": "20260521.lesson-v3",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://isopro.me/ota/production/bundle-20260521.ota-test-2.zip",
-  "publishedAt": "2026-05-20T16:05:36.990Z",
-  "releaseNotes": "OTA lesson: green banner should say OTA-TEST-v2-green"
+  "bundleUrl": "https://isopro.me/ota/production/bundle-20260521.lesson-v3.zip",
+  "publishedAt": "2026-05-20T16:56:53.775Z",
+  "releaseNotes": "Lesson v3 — bolder green OTA banner"
 }
