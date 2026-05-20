@@ -9,6 +9,7 @@ import { fetchNavCapabilities, readCachedNavCapabilities, type NavCapabilities }
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
 import { HeaderKebabMenu, HeaderMenuItem } from "@/components/ui/HeaderKebabMenu";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 
 const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms: false };
 
@@ -25,22 +26,22 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const { session } = useAuth();
   const pathname = usePathname();
   const offline = useAppOffline();
-  const settingsBase = `/${tenantSlug}/settings`;
-  const auditsBase = `/${tenantSlug}/audits`;
-  const dashboardBase = `/${tenantSlug}/dashboard`;
-  const correctiveActionsBase = `/${tenantSlug}/corrective-actions`;
-  const activityBase = `/${tenantSlug}/activity`;
-  const templatesBase = `/${tenantSlug}/templates`;
-  const categoriesBase = `/${tenantSlug}/categories`;
+  const settingsBase = buildTenantHref(tenantSlug, "settings");
+  const auditsBase = buildTenantHref(tenantSlug, "audits");
+  const dashboardBase = buildTenantHref(tenantSlug, "dashboard");
+  const correctiveActionsBase = buildTenantHref(tenantSlug, "corrective-actions");
+  const activityBase = buildTenantHref(tenantSlug, "activity");
+  const templatesBase = buildTenantHref(tenantSlug, "templates");
+  const categoriesBase = buildTenantHref(tenantSlug, "categories");
   const workspaceHref = `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`;
 
-  const onAudits = pathname?.startsWith(auditsBase) ?? false;
-  const onSettings = pathname?.startsWith(settingsBase) ?? false;
-  const onActivity = pathname?.startsWith(activityBase) ?? false;
-  const onDashboard = pathname?.startsWith(dashboardBase) ?? false;
-  const onCorrectiveActions = pathname?.startsWith(correctiveActionsBase) ?? false;
-  const onTemplates = pathname?.startsWith(templatesBase) ?? false;
-  const onCategories = pathname?.startsWith(categoriesBase) ?? false;
+  const onAudits = pathname?.includes("/audits") ?? false;
+  const onSettings = pathname?.includes("/settings") ?? false;
+  const onActivity = pathname?.includes("/activity") ?? false;
+  const onDashboard = pathname?.includes("/dashboard") ?? false;
+  const onCorrectiveActions = pathname?.includes("/corrective-actions") ?? false;
+  const onTemplates = pathname?.includes("/templates") ?? false;
+  const onCategories = pathname?.includes("/categories") ?? false;
 
   const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);

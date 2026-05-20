@@ -36,6 +36,7 @@ import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/cli
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
 import { isDraftPayloadDirty } from "@/lib/client/draftPayloadDirty";
+import { pushTenantRoute } from "@/lib/client/tenantNavigation";
 
 type Props = {
   tenantSlug: string;
@@ -533,7 +534,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       });
       clearLocalDraft(currentUserId, tenantSlug, templateId);
       setDraftAuditId(null);
-      router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=submitted&auditId=${encodeURIComponent(json.auditId)}`);
+      pushTenantRoute(router, tenantSlug, "audits", {
+        status: "SUBMITTED",
+        notice: "submitted",
+        auditId: json.auditId,
+      });
       return true;
     } catch (error: unknown) {
       const timedOut = isTimedOutRequest(error);
@@ -602,7 +607,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         clearLocalDraft(currentUserId, tenantSlug, templateId);
         setDraftAuditId(null);
         writeQueuedNotice(tenantSlug, "Submission queued while offline. It will sync once connection is restored.");
-        router.push(`/${tenantSlug}/audits?status=SUBMITTED&notice=queued-submit`);
+        pushTenantRoute(router, tenantSlug, "audits", {
+          status: "SUBMITTED",
+          notice: "queued-submit",
+        });
       }
 
       return true;

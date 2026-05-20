@@ -34,7 +34,6 @@ jobs:
           CI: true
           NEXT_PUBLIC_API_BASE_URL: https://isopro.me
           NEXT_PUBLIC_NATIVE_BUILD: "1"
-          APP_BUNDLE_LABEL: deploy-${{ github.run_number }}
           OTA_BUNDLE_ID: ci.${{ github.run_number }}
           OTA_PUBLIC_BASE_URL: https://isopro.me/ota/production
           OTA_CHANNEL: production

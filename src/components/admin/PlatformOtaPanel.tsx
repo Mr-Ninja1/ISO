@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, Smartphone } from "lucide-react";
+import { Loader2, Megaphone, RefreshCw, Smartphone } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
 
@@ -20,6 +20,12 @@ export function PlatformOtaPanel() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastOk, setBroadcastOk] = useState(false);
+  const [broadcastTitle, setBroadcastTitle] = useState("App update available");
+  const [broadcastMessage, setBroadcastMessage] = useState(
+    "A new version of the app is ready. Please close the app completely and open it again to install the update. If you do not see a prompt, restart while connected to the internet."
+  );
   const [form, setForm] = useState<PlatformSettings>({
     minNativeBuild: 1,
     liveUpdateChannel: "production",
@@ -53,6 +59,34 @@ export function PlatformOtaPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function sendUpdateBroadcast() {
+    if (!accessToken || broadcasting) return;
+    setBroadcasting(true);
+    setError("");
+    setBroadcastOk(false);
+    try {
+      const res = await fetch(apiUrl("/api/admin/broadcast"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: broadcastTitle.trim(),
+          message: broadcastMessage.trim(),
+          delivery: "modal",
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || `Broadcast failed (${res.status})`);
+      setBroadcastOk(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not send broadcast");
+    } finally {
+      setBroadcasting(false);
+    }
+  }
 
   async function save() {
     if (!accessToken || saving) return;
@@ -182,6 +216,49 @@ export function PlatformOtaPanel() {
             >
               {saving ? "Saving…" : "Save OTA settings"}
             </button>
+          </div>
+
+          <div className="rounded-xl border border-foreground/15 bg-foreground/[0.02] p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Megaphone className="h-4 w-4" />
+              Notify all brands after an update
+            </div>
+            <p className="mt-1 text-xs text-foreground/65">
+              Sends a platform-wide modal to every brand workspace (same as Developer → Broadcast all). Use after you deploy a new OTA bundle.
+            </p>
+            <div className="mt-3 grid gap-2">
+              <input
+                type="text"
+                value={broadcastTitle}
+                onChange={(e) => setBroadcastTitle(e.target.value)}
+                className="h-10 rounded-lg border border-foreground/15 bg-background px-3 text-sm"
+                placeholder="Title"
+              />
+              <textarea
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                className="min-h-24 rounded-lg border border-foreground/15 bg-background px-3 py-2 text-sm"
+                placeholder="Message for all users"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={broadcasting || !broadcastTitle.trim() || !broadcastMessage.trim()}
+              onClick={() => void sendUpdateBroadcast()}
+              className="mt-3 inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm font-medium hover:bg-foreground/5 disabled:opacity-60"
+            >
+              {broadcasting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Broadcast update notice"
+              )}
+            </button>
+            {broadcastOk ? (
+              <p className="mt-2 text-xs text-emerald-800">Broadcast sent. Users will see it in workspace on next visit.</p>
+            ) : null}
           </div>
 
           <div className="rounded-lg border border-foreground/10 bg-foreground/[0.03] p-3 text-xs text-foreground/70">

@@ -1,9 +1,17 @@
+import { appendEvidencePagesToPdf } from "@/lib/pdfEvidencePages";
+import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
+
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
 
 type PdfOptions = {
   scale?: number;
-  orientation?: 'portrait' | 'landscape';
+  orientation?: "portrait" | "landscape";
+};
+
+export type AuditPdfExportOptions = PdfOptions & {
+  includeEvidencePages?: boolean;
+  evidencePhotos?: ReportEvidencePhoto[];
 };
 
 function getPageSizeMm(orientation: 'portrait' | 'landscape') {
@@ -18,10 +26,20 @@ function getTargetRenderWidthPx(orientation: 'portrait' | 'landscape') {
   return Math.round(page.width * PX_PER_MM);
 }
 
+function stripEvidenceThumbsForPdf(clone: HTMLElement) {
+  clone.querySelectorAll(".report-evidence-thumb-grid").forEach((node) => {
+    node.remove();
+  });
+  clone.querySelectorAll(".report-evidence-pdf-note").forEach((node) => {
+    (node as HTMLElement).style.display = "block";
+  });
+}
+
 async function captureForPdf(
   element: HTMLElement,
-  orientation: 'portrait' | 'landscape',
-  scale: number
+  orientation: "portrait" | "landscape",
+  scale: number,
+  stripEvidenceThumbs = false
 ) {
   const { default: html2canvas } = await import('html2canvas');
   const clone = element.cloneNode(true) as HTMLElement;
@@ -41,6 +59,10 @@ async function captureForPdf(
   clone.style.margin = '0';
   clone.style.transform = 'none';
   clone.style.fontSize = '14px';
+
+  if (stripEvidenceThumbs) {
+    stripEvidenceThumbsForPdf(clone);
+  }
 
   host.appendChild(clone);
   document.body.appendChild(host);
@@ -126,35 +148,63 @@ async function canvasToA4Pdf(canvas: HTMLCanvasElement, orientation: 'portrait' 
   return pdf;
 }
 
-export async function generatePdfFromElement(
+export async function generateAuditReportPdf(
   element: HTMLElement,
-  filename: string = 'report.pdf',
-  options?: PdfOptions
+  filename: string = "report.pdf",
+  options?: AuditPdfExportOptions
 ): Promise<void> {
-  const { scale = 3, orientation = 'landscape' } = options || {};
+  const { scale = 3, orientation = "landscape", includeEvidencePages = false, evidencePhotos = [] } =
+    options || {};
 
   try {
-    const canvas = await captureForPdf(element, orientation, scale);
+    const canvas = await captureForPdf(
+      element,
+      orientation,
+      scale,
+      includeEvidencePages && evidencePhotos.length > 0
+    );
     const pdf = await canvasToA4Pdf(canvas, orientation);
+
+    if (includeEvidencePages && evidencePhotos.length > 0) {
+      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);
+    }
 
     pdf.save(filename);
   } catch (error) {
-    console.error('Failed to generate PDF:', error);
-    throw new Error('Failed to generate PDF. Please try again.');
+    console.error("Failed to generate PDF:", error);
+    throw new Error("Failed to generate PDF. Please try again.");
   }
+}
+
+export async function generatePdfFromElement(
+  element: HTMLElement,
+  filename: string = "report.pdf",
+  options?: PdfOptions
+): Promise<void> {
+  return generateAuditReportPdf(element, filename, options);
 }
 
 export async function generatePdfBlobFromElement(
   element: HTMLElement,
-  options?: PdfOptions
+  options?: AuditPdfExportOptions
 ): Promise<Blob> {
-  const { scale = 3, orientation = 'landscape' } = options || {};
+  const { scale = 3, orientation = "landscape", includeEvidencePages = false, evidencePhotos = [] } =
+    options || {};
 
   try {
-    const canvas = await captureForPdf(element, orientation, scale);
+    const canvas = await captureForPdf(
+      element,
+      orientation,
+      scale,
+      includeEvidencePages && evidencePhotos.length > 0
+    );
     const pdf = await canvasToA4Pdf(canvas, orientation);
 
-    return pdf.output('blob') as Blob;
+    if (includeEvidencePages && evidencePhotos.length > 0) {
+      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);
+    }
+
+    return pdf.output("blob") as Blob;
   } catch (error) {
     console.error('Failed to generate PDF blob:', error);
     throw new Error('Failed to generate PDF. Please try again.');

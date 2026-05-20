@@ -30,3 +30,15 @@ export function buildTenantHref(
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
+
+/**
+ * Saved form report — on Capacitor uses static `/_/audits/_` + auditId query (real UUID paths 404 → workspace).
+ */
+export function buildAuditReportHref(tenantSlug: string, auditId: string) {
+  const id = (auditId || "").trim();
+  if (!id) return buildTenantHref(tenantSlug, "audits");
+  if (isCapacitorNativeApp()) {
+    return buildTenantHref(tenantSlug, "audits/_", { auditId: id });
+  }
+  return buildTenantHref(tenantSlug, `audits/${id}`);
+}

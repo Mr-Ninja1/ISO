@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AuditsListClient } from "@/components/forms/AuditsListClient";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RefreshPageButton } from "@/components/RefreshPageButton";
 import { AdminBackButton } from "@/components/forms/AdminBackButton";
@@ -65,7 +66,7 @@ export function AuditsPageClient({ tenantSlug: routeSlug }: { tenantSlug: string
         <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
           Form submitted successfully.
           {auditId ? (
-            <Link href={`/${tenantSlug}/audits/${encodeURIComponent(auditId)}`} className="ml-2 underline">
+            <Link href={auditReportHref(tenantSlug, auditId)} className="ml-2 underline">
               View report
             </Link>
           ) : null}

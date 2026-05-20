@@ -87,7 +87,18 @@ export async function GET(req: Request) {
     }
 
     if (status === 401) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (status === 403) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (status === 403) {
+      const code = (err as { code?: string }).code;
+      const deactivationReason = (err as { deactivationReason?: string | null }).deactivationReason ?? null;
+      return NextResponse.json(
+        {
+          error: err.message || "Forbidden",
+          code: code || (deactivationReason ? "TENANT_DEACTIVATED" : undefined),
+          deactivationReason,
+        },
+        { status: 403 }
+      );
+    }
     if (status === 404) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
     console.error("/api/workspace GET error", error);

@@ -64,16 +64,43 @@ export function resolveTenantSlug(options: ResolveTenantSlugOptions = {}): strin
   return "";
 }
 
+/** Audit id from query string (Capacitor static export uses `/_/audits/_?auditId=`). */
+export function auditIdFromSearch(search: string | null | undefined): string {
+  if (!search) return "";
+  try {
+    const raw = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("auditId");
+    const id = (raw || "").trim();
+    if (!id || id === "_" || id === "new" || id === "local" || id === "offline-last") return "";
+    return id;
+  } catch {
+    return "";
+  }
+}
+
 /** Audit id from `/brand/audits/{id}` (excludes new, local, placeholder). */
 export function auditIdFromPathname(pathname: string | null | undefined): string {
   if (!pathname) return "";
   const match = pathname.match(/^\/[^/]+\/audits\/([^/]+)\/?$/);
   if (!match?.[1]) return "";
   const id = match[1];
-  if (id === "new" || id === "local" || id === "offline-last" || id === CAPACITOR_EXPORT_TENANT_SLUG) {
+  if (
+    id === "new" ||
+    id === "local" ||
+    id === "offline-last" ||
+    id === "_" ||
+    id === CAPACITOR_EXPORT_TENANT_SLUG
+  ) {
     return "";
   }
   return id;
+}
+
+export function resolveAuditId(pathname: string | null | undefined, search?: string | null): string {
+  const fromQuery = auditIdFromSearch(
+    search ?? (typeof window !== "undefined" ? window.location.search : null)
+  );
+  if (fromQuery) return fromQuery;
+  return auditIdFromPathname(pathname);
 }
 
 export function rememberActiveTenantSlug(slug: string) {

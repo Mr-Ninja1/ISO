@@ -8,6 +8,7 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
+import { buildAuditReportHref } from "@/lib/client/tenantHref";
 
 type ActivityRow = {
   id: string;
@@ -462,7 +463,10 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
               {filteredRows.map((row) => {
                 const risk = isRiskRow(row);
                 const summary = detailSummary(row);
-                const entityHref = row.entityType === "AuditLog" && row.entityId ? `/${tenantSlug}/audits/${row.entityId}` : null;
+                const entityHref =
+                  row.entityType === "AuditLog" && row.entityId
+                    ? buildAuditReportHref(tenantSlug, row.entityId)
+                    : null;
                 return (
                   <div key={row.id} className={"p-4 " + (risk ? "bg-amber-50/70" : "bg-background") }>
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

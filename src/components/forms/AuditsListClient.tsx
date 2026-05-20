@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { FileText, MoreVertical, Share2, Printer, Loader2 } from "lucide-react";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
@@ -19,13 +19,17 @@ import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
+import { auditReportHref } from "@/lib/client/tenantNavigation";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 
 type FormAction = "view" | "share" | "pdf";
 
 function actionButtonClass(busy: boolean) {
   return (
-    "inline-flex h-10 min-w-[7.5rem] items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm transition-colors " +
-    (busy ? "cursor-wait bg-foreground/10 opacity-80" : "hover:bg-foreground/5 active:scale-[0.98]")
+    "inline-flex h-10 min-w-[7.5rem] items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm transition-all duration-150 " +
+    (busy
+      ? "cursor-wait border-foreground/30 bg-foreground/10 opacity-90 shadow-inner animate-pulse"
+      : "hover:bg-foreground/5 active:scale-[0.98]")
   );
 }
 
@@ -43,15 +47,29 @@ function SavedFormRowActions({
   layout: "row" | "menu";
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<FormAction | null>(null);
+
+  const reportPath = auditReportHref(tenantSlug, auditId);
+
+  useEffect(() => {
+    if (busy === "view" && pathname?.includes(auditId)) {
+      setBusy(null);
+    }
+  }, [busy, pathname, auditId]);
+
+  useEffect(() => {
+    if (busy !== "view") return;
+    const timeout = window.setTimeout(() => setBusy(null), 15_000);
+    return () => window.clearTimeout(timeout);
+  }, [busy]);
 
   async function runAction(action: FormAction) {
     if (busy) return;
     setBusy(action);
     setOpen(false);
     try {
-      const reportPath = `/${tenantSlug}/audits/${auditId}`;
       if (action === "view") {
         router.push(reportPath);
         return;
@@ -62,8 +80,9 @@ function SavedFormRowActions({
         return;
       }
       window.open(reportPath, "_blank", "noopener,noreferrer");
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
     } finally {
-      setBusy(null);
+      if (action !== "view") setBusy(null);
     }
   }
 
@@ -393,7 +412,7 @@ export function AuditsListClient({
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         <Link
-          href={`/${activeTenantSlug}/templates`}
+          href={buildTenantHref(activeTenantSlug, "templates")}
           className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
         >
           Run new form

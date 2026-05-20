@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
 import {
   buildWorkspacePayload,
   resolveSelectedWorkspaceCategoryId,
@@ -30,7 +31,7 @@ export async function fetchWorkspaceViaSupabase(
 
   const { data: tenantRow, error: tenantErr } = await supabase
     .from("tenants")
-    .select("id,name,slug,logo_url,is_active")
+    .select("id,name,slug,logo_url,is_active,deactivation_reason")
     .eq("slug", tenantSlug)
     .maybeSingle();
 
@@ -50,9 +51,11 @@ export async function fetchWorkspaceViaSupabase(
     const err = new Error("This brand has been deactivated") as Error & {
       status?: number;
       code?: string;
+      deactivationReason?: string | null;
     };
     err.status = 403;
     err.code = "TENANT_DEACTIVATED";
+    err.deactivationReason = tenantDeactivationReasonFromRow(tenantRow as Record<string, unknown>);
     throw err;
   }
 

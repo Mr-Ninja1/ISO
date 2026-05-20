@@ -46,6 +46,7 @@ type TenantAlertsResponse = {
   }>;
   error?: string;
   code?: string;
+  deactivationReason?: string | null;
 };
 
 type ToastItem = {
@@ -219,7 +220,10 @@ export function TenantMessageProvider({ children }: Props) {
       const json = (await res.json().catch(() => ({}))) as TenantAlertsResponse;
 
       if (res.status === 403 && json.code === "TENANT_DEACTIVATED") {
-        dispatchTenantDeactivated(tenantSlug);
+        dispatchTenantDeactivated(
+          tenantSlug,
+          typeof json.deactivationReason === "string" ? json.deactivationReason : null
+        );
         return;
       }
       if (!res.ok) {

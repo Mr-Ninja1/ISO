@@ -20,7 +20,6 @@ OTA only updates **layer 3** on the phone. Layers 1–2 use the same deploy; you
 
 ### Step 0 — You change code in the IDE
 
-Example: edit `AppBundleLabel.tsx` so the banner text changes.  
 Commit when ready (website + OTA can share the same commit).
 
 ### Step 1 — Build the mobile web bundle
@@ -29,7 +28,6 @@ Commit when ready (website + OTA can share the same commit).
 cd web
 $env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
 $env:NEXT_PUBLIC_NATIVE_BUILD="1"              # must match APK
-$env:APP_BUNDLE_LABEL="OTA-LESSON-v3"          # visible proof on workspace
 npm run build:capacitor
 ```
 
@@ -80,16 +78,15 @@ Or use **Developer console → Live update controls**.
 2. App calls `/api/platform/client-config` → gets manifest URL.
 3. App fetches `manifest.json` → sees new `bundleId`.
 4. App downloads zip → **“App update ready”** → **Restart now**.
-5. Workspace shows **“✓ OTA bundle active: OTA-LESSON-v3”**.
+5. Confirm the update in the app (e.g. a fix you shipped in that deploy).
 
-Force-close and reopen if the prompt does not appear within ~30s.
+The restart prompt usually appears within ~30s while the app is open and online. If not, bring the app to the foreground or force-close and reopen — `LiveUpdateBootstrap` checks on launch and when the device reports `online`.
 
 ---
 
 ## One command (steps 1–2 combined)
 
 ```powershell
-$env:APP_BUNDLE_LABEL="OTA-LESSON-v3"
 $env:OTA_BUNDLE_ID="20260521.lesson-v3"
 $env:OTA_PUBLIC_BASE_URL="https://isopro.me/ota/production"
 $env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"

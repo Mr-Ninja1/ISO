@@ -16,6 +16,8 @@ import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
 import { NativeUpdateNudge } from '@/components/NativeUpdateNudge';
 import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
+import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
+import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
 
 export const metadata: Metadata = {
   title: 'ISO Pro',
@@ -56,8 +58,11 @@ export default function RootLayout({
         <link rel='apple-touch-icon' sizes='152x152' href='/apple-touch-icon-152.png' />
         <link rel='icon' href='/icon.svg' />
         {process.env.NEXT_PUBLIC_CAPACITOR_APP === '1' ? (
-          // eslint-disable-next-line @next/next/no-sync-scripts
-          <script src='/capacitor-hardware-back.js' />
+          <>
+            <style id="iso-capacitor-critical-css">{CAPACITOR_CRITICAL_CSS}</style>
+            {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+            <script src='/capacitor-hardware-back.js' />
+          </>
         ) : null}
       </head>
       <body className='min-h-full flex flex-col'>
@@ -65,6 +70,7 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <CapacitorStylesGuard />
           <NativeUpdateNudge />
           <LiveUpdateBootstrap />
           <CapacitorEntryRedirect />

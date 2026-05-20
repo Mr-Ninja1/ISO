@@ -6,6 +6,7 @@ import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { buildTenantDeactivatedUserMessage } from "@/lib/tenantDeactivation";
 import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
 import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
@@ -13,7 +14,13 @@ import { capacitorTenantStaticParams } from "@/lib/capacitor/staticExport";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
 
-type TenantHeaderMeta = { name: string; slug: string; logoUrl: string | null; isActive?: boolean };
+type TenantHeaderMeta = {
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  isActive?: boolean;
+  deactivationReason?: string | null;
+};
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
@@ -65,6 +72,7 @@ export default async function TenantLayout({
         slug: dbTenant.slug,
         logoUrl: dbTenant.logoUrl ?? null,
         isActive: dbTenant.isActive,
+        deactivationReason: dbTenant.deactivationReason,
       };
     } else {
       dbUnavailable = true;
@@ -89,10 +97,10 @@ export default async function TenantLayout({
     return (
       <OfflineRouteBlock
         title="Brand deactivated"
-        message="This brand is currently inactive. Ask a system administrator to activate the brand before continuing."
-        hint="Once the brand is reactivated, normal access will return automatically."
+        message={buildTenantDeactivatedUserMessage(tenant.deactivationReason)}
+        hint="Once your brand is reactivated, you can sign in and continue where you left off."
         backHref="/workspace"
-        backLabel="Back to workspace"
+        backLabel="Choose another brand"
       />
     );
   }

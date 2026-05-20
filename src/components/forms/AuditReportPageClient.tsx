@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Printer } from "lucide-react";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
+import { collectReportEvidencePhotos } from "@/lib/reportEvidence";
 import { useAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import type { AuditReportData } from "@/types/auditReport";
@@ -12,7 +13,8 @@ import { AuditReportDisplay } from "@/components/forms/AuditReportDisplay";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
-import { auditIdFromPathname, useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { resolveAuditId, useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { buildAuditReportHref, buildTenantHref } from "@/lib/client/tenantHref";
 import {
   buildReportFromDeviceStores,
   enrichReportWithCachedTemplateSchema,
@@ -32,8 +34,8 @@ export function AuditReportPageClient({
   const pathname = usePathname();
   const tenantSlug = useResolvedTenantSlug(routeSlug);
   const auditId = useMemo(() => {
-    const fromPath = auditIdFromPathname(pathname);
-    if (fromPath) return fromPath;
+    const resolved = resolveAuditId(pathname);
+    if (resolved) return resolved;
     if (routeAuditId && routeAuditId !== "_") return routeAuditId;
     return "";
   }, [pathname, routeAuditId]);
@@ -162,7 +164,7 @@ export function AuditReportPageClient({
         <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
           {error || "Report not available on this device yet."}
         </div>
-        <Link href={`/${tenantSlug}/audits`} className="text-sm underline">
+        <Link href={buildTenantHref(tenantSlug, "audits")} className="text-sm underline">
           Back to stored forms
         </Link>
       </div>
@@ -171,6 +173,22 @@ export function AuditReportPageClient({
 
   const schema = audit.template.schema;
   const title = schema?.title || audit.template.title;
+  const evidencePhotos = collectReportEvidencePhotos(schema, audit.payload);
+
+  function printReport(orientation: "portrait" | "landscape") {
+    const styleId = "report-print-page-style";
+    let el = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement("style");
+      el.id = styleId;
+      document.head.appendChild(el);
+    }
+    el.textContent =
+      orientation === "portrait"
+        ? "@media print { @page { size: A4 portrait; margin: 10mm; } }"
+        : "@media print { @page { size: A4 landscape; margin: 10mm; } }";
+    window.print();
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -185,7 +203,7 @@ export function AuditReportPageClient({
       />
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <Link
-          href={`/${tenantSlug}/audits`}
+          href={buildTenantHref(tenantSlug, "audits")}
           className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
         >
           Back to stored forms
@@ -198,15 +216,22 @@ export function AuditReportPageClient({
         </Link>
         <PdfGeneratorButton
           filename={`${tenantSlug}-form-${auditId.slice(0, 8)}.pdf`}
-          orientation="landscape"
+          evidencePhotos={evidencePhotos}
         />
         <button
           type="button"
           className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-          onClick={() => window.print()}
+          onClick={() => printReport("landscape")}
         >
           <Printer className="h-4 w-4" />
-          Print
+          Print (landscape)
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+          onClick={() => printReport("portrait")}
+        >
+          Print (portrait)
         </button>
       </div>
       <AuditReportDisplay audit={audit} tenantSlug={tenantSlug} auditId={auditId} />

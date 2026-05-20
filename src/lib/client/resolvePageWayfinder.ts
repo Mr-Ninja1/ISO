@@ -1,3 +1,5 @@
+import { buildTenantHref } from "@/lib/client/tenantHref";
+
 export type PageWayfinderConfig = {
   backHref: string;
   backLabel: string;
@@ -13,31 +15,32 @@ export function resolvePageWayfinder(
 
   const workspaceHref = `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`;
   const adminHref = `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}&view=admin`;
-  const auditsHref = `/${tenantSlug}/audits`;
+  const auditsHref = buildTenantHref(tenantSlug, "audits");
 
-  if (pathname === `/${tenantSlug}/audits`) {
+  if (pathname === auditsHref || /\/audits\/?$/.test(pathname)) {
     return { backHref: workspaceHref, backLabel: "Workspace", workspaceHref };
   }
 
-  if (pathname === `/${tenantSlug}/audits/new`) {
-    return { backHref: auditsHref, backLabel: "Saved forms", workspaceHref };
-  }
-
-  if (/^\/[^/]+\/audits\/[^/]+$/.test(pathname) && !pathname.endsWith("/local") && !pathname.endsWith("/offline-last")) {
-    return { backHref: auditsHref, backLabel: "Saved forms", workspaceHref };
-  }
-
-  if (pathname.startsWith(`/${tenantSlug}/audits/`)) {
+  if (pathname.includes("/audits/new")) {
     return { backHref: auditsHref, backLabel: "Saved forms", workspaceHref };
   }
 
   if (
-    pathname.startsWith(`/${tenantSlug}/settings`) ||
-    pathname.startsWith(`/${tenantSlug}/categories`) ||
-    pathname.startsWith(`/${tenantSlug}/templates`) ||
-    pathname.startsWith(`/${tenantSlug}/activity`) ||
-    pathname.startsWith(`/${tenantSlug}/dashboard`) ||
-    pathname.startsWith(`/${tenantSlug}/corrective-actions`)
+    (pathname.includes("/audits/") || pathname.includes("/audits/_")) &&
+    !pathname.endsWith("/local") &&
+    !pathname.endsWith("/offline-last") &&
+    !pathname.endsWith("/new")
+  ) {
+    return { backHref: auditsHref, backLabel: "Saved forms", workspaceHref };
+  }
+
+  if (
+    pathname.includes("/settings") ||
+    pathname.includes("/categories") ||
+    pathname.includes("/templates") ||
+    pathname.includes("/activity") ||
+    pathname.includes("/dashboard") ||
+    pathname.includes("/corrective-actions")
   ) {
     return { backHref: adminHref, backLabel: "Admin", workspaceHref };
   }

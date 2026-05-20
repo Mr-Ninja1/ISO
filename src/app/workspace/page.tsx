@@ -4,13 +4,14 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Activity, Clock3, FileText, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Users2, X } from "lucide-react";
+import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Users2, X } from "lucide-react";
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildTenantHref } from "@/lib/client/tenantHref";
+import { pushTenantRoute, tenantRouteHref } from "@/lib/client/tenantNavigation";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -29,6 +30,7 @@ import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
   cacheAllTenantTemplatesFromApi,
@@ -39,14 +41,16 @@ import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
 import {
   clearTenantDeactivatedBlocked,
+  deactivationReasonFromError,
+  getTenantDeactivationReason,
   isTenantDeactivatedBlocked,
   isTenantDeactivatedError,
   setTenantDeactivatedBlocked,
 } from "@/lib/client/brandAccess";
+import { buildTenantDeactivatedUserMessage } from "@/lib/tenantDeactivation";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
-import { AppBundleLabel } from "@/components/AppBundleLabel";
 import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
 import { DueReminderPoller } from "@/components/DueReminderPoller";
 import {
@@ -557,6 +561,7 @@ function WorkspacePageInner() {
   const [quickSettingsLoading, setQuickSettingsLoading] = useState(false);
   const [quickSettingsSaving, setQuickSettingsSaving] = useState(false);
   const [quickSettingsError, setQuickSettingsError] = useState("");
+  const [movingTemplateId, setMovingTemplateId] = useState<string | null>(null);
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [nativeWarmupRunning, setNativeWarmupRunning] = useState(false);
   const [offlinePreparedAt, setOfflinePreparedAt] = useState<string | null>(null);
@@ -667,10 +672,10 @@ function WorkspacePageInner() {
     }
   }
 
-  function handleTenantDeactivatedExit() {
+  function handleTenantDeactivatedExit(reason?: string | null) {
     if (!tenantSlug) return;
     clearTenantLocalCache({ showToast: false });
-    setTenantDeactivatedBlocked(tenantSlug);
+    setTenantDeactivatedBlocked(tenantSlug, reason);
     try {
       if (localStorage.getItem("lastTenantSlug") === tenantSlug) {
         localStorage.removeItem("lastTenantSlug");
@@ -682,15 +687,16 @@ function WorkspacePageInner() {
     setUiActiveCategoryId(null);
     setWorkspaceLoading(false);
     setSwitchingCategory(false);
-    setError("This brand has been deactivated. Choose another brand or contact support.");
+    setError("");
     router.replace("/workspace");
   }
 
   useEffect(() => {
     function onTenantDeactivated(ev: Event) {
-      const slug = (ev as CustomEvent<{ tenantSlug?: string }>).detail?.tenantSlug;
+      const detail = (ev as CustomEvent<{ tenantSlug?: string; reason?: string | null }>).detail;
+      const slug = detail?.tenantSlug;
       if (!slug || slug !== tenantSlug) return;
-      handleTenantDeactivatedExit();
+      handleTenantDeactivatedExit(detail?.reason);
     }
     window.addEventListener("iso-tenant-deactivated", onTenantDeactivated);
     return () => window.removeEventListener("iso-tenant-deactivated", onTenantDeactivated);
@@ -861,7 +867,7 @@ function WorkspacePageInner() {
     if (openingSettings) return;
     setMenuOpen(false);
     setOpeningSettings(true);
-    router.push(`/${targetTenantSlug}/settings`);
+    pushTenantRoute(router, targetTenantSlug, "settings");
     clearNavLoading();
   }
 
@@ -869,28 +875,28 @@ function WorkspacePageInner() {
     if (openingStaff) return;
     setMenuOpen(false);
     setOpeningStaff(true);
-    router.push(`/${targetTenantSlug}/settings?focus=staff`);
+    pushTenantRoute(router, targetTenantSlug, "settings", { focus: "staff" });
     clearNavLoading();
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
     setOpeningActivity(true);
-    router.push(`/${targetTenantSlug}/activity`);
+    pushTenantRoute(router, targetTenantSlug, "activity");
     clearNavLoading();
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
     setOpeningAdminDashboard(true);
-    router.push(`/${targetTenantSlug}/dashboard`);
+    pushTenantRoute(router, targetTenantSlug, "dashboard");
     clearNavLoading();
   }
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
     setOpeningAudits(true);
-    router.push(`/${targetTenantSlug}/audits`);
+    pushTenantRoute(router, targetTenantSlug, "audits");
     clearNavLoading();
   }
 
@@ -898,10 +904,12 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (blockIfOffline("Template library")) return;
     setAddFormOpen(false);
-    const qs = new URLSearchParams();
-    if (selectedCategoryId) qs.set("categoryId", selectedCategoryId);
-    const suffix = qs.toString();
-    router.push(`/${workspace.tenant.slug}/templates/library${suffix ? `?${suffix}` : ""}`);
+    pushTenantRoute(
+      router,
+      workspace.tenant.slug,
+      "templates/library",
+      selectedCategoryId ? { categoryId: selectedCategoryId } : undefined
+    );
   }
 
   function handleCreateCustomForm(selectedCategoryId: string | null) {
@@ -979,6 +987,63 @@ function WorkspacePageInner() {
       setQuickSettingsTemplate(template);
     } finally {
       setQuickSettingsLoading(false);
+    }
+  }
+
+  async function moveTemplateToCategory(template: TemplateSummary, categoryId: string) {
+    if (!accessToken || !tenantSlug || !categoryId || categoryId === template.categoryId) return;
+    setMovingTemplateId(template.id);
+    setCardMenuTemplateId(null);
+
+    try {
+      const res = await fetch(apiUrl("/api/templates/set-category"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tenantSlug,
+          templateId: template.id,
+          categoryId,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `Failed to move form (${res.status})`);
+
+      setWorkspace((prev) => {
+        if (!prev) return prev;
+        const movedAway = Boolean(prev.selectedCategoryId && categoryId !== prev.selectedCategoryId);
+        const nextTemplates = movedAway
+          ? prev.templates.filter((item) => item.id !== template.id)
+          : prev.templates.map((item) => (item.id === template.id ? { ...item, categoryId } : item));
+        const nextWorkspace = { ...prev, templates: nextTemplates };
+        try {
+          writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, nextWorkspace);
+          if (prev.selectedCategoryId) {
+            writeWorkspaceCache(cacheUserId, tenantSlug, prev.selectedCategoryId, nextWorkspace);
+          }
+          writeWorkspaceCache(cacheUserId, tenantSlug, null, nextWorkspace);
+        } catch {
+          // cache sync is best-effort
+        }
+        return nextWorkspace;
+      });
+
+      requestWorkspaceRevalidate(tenantSlug);
+      setNotification({
+        title: "Form moved",
+        message: "This form was moved to the selected category.",
+        tone: "success",
+      });
+    } catch (err: unknown) {
+      setNotification({
+        title: "Move failed",
+        message: err instanceof Error ? err.message : "Failed to move form",
+        tone: "warning",
+      });
+    } finally {
+      setMovingTemplateId(null);
     }
   }
 
@@ -1497,8 +1562,13 @@ function WorkspacePageInner() {
         if (!res.ok) {
           const err = new Error((parsed as any)?.error || `Failed to load workspace (${res.status})`) as Error & {
             status?: number;
+            code?: string;
+            deactivationReason?: string | null;
           };
           err.status = res.status;
+          err.code = typeof (parsed as any)?.code === "string" ? (parsed as any).code : undefined;
+          err.deactivationReason =
+            typeof (parsed as any)?.deactivationReason === "string" ? (parsed as any).deactivationReason : null;
           throw err;
         }
         data = parsed as WorkspaceData;
@@ -1557,7 +1627,7 @@ function WorkspacePageInner() {
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
         if (isTenantDeactivatedError(err)) {
           keepLoading = false;
-          handleTenantDeactivatedExit();
+          handleTenantDeactivatedExit(deactivationReasonFromError(err));
           return;
         }
         const authOrAccess =
@@ -1963,7 +2033,8 @@ function WorkspacePageInner() {
     return (
       <OfflineRouteBlock
         title="Brand deactivated"
-        message="This brand is no longer active. Choose another brand to continue."
+        message={buildTenantDeactivatedUserMessage(getTenantDeactivationReason(tenantSlug))}
+        hint="Choose another brand below, or contact Isopro if you need this brand turned back on."
         backHref="/workspace"
         backLabel="Choose another brand"
       />
@@ -2102,7 +2173,8 @@ function WorkspacePageInner() {
     return (
       <OfflineRouteBlock
         title="Brand deactivated"
-        message="This brand is no longer active. Choose another brand to continue."
+        message={buildTenantDeactivatedUserMessage(getTenantDeactivationReason(tenantSlug))}
+        hint="Choose another brand below, or contact Isopro if you need this brand turned back on."
         backHref="/workspace"
         backLabel="Choose another brand"
       />
@@ -2126,9 +2198,6 @@ function WorkspacePageInner() {
   return (
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
-      <div className="mx-auto max-w-7xl px-4 pt-3">
-        <AppBundleLabel />
-      </div>
       <div className="ws-header-accent" />
       <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
@@ -2430,18 +2499,31 @@ function WorkspacePageInner() {
 
               <div className="grid gap-2 sm:grid-cols-3">
                 {canManageCategories ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (blockIfOffline("Categories")) return;
-                      setSeedOpen(true);
-                    }}
-                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={seedBusy}
-                  >
-                    {seedBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                    {seedBusy ? "Creating…" : "Create categories"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (blockIfOffline("Categories")) return;
+                        setSeedOpen(true);
+                      }}
+                      className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={seedBusy}
+                    >
+                      {seedBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      {seedBusy ? "Creating…" : "Create categories"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (blockIfOffline("Manage categories")) return;
+                        pushTenantRoute(router, tenant.slug, "categories");
+                      }}
+                      className="ws-toolbar-btn"
+                    >
+                      <FolderTree className="h-4 w-4" />
+                      Manage categories
+                    </button>
+                  </>
                 ) : null}
 
                 {canCreateForms ? (
@@ -2677,14 +2759,14 @@ function WorkspacePageInner() {
                                   prefetchTemplateSchema(t.id).catch(() => {
                                     // best-effort prefetch
                                   });
-                                  router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                  router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                                 }}
                                 onClick={() => {
                                   setRecentOpen(false);
                                   setOpeningTemplateId(t.id);
                                   rememberRecentTemplate(t.id);
                                   prefetchTemplateSchema(t.id).catch(() => {});
-                                  router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                  pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
                                   window.setTimeout(() => setOpeningTemplateId(null), 600);
                                 }}
                                 className="rounded-md px-2 py-2 text-left text-sm hover:bg-foreground/5"
@@ -2796,19 +2878,19 @@ function WorkspacePageInner() {
                         prefetchTemplateSchema(t.id).catch(() => {
                           // best-effort prefetch
                         });
-                        router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                       }}
                       onFocus={() => {
                         prefetchTemplateSchema(t.id).catch(() => {
                           // best-effort prefetch
                         });
-                        router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                       }}
                       onClick={() => {
                         setOpeningTemplateId(t.id);
                         rememberRecentTemplate(t.id);
                         prefetchTemplateSchema(t.id).catch(() => {});
-                        router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
                         window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       onKeyDown={(e) => {
@@ -2817,7 +2899,7 @@ function WorkspacePageInner() {
                         setOpeningTemplateId(t.id);
                         rememberRecentTemplate(t.id);
                         prefetchTemplateSchema(t.id).catch(() => {});
-                        router.push(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                        pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
                         window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       className={
@@ -2877,7 +2959,7 @@ function WorkspacePageInner() {
                                   setCardMenuTemplateId((current) => (current === t.id ? null : t.id));
                                 }}
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-foreground/15 bg-background text-foreground/70 hover:bg-foreground/5"
-                                aria-label={`Open quick settings for ${t.title}`}
+                                aria-label={`Open actions for ${t.title}`}
                                 aria-expanded={cardMenuTemplateId === t.id}
                               >
                                 <MoreVertical className="h-4 w-4" />
@@ -2895,6 +2977,29 @@ function WorkspacePageInner() {
                                     }}
                                   />
                                   <div className="absolute right-0 top-11 z-[251] w-56 rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl">
+                                    {canManageCategories && categories.length > 0 ? (
+                                      <div className="border-b border-foreground/10 px-3 py-2">
+                                        <div className="text-xs font-medium text-foreground/55">Move to category</div>
+                                        <select
+                                          className="mt-1 h-9 w-full rounded-lg border border-foreground/15 bg-background px-2 text-sm"
+                                          value={t.categoryId || ""}
+                                          disabled={movingTemplateId === t.id}
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            const next = e.target.value;
+                                            if (!next) return;
+                                            void moveTemplateToCategory(t, next);
+                                          }}
+                                        >
+                                          {categories.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ) : null}
                                     <button
                                       type="button"
                                       className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"

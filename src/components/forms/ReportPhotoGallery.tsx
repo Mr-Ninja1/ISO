@@ -17,42 +17,56 @@ export function ReportPhotoGallery({ photos, label }: { photos: string[]; label:
   if (!photos.length) return null;
 
   return (
-    <>
-      <div className="flex flex-wrap gap-2">
+    <div className="report-evidence-block">
+      <p className="report-evidence-pdf-note mb-2 hidden text-sm text-foreground/60">
+        {photos.length} photo{photos.length === 1 ? "" : "s"} — see Evidence attachments section in this PDF.
+      </p>
+      <div className="report-evidence-thumb-grid flex flex-wrap gap-2">
         {photos.map((photo, index) => (
           <button
             key={`${label}_${index}`}
             type="button"
-            className="w-16 overflow-hidden rounded-md border border-foreground/20"
+            className="report-evidence-thumb overflow-hidden rounded-md border border-foreground/20 bg-background shadow-sm transition hover:ring-2 hover:ring-foreground/25"
             onClick={() => setPreviewSrc(photo)}
-            title="Click to view full image"
+            title="Tap to view full image"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo} alt={`${label} ${index + 1}`} className="h-14 w-16 object-cover" />
+            <img
+              src={photo}
+              alt={`${label} ${index + 1}`}
+              className="h-20 w-24 object-cover sm:h-24 sm:w-28"
+            />
           </button>
         ))}
       </div>
+      <p className="mt-1 text-xs text-foreground/55 print:hidden">Tap a thumbnail to open full size.</p>
 
       {previewSrc ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 print:hidden"
           onClick={() => setPreviewSrc(null)}
           role="dialog"
           aria-modal="true"
+          aria-label={`${label} full size`}
         >
-          <div className="relative max-h-[90vh] w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-h-[92vh] w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              className="absolute right-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs text-white"
+              className="absolute right-2 top-2 z-10 rounded-md bg-black/80 px-3 py-1.5 text-sm text-white"
               onClick={() => setPreviewSrc(null)}
             >
               Close
             </button>
+            <p className="mb-2 text-center text-sm font-medium text-white/90">{label}</p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewSrc} alt={`${label} full`} className="max-h-[90vh] w-full rounded-md object-contain" />
+            <img
+              src={previewSrc}
+              alt={`${label} full`}
+              className="max-h-[85vh] w-full rounded-lg object-contain shadow-2xl"
+            />
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

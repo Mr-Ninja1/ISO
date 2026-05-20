@@ -3,10 +3,10 @@ import type { DisplayField, FieldDef } from "@/types/forms";
 import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 
 export const REPORT_SIGNATURE_IMG_CLASS =
-  "report-signature-img mx-auto block h-20 w-full max-w-md object-contain print:h-24";
+  "report-signature-img mx-auto block max-h-28 w-full max-w-lg object-contain";
 
 export const REPORT_TABLE_SIGNATURE_IMG_CLASS =
-  "report-signature-img mx-auto block h-16 w-full min-w-[120px] object-contain print:h-20";
+  "report-signature-img mx-auto block max-h-24 w-full min-w-[140px] max-w-md object-contain";
 
 function asText(value: unknown) {
   if (value == null) return "";
@@ -54,12 +54,14 @@ export function renderAuditReportFieldValue(field: FieldDef, payload: Record<str
   if (field.type === "signature") {
     if (isDataUrl(value)) {
       return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={value as string}
-          alt={`${field.label} signature`}
-          className={inTable ? REPORT_TABLE_SIGNATURE_IMG_CLASS : REPORT_SIGNATURE_IMG_CLASS}
-        />
+        <div className={inTable ? "report-cell-signature report-cell-signature--table" : "report-cell-signature"}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={value as string}
+            alt={`${field.label} signature`}
+            className={inTable ? REPORT_TABLE_SIGNATURE_IMG_CLASS : REPORT_SIGNATURE_IMG_CLASS}
+          />
+        </div>
       );
     }
     return <span className="text-foreground/50">Not signed</span>;
@@ -84,8 +86,10 @@ export function renderAuditReportTableCellValue(
 ) {
   if (isDataUrl(value)) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={value as string} alt="" className={REPORT_TABLE_SIGNATURE_IMG_CLASS} />
+      <div className="report-cell-signature report-cell-signature--table">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={value as string} alt="" className={REPORT_TABLE_SIGNATURE_IMG_CLASS} />
+      </div>
     );
   }
   if (col.type === "yesno") return asYesNo(value);

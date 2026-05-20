@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { FolderTree, Plus } from "lucide-react";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 import { useAuth } from "@/components/AuthProvider";
 import { WorkspaceSeedModal } from "@/components/WorkspaceSeedModal";
 import { enqueueBackgroundMutation } from "@/lib/client/backgroundMutationQueue";
@@ -132,14 +134,23 @@ export function TenantCategoriesSeedSection({ tenantSlug }: { tenantSlug: string
           </p>
         </div>
 
-        <button
-          type="button"
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-foreground px-3 text-sm font-medium text-background"
-          onClick={() => setOpen(true)}
-        >
-          <Plus className="h-4 w-4" />
-          Add categories
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-foreground px-3 text-sm font-medium text-background"
+            onClick={() => setOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Add categories
+          </button>
+          <Link
+            href={buildTenantHref(tenantSlug, "categories")}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm font-medium hover:bg-foreground/5"
+          >
+            <FolderTree className="h-4 w-4" />
+            Manage categories
+          </Link>
+        </div>
       </div>
 
       {error ? (

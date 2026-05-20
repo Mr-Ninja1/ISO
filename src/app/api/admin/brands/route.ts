@@ -18,7 +18,10 @@ export async function GET(req: Request) {
     if (!svc) return NextResponse.json({ error: "Service role is not configured" }, { status: 500 });
 
     const [tenantsResult, membersResult, messagesResult] = await Promise.all([
-      svc.from("tenants").select("id,name,slug,logo_url,created_at,updated_at,is_active").order("created_at", { ascending: false }),
+      svc
+        .from("tenants")
+        .select("id,name,slug,logo_url,created_at,updated_at,is_active,deactivation_reason")
+        .order("created_at", { ascending: false }),
       svc.from("tenant_members").select("tenant_id,user_id"),
       svc.from("tenant_announcements").select("id,tenant_id,title,message,created_at,is_active").order("created_at", { ascending: false }),
     ]);
@@ -58,6 +61,10 @@ export async function GET(req: Request) {
         createdAt: String(tenant.created_at || ""),
         updatedAt: String(tenant.updated_at || ""),
         isActive: tenant.is_active !== false,
+        deactivationReason:
+          typeof tenant.deactivation_reason === "string" && tenant.deactivation_reason.trim()
+            ? tenant.deactivation_reason.trim()
+            : null,
         memberCount: memberCounts.get(String(tenant.id || "")) || 0,
         latestMessageAt: latest?.createdAt || null,
         latestMessageTitle: latest?.title || null,

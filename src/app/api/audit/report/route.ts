@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
-import { getBearerToken, getRouteUser, resolveSupabasePublicEnv } from "@/lib/supabase/routeAuth";
+import {
+  createAuthenticatedRouteClient,
+  getBearerToken,
+  getRouteUser,
+  resolveSupabasePublicEnv,
+} from "@/lib/supabase/routeAuth";
 import { hasPermission } from "@/lib/roleGate";
+import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
 
 export async function GET(req: Request) {
   try {
@@ -24,11 +29,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "tenantSlug and auditId are required" }, { status: 400 });
     }
 
-    const sb = createSupabaseWithBearer(token);
+    const sb = createAuthenticatedRouteClient(token);
+    if (!sb) {
+      return NextResponse.json({ error: "Supabase environment variables are not configured." }, { status: 500 });
+    }
 
     const { data: tenant, error: te } = await sb
       .from("tenants")
-      .select("id, name, slug, logo_url, is_active")
+      .select("id, name, slug, logo_url, is_active, deactivation_reason")
       .eq("slug", tenantSlug)
       .maybeSingle();
 
@@ -40,7 +48,11 @@ export async function GET(req: Request) {
 
     if ((tenant as Record<string, unknown>).is_active === false) {
       return NextResponse.json(
-        { error: "This brand has been deactivated", code: "TENANT_DEACTIVATED" },
+        {
+          error: "This brand has been deactivated",
+          code: "TENANT_DEACTIVATED",
+          deactivationReason: tenantDeactivationReasonFromRow(tenant as Record<string, unknown>),
+        },
         { status: 403 }
       );
     }
@@ -62,7 +74,7 @@ export async function GET(req: Request) {
 
     const { data: row, error: rowErr } = await sb
       .from("audit_logs")
-      .select("id, status, created_at, payload, template_id, form_templates(title, schema)")
+      .select("id, status, created_at, payload, template_id")
       .eq("id", auditId)
       .eq("tenant_id", tenant.id)
       .maybeSingle();
@@ -76,9 +88,30 @@ export async function GET(req: Request) {
     }
 
     const mapped = row as Record<string, unknown>;
-    const rawTpl = mapped.form_templates;
-    const tpl = (Array.isArray(rawTpl) ? rawTpl[0] : rawTpl) as { title?: string; schema?: unknown } | null | undefined;
     const templateId = String(mapped.template_id || "");
+
+    let templateTitle = "Form";
+    let templateSchema: unknown = null;
+
+    if (templateId) {
+      const { data: tplRow, error: tplErr } = await sb
+        .from("form_templates")
+        .select("title, schema")
+        .eq("id", templateId)
+        .eq("tenant_id", tenant.id)
+        .maybeSingle();
+
+      if (tplErr) {
+        console.error("/api/audit/report template lookup", tplErr);
+        return NextResponse.json({ error: tplErr.message || "Failed to load form template" }, { status: 500 });
+      }
+
+      if (tplRow) {
+        templateTitle =
+          typeof tplRow.title === "string" && tplRow.title.trim() ? tplRow.title : "Form";
+        templateSchema = tplRow.schema;
+      }
+    }
 
     return NextResponse.json({
       audit: {
@@ -93,8 +126,8 @@ export async function GET(req: Request) {
           logoUrl: (tenant.logo_url as string | null) ?? null,
         },
         template: {
-          title: tpl?.title ?? "Form",
-          schema: tpl?.schema ?? null,
+          title: templateTitle,
+          schema: templateSchema,
         },
       },
     });

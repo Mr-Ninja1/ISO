@@ -72,31 +72,41 @@ export function CategoriesPageClient({ routeSlug }: { routeSlug: string }) {
     setLoading(true);
     setError("");
 
-    const url = new URL(apiUrl("/api/workspace"));
-    url.searchParams.set("tenantSlug", tenantSlug);
+    const workspaceUrl = new URL(apiUrl("/api/workspace"));
+    workspaceUrl.searchParams.set("tenantSlug", tenantSlug);
 
-    fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async (res) => {
+    const categoriesUrl = new URL(apiUrl("/api/categories"));
+    categoriesUrl.searchParams.set("tenantSlug", tenantSlug);
+
+    const headers = { Authorization: `Bearer ${accessToken}` };
+
+    Promise.all([
+      fetch(workspaceUrl.toString(), { headers }).then(async (res) => {
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Failed to load categories (${res.status})`);
+        if (!res.ok) throw new Error(json?.error || `Failed to load brand (${res.status})`);
         return json as {
           tenant?: { id: string; name: string; slug: string; logoUrl?: string | null };
-          categories?: Array<{ id: string; name: string; sortOrder: number }>;
         };
-      })
-      .then((data) => {
-        if (cancelled || !data.tenant?.id) return;
+      }),
+      fetch(categoriesUrl.toString(), { headers }).then(async (res) => {
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || `Failed to load categories (${res.status})`);
+        return (json.categories || []) as Array<{ id: string; name: string; sortOrder?: number }>;
+      }),
+    ])
+      .then(([workspaceJson, categoryRows]) => {
+        if (cancelled || !workspaceJson.tenant?.id) return;
         const now = new Date();
         setTenant({
-          id: data.tenant.id,
-          name: data.tenant.name,
-          slug: data.tenant.slug,
-          logoUrl: data.tenant.logoUrl ?? null,
+          id: workspaceJson.tenant.id,
+          name: workspaceJson.tenant.name,
+          slug: workspaceJson.tenant.slug,
+          logoUrl: workspaceJson.tenant.logoUrl ?? null,
           createdAt: now,
           updatedAt: now,
-          categories: (data.categories || []).map((c) => ({
+          categories: categoryRows.map((c) => ({
             id: c.id,
-            tenantId: data.tenant!.id,
+            tenantId: workspaceJson.tenant!.id,
             name: c.name,
             sortOrder: c.sortOrder ?? 0,
             createdAt: now,
@@ -155,8 +165,11 @@ export function CategoriesPageClient({ routeSlug }: { routeSlug: string }) {
           <h2 className="text-xl font-semibold">Form Categories</h2>
           <p className="text-sm text-foreground/70">Organize your audit forms by category</p>
         </div>
-        <Link className="text-sm underline sm:text-right" href={`/${tenantSlug}/templates`}>
-          Back to templates
+        <Link
+          className="text-sm underline sm:text-right"
+          href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        >
+          Back to workspace
         </Link>
       </div>
       <CategoriesManager tenant={tenant} />

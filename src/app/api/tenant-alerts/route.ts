@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { getBearerToken, getRouteUser, resolveSupabasePublicEnv } from "@/lib/supabase/routeAuth";
@@ -22,7 +23,7 @@ function mapDelivery(value: unknown): AlertRow["delivery"] {
 async function resolveActiveTenant(sb: ReturnType<typeof createSupabaseWithBearer>, tenantSlug: string) {
   const { data: tenant, error: tenantErr } = await sb
     .from("tenants")
-    .select("id,is_active")
+    .select("id,is_active,deactivation_reason")
     .eq("slug", tenantSlug)
     .maybeSingle();
 
@@ -33,7 +34,11 @@ async function resolveActiveTenant(sb: ReturnType<typeof createSupabaseWithBeare
   if ((tenant as Record<string, unknown>).is_active === false) {
     return {
       error: NextResponse.json(
-        { error: "This brand has been deactivated", code: "TENANT_DEACTIVATED" },
+        {
+          error: "This brand has been deactivated",
+          code: "TENANT_DEACTIVATED",
+          deactivationReason: tenantDeactivationReasonFromRow(tenant as Record<string, unknown>),
+        },
         { status: 403 }
       ),
     };

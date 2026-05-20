@@ -1,4 +1,5 @@
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
+import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
 
 export type SsrTenantRow = {
   id: string;
@@ -6,13 +7,18 @@ export type SsrTenantRow = {
   slug: string;
   logoUrl: string | null;
   isActive: boolean;
+  deactivationReason: string | null;
 };
 
 /** SSR / layout: load tenant header row without user session (same exposure as old slug lookup). */
 export async function ssrTenantBySlug(slug: string): Promise<SsrTenantRow | null> {
   const svc = createServiceRoleSupabase();
   if (!svc) return null;
-  const { data, error } = await svc.from("tenants").select("id,name,slug,logo_url,is_active").eq("slug", slug).maybeSingle();
+  const { data, error } = await svc
+    .from("tenants")
+    .select("id,name,slug,logo_url,is_active,deactivation_reason")
+    .eq("slug", slug)
+    .maybeSingle();
   if (error || !data) return null;
   return {
     id: data.id as string,
@@ -20,6 +26,7 @@ export async function ssrTenantBySlug(slug: string): Promise<SsrTenantRow | null
     slug: data.slug as string,
     logoUrl: (data.logo_url as string | null) ?? null,
     isActive: data.is_active !== false,
+    deactivationReason: tenantDeactivationReasonFromRow(data as Record<string, unknown>),
   };
 }
 

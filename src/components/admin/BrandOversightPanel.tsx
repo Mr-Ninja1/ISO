@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowUpRight, Loader2, Megaphone, MessageSquare, Power, PowerOff, Search, ShieldCheck, SortAsc, SortDesc, Users } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Loader2, Megaphone, MessageSquare, Power, PowerOff, Search, ShieldCheck, SortAsc, SortDesc, Trash2, Users } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
@@ -15,6 +15,7 @@ type BrandRow = {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  deactivationReason: string | null;
   memberCount: number;
   latestMessageAt: string | null;
   latestMessageTitle: string | null;
@@ -96,6 +97,10 @@ export function BrandOversightPanel() {
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastDelivery, setBroadcastDelivery] = useState<AlertDelivery>("modal");
   const [savingBroadcast, setSavingBroadcast] = useState(false);
+  const [deactivateTarget, setDeactivateTarget] = useState<BrandRow | null>(null);
+  const [deactivateReasonInput, setDeactivateReasonInput] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<BrandRow | null>(null);
+  const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
 
   const filteredBrands = useMemo(() => {
     let result = [...brands];
@@ -213,7 +218,7 @@ export function BrandOversightPanel() {
     setBrands(Array.isArray(json.brands) ? json.brands : []);
   }
 
-  async function toggleBrand(brandId: string, nextActive: boolean) {
+  async function toggleBrand(brandId: string, nextActive: boolean, deactivationReason?: string | null) {
     const token = session?.access_token || "";
     if (!token) return;
     setSavingBrandId(brandId);
@@ -226,7 +231,10 @@ export function BrandOversightPanel() {
           Authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ isActive: nextActive }),
+        body: JSON.stringify({
+          isActive: nextActive,
+          ...(nextActive ? {} : { deactivationReason: deactivationReason ?? null }),
+        }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (res.status === 403) {
@@ -235,9 +243,43 @@ export function BrandOversightPanel() {
       }
       if (!res.ok) throw new Error(json?.error || `Failed to update brand (${res.status})`);
       setBusyMessage(nextActive ? "Brand reactivated." : "Brand deactivated.");
+      setDeactivateTarget(null);
+      setDeactivateReasonInput("");
       await refreshBrands();
     } catch (err: any) {
       setError(err?.message || "Failed to update brand status");
+    } finally {
+      setSavingBrandId(null);
+    }
+  }
+
+  async function deleteBrand(brand: BrandRow) {
+    const token = session?.access_token || "";
+    if (!token) return;
+    setSavingBrandId(brand.id);
+    setBusyMessage("");
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/brands/${brand.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ confirmSlug: deleteConfirmSlug }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (res.status === 403) {
+        setAccessDenied(true);
+        throw new Error(json?.error || "Forbidden");
+      }
+      if (!res.ok) throw new Error(json?.error || `Failed to delete brand (${res.status})`);
+      setBusyMessage(`Brand "${brand.name}" was permanently deleted.`);
+      setDeleteTarget(null);
+      setDeleteConfirmSlug("");
+      await refreshBrands();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to delete brand");
     } finally {
       setSavingBrandId(null);
     }
@@ -488,6 +530,13 @@ export function BrandOversightPanel() {
                 {brand.latestMessageAt ? <div className="mt-2 text-xs text-foreground/60">Sent {formatDate(brand.latestMessageAt)}</div> : null}
               </div>
 
+              {!brand.isActive && brand.deactivationReason ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">Deactivation note</div>
+                  <p className="mt-1 whitespace-pre-line">{brand.deactivationReason}</p>
+                </div>
+              ) : null}
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -504,10 +553,31 @@ export function BrandOversightPanel() {
                   type="button"
                   className={brand.isActive ? "inline-flex h-10 items-center justify-center rounded-full border border-red-200 px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60" : "inline-flex h-10 items-center justify-center rounded-full border border-emerald-200 px-4 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"}
                   disabled={savingBrandId === brand.id}
-                  onClick={() => toggleBrand(brand.id, !brand.isActive)}
+                  onClick={() => {
+                    if (brand.isActive) {
+                      setDeleteTarget(null);
+                      setDeactivateTarget(brand);
+                      setDeactivateReasonInput(brand.deactivationReason || "");
+                      return;
+                    }
+                    void toggleBrand(brand.id, true);
+                  }}
                 >
                   {savingBrandId === brand.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   {brand.isActive ? "Deactivate brand" : "Activate brand"}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-red-300 px-4 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-60"
+                  disabled={savingBrandId === brand.id}
+                  onClick={() => {
+                    setDeactivateTarget(null);
+                    setDeleteTarget(brand);
+                    setDeleteConfirmSlug("");
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete brand
                 </button>
               </div>
             </div>
@@ -582,6 +652,129 @@ export function BrandOversightPanel() {
               >
                 {savingBroadcast ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Send broadcast
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deactivateTarget ? (
+        <div className="fixed inset-0 z-[72] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close deactivation dialog"
+            onClick={() => !savingBrandId && setDeactivateTarget(null)}
+          />
+          <div className="relative w-full max-w-xl rounded-3xl border border-foreground/10 bg-background p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">Deactivate {deactivateTarget.name}</h2>
+                <p className="mt-1 text-sm text-foreground/70">
+                  Users in this brand will see your note when they try to open the workspace. Leave blank for a generic message.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-foreground/10 px-3 py-1 text-sm disabled:opacity-50"
+                disabled={Boolean(savingBrandId)}
+                onClick={() => setDeactivateTarget(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <label className="mt-4 grid gap-1 text-sm">
+              <span className="font-medium">Reason for deactivation (optional)</span>
+              <textarea
+                value={deactivateReasonInput}
+                onChange={(e) => setDeactivateReasonInput(e.target.value)}
+                className="min-h-28 rounded-xl border border-foreground/15 bg-background px-3 py-2"
+                placeholder="e.g. Subscription ended — contact billing@isopro.me to renew."
+                maxLength={2000}
+              />
+            </label>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="h-11 rounded-full border border-foreground/15 px-5 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
+                disabled={Boolean(savingBrandId)}
+                onClick={() => setDeactivateTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-red-700 px-5 text-sm font-medium text-white disabled:opacity-60"
+                disabled={savingBrandId === deactivateTarget.id}
+                onClick={() =>
+                  void toggleBrand(
+                    deactivateTarget.id,
+                    false,
+                    deactivateReasonInput.trim() || null
+                  )
+                }
+              >
+                {savingBrandId === deactivateTarget.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Deactivate brand
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[73] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close delete dialog"
+            onClick={() => !savingBrandId && setDeleteTarget(null)}
+          />
+          <div className="relative w-full max-w-xl rounded-3xl border border-red-200 bg-background p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+              <div>
+                <h2 className="text-lg font-semibold text-red-900">Delete {deleteTarget.name} permanently?</h2>
+                <p className="mt-1 text-sm text-foreground/70">
+                  This removes the brand, categories, forms, audits, and members. This cannot be undone. Type{" "}
+                  <span className="font-mono font-semibold">/{deleteTarget.slug}</span> to confirm.
+                </p>
+              </div>
+            </div>
+
+            <label className="mt-4 grid gap-1 text-sm">
+              <span className="font-medium">Brand slug</span>
+              <input
+                value={deleteConfirmSlug}
+                onChange={(e) => setDeleteConfirmSlug(e.target.value)}
+                className="h-11 rounded-xl border border-foreground/15 bg-background px-3 font-mono text-sm"
+                placeholder={deleteTarget.slug}
+                autoComplete="off"
+              />
+            </label>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="h-11 rounded-full border border-foreground/15 px-5 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
+                disabled={Boolean(savingBrandId)}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-red-700 px-5 text-sm font-medium text-white disabled:opacity-60"
+                disabled={
+                  savingBrandId === deleteTarget.id ||
+                  deleteConfirmSlug.trim().toLowerCase() !== deleteTarget.slug.toLowerCase()
+                }
+                onClick={() => void deleteBrand(deleteTarget)}
+              >
+                {savingBrandId === deleteTarget.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Delete permanently
               </button>
             </div>
           </div>

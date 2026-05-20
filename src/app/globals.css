@@ -400,6 +400,137 @@ body {
   background: var(--surface-muted);
 }
 
+/* Audit report — screen, print, and PDF */
+.report-field-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.report-field-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.report-field-grid--3 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .report-field-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.report-field-grid--4 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .report-field-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .report-field-grid--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.report-field-grid--auto {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .report-field-grid--auto {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.report-field-card {
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.report-field-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--foreground) 58%, transparent);
+  margin-bottom: 0.35rem;
+}
+
+.report-field-body,
+.report-field-value {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.report-section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  color: color-mix(in srgb, var(--foreground) 72%, transparent);
+}
+
+.report-section {
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.875rem;
+}
+
+.report-cell-signature {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.5rem;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  background: #fafafa;
+  border: 1px dashed color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+
+.report-cell-signature--table {
+  min-height: 4.5rem;
+}
+
+.report-data-table th,
+.report-data-table td {
+  vertical-align: top;
+}
+
+.print-page-break-avoid {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.pdf-generation-mode .report-evidence-thumb-grid {
+  display: none !important;
+}
+
+.pdf-generation-mode .report-evidence-pdf-note {
+  display: block !important;
+  font-size: 13px !important;
+  color: #444444 !important;
+}
+
+.pdf-generation-mode .report-field-card,
+.pdf-generation-mode .report-section {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+
+.pdf-generation-mode .report-cell-signature {
+  min-height: 80px !important;
+  background: #fafafa !important;
+}
+
 /* PDF export (html2canvas) — readable size, crisp signatures */
 .pdf-generation-mode,
 .pdf-generation-mode * {
@@ -459,7 +590,7 @@ body {
   background-color: #ffffff !important;
 }
 
-/* Browser print */
+/* Browser print — orientation set via #report-print-page-style from report page */
 @media print {
   @page {
     size: A4 landscape;

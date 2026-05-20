@@ -8,10 +8,9 @@ import {
 } from "@/components/forms/auditReportFieldRender";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { buildGridLayout } from "@/lib/gridLayout";
-import type { FormSchemaV1, FormSection } from "@/types/forms";
+import { clampColumnWidthPx } from "@/lib/formFieldConstants";
 import { normalizeFormSchema, splitReportSections } from "@/lib/normalizeFormSchema";
-
-const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
+import { DEFAULT_EVIDENCE_FIELD_ID, reportFieldCellClass } from "@/lib/reportEvidence";
 
 function asText(value: unknown) {
   if (value == null) return "";
@@ -25,24 +24,11 @@ function isDataUrl(value: unknown) {
   return typeof value === "string" && value.startsWith("data:image");
 }
 
-function isImageSource(value: unknown) {
-  if (typeof value !== "string") return false;
-  if (value.startsWith("data:image")) return true;
-  if (/^https?:\/\//i.test(value)) return true;
-  return false;
-}
-
-function photoList(value: unknown) {
-  if (Array.isArray(value)) return value.filter((x): x is string => isImageSource(x));
-  if (isImageSource(value)) return [value as string];
-  return [] as string[];
-}
-
 function sectionColumnsClass(columns?: number) {
-  if (columns === 2) return "grid grid-cols-1 gap-3 md:grid-cols-2 print:grid-cols-2";
-  if (columns === 3) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 print:grid-cols-3";
-  if (columns === 4) return "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 print:grid-cols-4";
-  return "grid grid-cols-1 gap-3 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] print:grid-cols-2";
+  if (columns === 2) return "report-field-grid report-field-grid--2";
+  if (columns === 3) return "report-field-grid report-field-grid--3";
+  if (columns === 4) return "report-field-grid report-field-grid--4";
+  return "report-field-grid report-field-grid--auto";
 }
 
 export function AuditReportDisplay({
@@ -55,25 +41,28 @@ export function AuditReportDisplay({
   const payload = audit.payload;
   const schema = audit.template.schema ? normalizeFormSchema(audit.template.schema) : null;
   const { submittedByName, submittedByEmail } = auditMetaFromPayload(payload);
-
   if (!schema || (!schema.sections?.length && !schema.fields?.length)) {
     const entries = Object.entries(payload).filter(([key]) => !key.startsWith("__"));
     return (
-      <div className="report-export-root rounded-md border border-foreground/20 bg-background p-4">
-        <h2 className="text-lg font-semibold">{audit.template.title}</h2>
-        <p className="mt-1 text-sm text-foreground/70">
-          {audit.status} • {new Date(audit.createdAt).toLocaleString()}
-        </p>
-        <div className="mt-4 space-y-2">
+      <div className="report-export-root print-shell rounded-lg border border-foreground/25 bg-background p-4 sm:p-6" id="report-content">
+        <header className="report-header-block">
+          <h2 className="text-xl font-semibold">{audit.template.title}</h2>
+          <p className="mt-1 text-sm text-foreground/70">
+            {audit.status} • {new Date(audit.createdAt).toLocaleString()}
+          </p>
+        </header>
+        <div className="mt-4 report-field-grid report-field-grid--auto">
           {entries.map(([key, value]) => (
-            <div key={key} className="rounded border border-foreground/15 p-2">
-              <div className="text-xs text-foreground/60">{key}</div>
-              <div className="break-words text-sm">
+            <div key={key} className="report-field-card">
+              <div className="report-field-label">{key}</div>
+              <div className="report-field-value break-words">
                 {isDataUrl(value) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={value as string} alt={key} className="report-signature-img mt-1 object-contain" />
+                  <div className="report-cell-signature">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={value as string} alt={key} className="report-signature-img" />
+                  </div>
                 ) : (
-                  asText(value) || "-"
+                  asText(value) || "—"
                 )}
               </div>
             </div>
@@ -101,13 +90,13 @@ export function AuditReportDisplay({
 
   return (
     <div
-      className="report-export-root print-shell rounded-lg border border-foreground/30 bg-background p-4 sm:p-6"
+      className="report-export-root print-shell rounded-lg border border-foreground/25 bg-background p-4 sm:p-6"
       id="report-content"
     >
-      <div className="rounded-md border border-foreground/30 p-3">
-        <div className="flex items-start justify-between gap-3">
+      <header className="report-header-block print-page-break-avoid">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-md border border-foreground/20 bg-background">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-foreground/20 bg-background">
               {tenant.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={tenant.logoUrl} alt={`${tenant.name} logo`} className="h-10 w-10 object-contain" />
@@ -117,26 +106,30 @@ export function AuditReportDisplay({
             </div>
             <div>
               <div className="text-lg font-semibold leading-tight">{tenant.name}</div>
-              <div className="text-xs text-foreground/70">Food Safety Audit Report</div>
+              <div className="text-xs uppercase tracking-wide text-foreground/65">Food safety audit report</div>
             </div>
           </div>
-          <div className="grid gap-1 text-right text-xs">
+          <dl className="grid gap-1 text-right text-xs sm:text-sm">
             <div>
-              <span className="font-semibold">Status:</span> {audit.status}
+              <dt className="inline font-semibold">Status: </dt>
+              <dd className="inline">{audit.status}</dd>
             </div>
             <div>
-              <span className="font-semibold">Date:</span> {new Date(audit.createdAt).toLocaleDateString()}
+              <dt className="inline font-semibold">Date: </dt>
+              <dd className="inline">{new Date(audit.createdAt).toLocaleString()}</dd>
             </div>
-          </div>
+          </dl>
         </div>
-        <div className="mt-3 text-center text-2xl font-bold tracking-tight">{schema.title || audit.template.title}</div>
-      </div>
+        <h1 className="report-title mt-4 text-center text-xl font-bold tracking-tight sm:text-2xl">
+          {schema.title || audit.template.title}
+        </h1>
+      </header>
 
-      <div className="mt-4 flex flex-col gap-4">
+      <div className="mt-5 flex flex-col gap-4">
         {correctiveAction ? (
-          <section className="rounded-md border border-amber-300 bg-amber-50 p-3">
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-900">Corrective action</h3>
-            <div className="text-sm text-amber-900">{correctiveAction}</div>
+          <section className="report-section print-page-break-avoid rounded-md border border-amber-300/80 bg-amber-50/90 p-3">
+            <h3 className="report-section-title text-amber-950">Corrective action</h3>
+            <p className="mt-2 text-sm leading-relaxed text-amber-950">{correctiveAction}</p>
           </section>
         ) : null}
 
@@ -145,17 +138,18 @@ export function AuditReportDisplay({
             const fields = section.fields.filter((f) => f.isActive !== false);
             if (!fields.length) return null;
             return (
-              <section key={`fields-${idx}`} className="rounded-md border border-foreground/20 p-3">
+              <section key={`fields-${idx}`} className="report-section print-page-break-avoid">
                 {section.title && section.title.trim().toLowerCase() !== "fields" ? (
-                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title}</h3>
+                  <h3 className="report-section-title">{section.title}</h3>
                 ) : null}
                 <div className={sectionColumnsClass(section.columns)}>
                   {fields.map((field) => (
-                    <div key={field.id} className="rounded-md border border-foreground/15 p-2">
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                        {field.label}
-                      </div>
-                      <div className="text-sm">{renderAuditReportFieldValue(field, payload)}</div>
+                    <div
+                      key={field.id}
+                      className={`report-field-card ${reportFieldCellClass(field, section.columns)}`}
+                    >
+                      <div className="report-field-label">{field.label}</div>
+                      <div className="report-field-body">{renderAuditReportFieldValue(field, payload)}</div>
                     </div>
                   ))}
                 </div>
@@ -170,14 +164,31 @@ export function AuditReportDisplay({
           const layout = buildGridLayout(section, rowCount);
 
           return (
-            <section key={`grid-${key}-${idx}`} className="rounded-md border border-foreground/20 p-3">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide">{section.title || "Log Sheet"}</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-max border-collapse text-sm">
+            <section key={`grid-${key}-${idx}`} className="report-section">
+              <h3 className="report-section-title">{section.title || "Log sheet"}</h3>
+              <div className="report-table-wrap overflow-x-auto rounded-md border border-foreground/20">
+                <table className="report-data-table w-full min-w-max border-collapse text-sm">
                   <thead>
                     <tr>
                       {layout.columns.map((col) => (
-                        <th key={col.id} className="border border-foreground/30 px-2 py-2 text-left font-semibold">
+                        <th
+                          key={col.id}
+                          className={
+                            "border border-foreground/25 bg-foreground/[0.04] px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-wide " +
+                            (col.type === "checkbox" ? "w-16 text-center" : "")
+                          }
+                          style={
+                            col.type === "checkbox"
+                              ? { width: 72, minWidth: 72 }
+                              : typeof (col as { widthPx?: number }).widthPx === "number" &&
+                                  Number.isFinite((col as { widthPx?: number }).widthPx)
+                                ? {
+                                    width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                    minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                  }
+                                : undefined
+                          }
+                        >
                           {col.label || "Column"}
                         </th>
                       ))}
@@ -187,13 +198,32 @@ export function AuditReportDisplay({
                     {Array.from({ length: rowCount }).map((_, rowIndex) => {
                       const row = rows[rowIndex] || {};
                       return (
-                        <tr key={`r-${rowIndex}`}>
+                        <tr key={`r-${rowIndex}`} className="print-page-break-avoid">
                           {layout.rows[rowIndex]?.map((cell, colIndex) => {
                             if (!cell || cell.kind === "covered") return null;
                             const col = cell.field;
                             const value = row[col.id];
                             return (
-                              <td key={`${rowIndex}-${colIndex}`} className="border border-foreground/20 px-2 py-1.5">
+                              <td
+                                key={`${rowIndex}-${colIndex}-${cell.mergeId || col.id}`}
+                                rowSpan={cell.rowSpan}
+                                colSpan={cell.colSpan}
+                                className={
+                                  "border border-foreground/15 px-2.5 py-2 align-top " +
+                                  (col.type === "checkbox" ? "text-center" : "")
+                                }
+                                style={
+                                  col.type === "checkbox"
+                                    ? { width: 72, minWidth: 72 }
+                                    : typeof (col as { widthPx?: number }).widthPx === "number" &&
+                                        Number.isFinite((col as { widthPx?: number }).widthPx)
+                                      ? {
+                                          width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                          minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                        }
+                                      : undefined
+                                }
+                              >
                                 {renderAuditReportTableCellValue(col, value)}
                               </td>
                             );
@@ -208,10 +238,10 @@ export function AuditReportDisplay({
           );
         })}
 
-        {photoList(defaultEvidence).length > 0 ? (
-          <section className="rounded-md border border-foreground/20 p-3">
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide">Photo evidence</h3>
-            <ReportPhotoGallery photos={photoList(defaultEvidence)} label="Photo evidence" />
+        {photoListOnlyDefault(defaultEvidence).length > 0 ? (
+          <section className="report-section print-page-break-avoid">
+            <h3 className="report-section-title">Photo evidence</h3>
+            <ReportPhotoGallery photos={photoListOnlyDefault(defaultEvidence)} label="Photo evidence" />
           </section>
         ) : null}
       </div>
@@ -224,4 +254,12 @@ export function AuditReportDisplay({
       />
     </div>
   );
+}
+
+function photoListOnlyDefault(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((x): x is string => typeof x === "string" && (x.startsWith("data:image") || /^https?:\/\//i.test(x)));
+  }
+  if (typeof value === "string" && (value.startsWith("data:image") || /^https?:\/\//i.test(value))) return [value];
+  return [];
 }

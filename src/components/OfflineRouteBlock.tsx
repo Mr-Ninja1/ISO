@@ -22,7 +22,7 @@ export function OfflineRouteBlock({
       <div className="ui-card mx-auto flex w-full max-w-2xl flex-col gap-4 p-6">
         <div>
           <h1 className="text-xl font-semibold">{title}</h1>
-          <p className="mt-2 text-sm text-foreground/70">{message}</p>
+          <p className="mt-2 whitespace-pre-line text-sm text-foreground/70">{message}</p>
         </div>
 
         <div className="overflow-hidden rounded-full bg-foreground/10">
