@@ -9,6 +9,7 @@ import {
   isAppRootPath,
   navigateToPostAuthEntry,
   normalizeAppPathname,
+  resolvePostAuthDestinationAsync,
 } from "@/lib/client/appEntryNavigation";
 
 export default function Home() {
@@ -27,7 +28,7 @@ export default function Home() {
     const timeoutId = window.setTimeout(() => {
       const path = normalizeAppPathname(window.location.pathname);
       if (!isAppRootPath(path)) return;
-      hardNavigate(user?.id ? "/workspace" : "/login");
+      void resolvePostAuthDestinationAsync().then((dest) => hardNavigate(dest));
     }, fallbackMs);
 
     return () => window.clearTimeout(timeoutId);

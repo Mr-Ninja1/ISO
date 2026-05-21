@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Megaphone, RefreshCw, Smartphone, Zap } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
+import { useAdminAccessContext } from "@/components/admin/AdminAccessContext";
 import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
 import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
 import { adminFetch } from "@/lib/client/adminFetch";
@@ -18,8 +18,7 @@ type PlatformSettings = {
 };
 
 export function PlatformOtaPanel() {
-  const { session } = useAuth();
-  const accessToken = session?.access_token || "";
+  const { accessToken } = useAdminAccessContext();
   const offline = useAppOffline();
 
   const [loading, setLoading] = useState(true);

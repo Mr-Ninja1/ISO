@@ -1,5 +1,11 @@
-import { hasPersistedAuthCredentials } from "@/lib/auth";
+import {
+  hasPersistedAuthCredentials,
+  readCachedAuthUser,
+  readPersistedSupabaseSession,
+} from "@/lib/auth";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { readPlatformDeveloperFlag } from "@/lib/client/platformDeveloperFlag";
+import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 
 export function normalizeAppPathname(pathname: string) {
   const base = pathname.replace(/\/+$/, "") || "/";
@@ -37,7 +43,24 @@ export function resolveWorkspaceUrlWithLastTenant(): string | null {
 }
 
 export function resolvePostAuthDestination(): string {
+  if (readPlatformDeveloperFlag()) return "/admin";
   return resolveWorkspaceUrlWithLastTenant() || resolveAuthenticatedEntryPath();
+}
+
+/** Async entry routing — checks platform developer before workspace/onboarding. */
+export async function resolvePostAuthDestinationAsync(): Promise<string> {
+  const persisted = readPersistedSupabaseSession();
+  const token = persisted?.access_token || "";
+  const cached = readCachedAuthUser();
+  const email = cached?.email || persisted?.user?.email || "";
+  const userId = cached?.id || persisted?.user?.id || null;
+
+  if (token) {
+    const route = await resolvePostLoginRoute(token, email, userId);
+    return route.path;
+  }
+
+  return resolvePostAuthDestination();
 }
 
 /** Reliable navigation after force-close / WebView resume (client router alone can stall). */
@@ -52,14 +75,15 @@ export function hardNavigate(href: string) {
 }
 
 export function navigateToPostAuthEntry(routerReplace: (href: string) => void) {
-  const destination = resolvePostAuthDestination();
-  routerReplace(destination);
-  if (!isCapacitorNativeApp()) return;
+  void resolvePostAuthDestinationAsync().then((destination) => {
+    routerReplace(destination);
+    if (!isCapacitorNativeApp()) return;
 
-  window.setTimeout(() => {
-    const path = normalizeAppPathname(window.location.pathname);
-    if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, window.location.search)) {
-      hardNavigate(destination);
-    }
-  }, 1200);
+    window.setTimeout(() => {
+      const path = normalizeAppPathname(window.location.pathname);
+      if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, window.location.search)) {
+        hardNavigate(destination);
+      }
+    }, 1200);
+  });
 }

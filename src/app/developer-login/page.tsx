@@ -1,21 +1,31 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { apiUrl } from "@/lib/client/apiBase";
+import { readPlatformDeveloperFlag, writePlatformDeveloperFlag } from "@/lib/client/platformDeveloperFlag";
+import { readPersistedSupabaseSession } from "@/lib/auth";
 
 export default function DeveloperLoginPage() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [secureClicks, setSecureClicks] = useState(0);
   const secureClicksRef = useRef(0);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const token = readPersistedSupabaseSession()?.access_token;
+    if (token && readPlatformDeveloperFlag()) {
+      router.replace("/admin");
+    }
+  }, [authLoading, router]);
 
   const handleDeveloperAccess = () => {
     secureClicksRef.current += 1;
@@ -52,7 +62,8 @@ export default function DeveloperLoginPage() {
         throw new Error(payload?.error || "Unable to verify developer access.");
       }
 
-      router.push("/admin");
+      writePlatformDeveloperFlag(true);
+      router.replace("/admin");
     } catch (err: any) {
       setError(err?.message || "Developer sign in failed");
     } finally {

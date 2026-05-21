@@ -7,10 +7,12 @@ import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/auth";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { apiUrl } from "@/lib/client/apiBase";
+import { usePlatformDeveloperRedirect } from "@/lib/client/usePlatformDeveloperRedirect";
 
 export default function OnboardingPage() {
   const router = useRouter();
   const { user, session, loading: authLoading, signOut } = useAuth();
+  usePlatformDeveloperRedirect();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

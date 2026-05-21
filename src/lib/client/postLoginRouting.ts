@@ -1,6 +1,7 @@
 import { apiUrl } from "@/lib/client/apiBase";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { isPlatformDeveloperSession } from "@/lib/client/platformDeveloperSession";
+import { readPlatformDeveloperFlag } from "@/lib/client/platformDeveloperFlag";
 
 export type PostLoginRoute = {
   path: string;
@@ -83,6 +84,10 @@ export async function resolvePostLoginRoute(
     return { path: "/workspace" };
   } catch (error) {
     if (!isNetworkFetchError(error)) throw error;
+
+    if (readPlatformDeveloperFlag()) {
+      return { path: "/admin", usedOfflineFallback: true };
+    }
 
     const lastTenant =
       typeof window !== "undefined" ? normalizeTenantSlug(localStorage.getItem("lastTenantSlug")) : "";

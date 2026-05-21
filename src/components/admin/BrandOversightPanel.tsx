@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowUpRight, Loader2, Megaphone, MessageSquare, Power, PowerOff, Search, ShieldCheck, SortAsc, SortDesc, Trash2, Users } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
-import { AppLoadingScreen } from "@/components/AppLoadingScreen";
-import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { AlertTriangle, ArrowUpRight, Loader2, Megaphone, MessageSquare, Power, PowerOff, Search, SortAsc, SortDesc, Trash2, Users } from "lucide-react";
+import { useAdminAccessContext } from "@/components/admin/AdminAccessContext";
 import { NotificationModal } from "@/components/NotificationModal";
 import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
 import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
@@ -84,7 +82,7 @@ type SortOrder = "asc" | "desc";
 type StatusFilter = "all" | "active" | "inactive";
 
 export function BrandOversightPanel() {
-  const { user, session, loading: authLoading } = useAuth();
+  const { accessToken } = useAdminAccessContext();
   const offline = useAppOffline();
   const [requestPending, setRequestPending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -153,12 +151,7 @@ export function BrandOversightPanel() {
   }, [brands, statusFilter, searchQuery, sortField, sortOrder]);
 
   useEffect(() => {
-    const token = session?.access_token || "";
-    if (authLoading) {
-      setLoading(true);
-      return;
-    }
-    if (!token) {
+    if (!accessToken) {
       setLoading(false);
       return;
     }
@@ -173,7 +166,7 @@ export function BrandOversightPanel() {
 
     void (async () => {
       const result = await adminFetch<AdminBrandsResponse>("/api/admin/brands", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
         signal: abort.signal,
       });
       if (abort.signal.aborted) return;
@@ -190,13 +183,12 @@ export function BrandOversightPanel() {
     })();
 
     return () => abort.abort();
-  }, [authLoading, offline, session?.access_token]);
+  }, [offline, accessToken]);
 
   async function refreshBrands(): Promise<boolean> {
-    const token = session?.access_token || "";
-    if (!token || offline) return false;
+    if (!accessToken || offline) return false;
     const result = await adminFetch<AdminBrandsResponse>("/api/admin/brands", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!result.ok) {
       if (result.status === 403) setAccessDenied(true);
@@ -217,8 +209,7 @@ export function BrandOversightPanel() {
   }
 
   async function toggleBrand(brandId: string, nextActive: boolean, deactivationReason?: string | null) {
-    const token = session?.access_token || "";
-    if (!token || !guardOnlineAction()) return;
+    if (!accessToken || !guardOnlineAction()) return;
     setSavingBrandId(brandId);
     setRequestPending(true);
     setBusyMessage("");
@@ -227,7 +218,7 @@ export function BrandOversightPanel() {
       const result = await adminFetch(`/api/admin/brands/${brandId}`, {
         method: "PATCH",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -251,8 +242,7 @@ export function BrandOversightPanel() {
   }
 
   async function deleteBrand(brand: BrandRow) {
-    const token = session?.access_token || "";
-    if (!token || !guardOnlineAction()) return;
+    if (!accessToken || !guardOnlineAction()) return;
     setSavingBrandId(brand.id);
     setRequestPending(true);
     setBusyMessage("");
@@ -261,7 +251,7 @@ export function BrandOversightPanel() {
       const result = await adminFetch(`/api/admin/brands/${brand.id}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ confirmSlug: deleteConfirmSlug }),
@@ -282,8 +272,7 @@ export function BrandOversightPanel() {
   }
 
   async function sendMessage() {
-    const token = session?.access_token || "";
-    if (!token || !compose || !guardOnlineAction()) return;
+    if (!accessToken || !compose || !guardOnlineAction()) return;
     setSavingBrandId(compose.brandId);
     setRequestPending(true);
     setBusyMessage("");
@@ -292,7 +281,7 @@ export function BrandOversightPanel() {
       const result = await adminFetch(`/api/admin/brands/${compose.brandId}/message`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ title: compose.title, message: compose.message, delivery: compose.delivery }),
@@ -312,8 +301,7 @@ export function BrandOversightPanel() {
   }
 
   async function sendBroadcast() {
-    const token = session?.access_token || "";
-    if (!token || !guardOnlineAction()) return;
+    if (!accessToken || !guardOnlineAction()) return;
     setSavingBroadcast(true);
     setRequestPending(true);
     setBusyMessage("");
@@ -322,7 +310,7 @@ export function BrandOversightPanel() {
       const result = await adminFetch("/api/admin/broadcast", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -348,16 +336,12 @@ export function BrandOversightPanel() {
     }
   }
 
-  if (authLoading) {
-    return <AppLoadingScreen title="Loading admin console" subtitle="Checking permissions and loading all brands..." />;
-  }
-
-  if (!user) {
-    return <OfflineRouteBlock title="Developer access required" message="Sign in with an approved developer account to open the developer console." backHref="/developer-login" backLabel="Developer sign in" />;
-  }
-
   if (accessDenied) {
-    return <OfflineRouteBlock title="Developer access required" message="This console is restricted to approved platform developers." backHref="/developer-login" backLabel="Developer sign in" />;
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        Developer access was revoked for this account. Sign out and use an approved developer email.
+      </div>
+    );
   }
 
   const activeCount = brands.filter((brand) => brand.isActive).length;
@@ -366,18 +350,13 @@ export function BrandOversightPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="rounded-2xl border border-foreground/10 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.96),_rgba(242,245,248,0.95),_rgba(229,231,235,0.9))] p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-foreground/15 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Developer console
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Brand oversight</h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-700">
-              Review every brand in the system, switch access on or off, and send live alerts that pop up inside the brand workspace.
-            </p>
-          </div>
+      <div className="admin-console-page-hero">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Brand oversight</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-700">
+            Review every brand in the system, switch access on or off, and send live alerts that pop up inside the brand workspace.
+          </p>
+        </div>
           <div className="flex flex-wrap gap-2 text-xs text-foreground/65">
             <span className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-background px-3 py-1">
               <Users className="h-3.5 w-3.5" />

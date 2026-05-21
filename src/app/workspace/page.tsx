@@ -8,6 +8,7 @@ import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard,
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
+import { usePlatformDeveloperRedirect } from "@/lib/client/usePlatformDeveloperRedirect";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildTenantHref } from "@/lib/client/tenantHref";
@@ -530,6 +531,7 @@ function WorkspacePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading, signOut } = useAuth();
+  usePlatformDeveloperRedirect();
 
   const tenantSlug = normalizeTenantSlug(searchParams.get("tenantSlug"));
   const categoryId = searchParams.get("categoryId");
@@ -1430,11 +1432,16 @@ function WorkspacePageInner() {
         if (!res.ok) throw new Error(data?.error || `Failed to load brands (${res.status})`);
         return data;
       })
-      .then((data) => {
+      .then(async (data) => {
         const tenants = (data.tenants || []) as TenantSummary[];
         setTenantChoices(tenants);
 
         if (tenants.length === 0) {
+          const { isPlatformDeveloperSession } = await import("@/lib/client/platformDeveloperSession");
+          if (accessToken && (await isPlatformDeveloperSession(accessToken))) {
+            router.replace("/admin");
+            return;
+          }
           router.push("/onboarding");
           return;
         }

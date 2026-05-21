@@ -5,12 +5,24 @@ export type AdminFetchResult<T> =
   | { ok: false; error: string; status?: number; aborted?: boolean };
 
 export function normalizeAdminError(err: unknown, fallback = "Something went wrong"): string {
+  let message = fallback;
   if (err instanceof Error) {
     if (err.name === "AbortError") return "Request was cancelled.";
-    if (err.message) return err.message;
+    if (err.message) message = err.message;
+  } else if (typeof err === "string" && err.trim()) {
+    message = err.trim();
   }
-  if (typeof err === "string" && err.trim()) return err.trim();
-  return fallback;
+  return humanizeAdminApiError(message);
+}
+
+/** Supabase and gateway errors are often opaque — map them for the admin UI. */
+export function humanizeAdminApiError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("auth session missing") || lower.includes("invalid jwt") || lower.includes("jwt expired")) {
+    return "Your session expired. Sign out and sign in again.";
+  }
+  if (lower === "forbidden") return "This account is not approved for the developer console.";
+  return message;
 }
 
 function networkHint(): string {
@@ -47,11 +59,11 @@ export async function adminFetch<T = Record<string, unknown>>(
 
     const json = (await res.json().catch(() => ({}))) as T & { error?: string };
     if (!res.ok) {
-      const msg =
+      const raw =
         typeof json === "object" && json && "error" in json && typeof json.error === "string"
           ? json.error
           : `Request failed (${res.status})`;
-      return { ok: false, error: msg, status: res.status };
+      return { ok: false, error: humanizeAdminApiError(raw), status: res.status };
     }
     return { ok: true, data: json, status: res.status };
   } catch (err: unknown) {

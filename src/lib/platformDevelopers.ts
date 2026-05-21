@@ -34,7 +34,11 @@ export async function requirePlatformDeveloper(token: string) {
   }
 
   const { data, error } = await supabase.auth.getUser(token);
-  if (error) throw error;
+  if (error) {
+    const err = new Error("Session expired. Please sign in again.") as Error & { status?: number };
+    err.status = 401;
+    throw err;
+  }
 
   const email = data.user?.email || null;
   const allowed = await isPlatformDeveloperEmail(email);

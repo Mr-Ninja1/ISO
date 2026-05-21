@@ -12,6 +12,7 @@ import {
   writeBrowserSupabaseSession,
   writeCachedAuthUser,
 } from "@/lib/auth";
+import { clearPlatformDeveloperFlag } from "@/lib/client/platformDeveloperFlag";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
@@ -150,13 +151,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         writeCachedAuthUser(null);
       } else {
-        // INITIAL_SESSION / TOKEN_REFRESHED with null — do not wipe a session we just set via API sign-in.
+        // INITIAL_SESSION / TOKEN_REFRESHED with null — keep last known session until explicit sign-out.
         const fallback = readPersistedSupabaseSession();
         if (fallback?.access_token) {
           setSession((prev) => prev ?? fallback);
           if (fallback.user?.id) {
             setUser((prev) => prev ?? { id: fallback.user!.id, email: fallback.user!.email || "" });
           }
+        } else {
+          setUser((prev) => prev);
+          setSession((prev) => prev);
         }
       }
 
@@ -263,6 +267,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore
     }
     writeCachedAuthUser(null);
+    clearPlatformDeveloperFlag();
     setSession(null);
     setUser(null);
   };
