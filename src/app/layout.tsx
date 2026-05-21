@@ -13,7 +13,7 @@ import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
 import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
-import { NativeUpdateNudge } from '@/components/NativeUpdateNudge';
+import { NativeUpdateGate } from '@/components/NativeUpdateGate';
 import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
 import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
@@ -71,7 +71,7 @@ export default function RootLayout({
         <AuthProvider>
           <CapacitorBootstrap />
           <CapacitorStylesGuard />
-          <NativeUpdateNudge />
+          <NativeUpdateGate />
           <LiveUpdateBootstrap />
           <CapacitorEntryRedirect />
           <CapacitorAppRecovery />

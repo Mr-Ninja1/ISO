@@ -14,11 +14,13 @@ function serializeRow(row: Record<string, unknown> | null) {
       minNativeBuild: 1,
       liveUpdateChannel: "production",
       liveUpdateBundleUrl: null as string | null,
+      latestApkUrl: null as string | null,
       updatedAt: null as string | null,
     };
   }
 
   const min = row.min_native_build;
+  const apk = row.latest_apk_url;
   return {
     minNativeBuild: typeof min === "number" && Number.isFinite(min) ? min : 1,
     liveUpdateChannel:
@@ -29,6 +31,7 @@ function serializeRow(row: Record<string, unknown> | null) {
       typeof row.live_update_bundle_url === "string" && row.live_update_bundle_url.trim()
         ? row.live_update_bundle_url.trim()
         : null,
+    latestApkUrl: typeof apk === "string" && apk.trim() ? apk.trim() : null,
     updatedAt: typeof row.updated_at === "string" ? row.updated_at : null,
   };
 }
@@ -44,7 +47,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await svc
       .from("platform_settings")
-      .select("min_native_build, live_update_channel, live_update_bundle_url, updated_at")
+      .select("min_native_build, live_update_channel, live_update_bundle_url, latest_apk_url, updated_at")
       .eq("id", "default")
       .maybeSingle();
 
@@ -70,6 +73,7 @@ export async function PATCH(req: Request) {
       minNativeBuild?: number;
       liveUpdateChannel?: string;
       liveUpdateBundleUrl?: string | null;
+      latestApkUrl?: string | null;
     };
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -96,10 +100,18 @@ export async function PATCH(req: Request) {
       patch.live_update_bundle_url = url || null;
     }
 
+    if (body.latestApkUrl !== undefined) {
+      const url = body.latestApkUrl == null ? null : String(body.latestApkUrl).trim();
+      if (url && !/^https:\/\/.+/i.test(url)) {
+        return NextResponse.json({ error: "latestApkUrl must be an HTTPS URL" }, { status: 400 });
+      }
+      patch.latest_apk_url = url || null;
+    }
+
     const { data, error } = await svc
       .from("platform_settings")
       .upsert({ id: "default", ...patch }, { onConflict: "id" })
-      .select("min_native_build, live_update_channel, live_update_bundle_url, updated_at")
+      .select("min_native_build, live_update_channel, live_update_bundle_url, latest_apk_url, updated_at")
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

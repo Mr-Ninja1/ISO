@@ -6,6 +6,11 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { NotificationModal } from "@/components/NotificationModal";
+import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
+import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
+import type { AnnouncementAudience } from "@/lib/platformAudience";
+import { adminFetch } from "@/lib/client/adminFetch";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 type BrandRow = {
   id: string;
@@ -80,7 +85,8 @@ type StatusFilter = "all" | "active" | "inactive";
 
 export function BrandOversightPanel() {
   const { user, session, loading: authLoading } = useAuth();
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const offline = useAppOffline();
+  const [requestPending, setRequestPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [brands, setBrands] = useState<BrandRow[]>([]);
@@ -96,6 +102,7 @@ export function BrandOversightPanel() {
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastDelivery, setBroadcastDelivery] = useState<AlertDelivery>("modal");
+  const [broadcastAudience, setBroadcastAudience] = useState<AnnouncementAudience>("all");
   const [savingBroadcast, setSavingBroadcast] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<BrandRow | null>(null);
   const [deactivateReasonInput, setDeactivateReasonInput] = useState("");
@@ -146,86 +153,78 @@ export function BrandOversightPanel() {
   }, [brands, statusFilter, searchQuery, sortField, sortOrder]);
 
   useEffect(() => {
-    const updateOnline = () => setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
-    updateOnline();
-    window.addEventListener("online", updateOnline);
-    window.addEventListener("offline", updateOnline);
-    return () => {
-      window.removeEventListener("online", updateOnline);
-      window.removeEventListener("offline", updateOnline);
-    };
-  }, []);
-
-  useEffect(() => {
     const token = session?.access_token || "";
     if (authLoading) {
       setLoading(true);
       return;
     }
-    if (!token || !online) {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    if (offline) {
       setLoading(false);
       return;
     }
 
-    let cancelled = false;
+    const abort = new AbortController();
     setLoading(true);
     setError("");
 
-    fetch("/api/admin/brands", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        const json = (await res.json().catch(() => ({}))) as AdminBrandsResponse & { error?: string };
-        if (res.status === 403) {
-          setAccessDenied(true);
-          throw new Error(json?.error || "Forbidden");
-        }
-        if (!res.ok) throw new Error(json?.error || `Failed to load brand overview (${res.status})`);
-        setAccessDenied(false);
-        return json;
-      })
-      .then((json) => {
-        if (cancelled) return;
-        setBrands(Array.isArray(json.brands) ? json.brands : []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err?.message || "Failed to load brand overview");
-        setBrands([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+    void (async () => {
+      const result = await adminFetch<AdminBrandsResponse>("/api/admin/brands", {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: abort.signal,
       });
+      if (abort.signal.aborted) return;
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        if (!result.aborted) setError(result.error);
+        if (result.status === 403) setBrands([]);
+        setLoading(false);
+        return;
+      }
+      setAccessDenied(false);
+      setBrands(Array.isArray(result.data.brands) ? result.data.brands : []);
+      setLoading(false);
+    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, online, session?.access_token]);
+    return () => abort.abort();
+  }, [authLoading, offline, session?.access_token]);
 
-  async function refreshBrands() {
+  async function refreshBrands(): Promise<boolean> {
     const token = session?.access_token || "";
-    if (!token) return;
-    const res = await fetch("/api/admin/brands", {
+    if (!token || offline) return false;
+    const result = await adminFetch<AdminBrandsResponse>("/api/admin/brands", {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const json = (await res.json().catch(() => ({}))) as AdminBrandsResponse & { error?: string };
-    if (res.status === 403) {
-      setAccessDenied(true);
-      throw new Error(json?.error || "Forbidden");
+    if (!result.ok) {
+      if (result.status === 403) setAccessDenied(true);
+      setError(result.error);
+      return false;
     }
-    if (!res.ok) throw new Error(json?.error || `Failed to load brand overview (${res.status})`);
     setAccessDenied(false);
-    setBrands(Array.isArray(json.brands) ? json.brands : []);
+    setBrands(Array.isArray(result.data.brands) ? result.data.brands : []);
+    return true;
+  }
+
+  function guardOnlineAction(): boolean {
+    if (offline) {
+      setError("You are offline. Reconnect before continuing.");
+      return false;
+    }
+    return true;
   }
 
   async function toggleBrand(brandId: string, nextActive: boolean, deactivationReason?: string | null) {
     const token = session?.access_token || "";
-    if (!token) return;
+    if (!token || !guardOnlineAction()) return;
     setSavingBrandId(brandId);
+    setRequestPending(true);
     setBusyMessage("");
     setError("");
     try {
-      const res = await fetch(`/api/admin/brands/${brandId}`, {
+      const result = await adminFetch(`/api/admin/brands/${brandId}`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -236,31 +235,30 @@ export function BrandOversightPanel() {
           ...(nextActive ? {} : { deactivationReason: deactivationReason ?? null }),
         }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 403) {
-        setAccessDenied(true);
-        throw new Error(json?.error || "Forbidden");
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        setError(result.error);
+        return;
       }
-      if (!res.ok) throw new Error(json?.error || `Failed to update brand (${res.status})`);
       setBusyMessage(nextActive ? "Brand reactivated." : "Brand deactivated.");
       setDeactivateTarget(null);
       setDeactivateReasonInput("");
       await refreshBrands();
-    } catch (err: any) {
-      setError(err?.message || "Failed to update brand status");
     } finally {
       setSavingBrandId(null);
+      setRequestPending(false);
     }
   }
 
   async function deleteBrand(brand: BrandRow) {
     const token = session?.access_token || "";
-    if (!token) return;
+    if (!token || !guardOnlineAction()) return;
     setSavingBrandId(brand.id);
+    setRequestPending(true);
     setBusyMessage("");
     setError("");
     try {
-      const res = await fetch(`/api/admin/brands/${brand.id}`, {
+      const result = await adminFetch(`/api/admin/brands/${brand.id}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -268,31 +266,30 @@ export function BrandOversightPanel() {
         },
         body: JSON.stringify({ confirmSlug: deleteConfirmSlug }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 403) {
-        setAccessDenied(true);
-        throw new Error(json?.error || "Forbidden");
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        setError(result.error);
+        return;
       }
-      if (!res.ok) throw new Error(json?.error || `Failed to delete brand (${res.status})`);
       setBusyMessage(`Brand "${brand.name}" was permanently deleted.`);
       setDeleteTarget(null);
       setDeleteConfirmSlug("");
       await refreshBrands();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to delete brand");
     } finally {
       setSavingBrandId(null);
+      setRequestPending(false);
     }
   }
 
   async function sendMessage() {
     const token = session?.access_token || "";
-    if (!token || !compose) return;
+    if (!token || !compose || !guardOnlineAction()) return;
     setSavingBrandId(compose.brandId);
+    setRequestPending(true);
     setBusyMessage("");
     setError("");
     try {
-      const res = await fetch(`/api/admin/brands/${compose.brandId}/message`, {
+      const result = await adminFetch(`/api/admin/brands/${compose.brandId}/message`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -300,52 +297,54 @@ export function BrandOversightPanel() {
         },
         body: JSON.stringify({ title: compose.title, message: compose.message, delivery: compose.delivery }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 403) {
-        setAccessDenied(true);
-        throw new Error(json?.error || "Forbidden");
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        setError(result.error);
+        return;
       }
-      if (!res.ok) throw new Error(json?.error || `Failed to send alert (${res.status})`);
       setBusyMessage("Alert sent to the selected brand.");
       setCompose(null);
       await refreshBrands();
-    } catch (err: any) {
-      setError(err?.message || "Failed to send alert");
     } finally {
       setSavingBrandId(null);
+      setRequestPending(false);
     }
   }
 
   async function sendBroadcast() {
     const token = session?.access_token || "";
-    if (!token) return;
+    if (!token || !guardOnlineAction()) return;
     setSavingBroadcast(true);
+    setRequestPending(true);
     setBusyMessage("");
     setError("");
     try {
-      const res = await fetch("/api/admin/broadcast", {
+      const result = await adminFetch("/api/admin/broadcast", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ title: broadcastTitle, message: broadcastMessage, delivery: broadcastDelivery }),
+        body: JSON.stringify({
+          title: broadcastTitle,
+          message: broadcastMessage,
+          delivery: broadcastDelivery,
+          audience: broadcastAudience,
+        }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 403) {
-        setAccessDenied(true);
-        throw new Error(json?.error || "Forbidden");
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        setError(result.error);
+        return;
       }
-      if (!res.ok) throw new Error(json?.error || `Failed to broadcast (${res.status})`);
       setBusyMessage("Broadcast sent to all brand workspace inboxes.");
       setBroadcastOpen(false);
       setBroadcastTitle("");
       setBroadcastMessage("");
       await refreshBrands();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send broadcast");
     } finally {
       setSavingBroadcast(false);
+      setRequestPending(false);
     }
   }
 
@@ -396,8 +395,14 @@ export function BrandOversightPanel() {
         </div>
       </div>
 
+      <AdminNetworkStatusBanner
+        offline={offline}
+        pending={requestPending}
+        error={error}
+        onDismissError={() => setError("")}
+      />
+
       {busyMessage ? <div className="rounded-xl border border-foreground/15 bg-foreground/[0.03] p-4 text-sm text-foreground/70">{busyMessage}</div> : null}
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       {loading ? (
         <div className="rounded-xl border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
@@ -456,6 +461,7 @@ export function BrandOversightPanel() {
                 setBroadcastTitle("");
                 setBroadcastMessage("");
                 setBroadcastDelivery("modal");
+                setBroadcastAudience("all");
               }}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-foreground/15 bg-background px-3 text-sm font-medium hover:bg-foreground/5"
               title="Send one message to every brand workspace developer inbox"
@@ -604,7 +610,7 @@ export function BrandOversightPanel() {
               <button
                 type="button"
                 className="rounded-full border border-foreground/10 px-3 py-1 text-sm disabled:opacity-50"
-                disabled={savingBroadcast}
+                disabled={savingBroadcast || offline}
                 onClick={() => setBroadcastOpen(false)}
               >
                 Close
@@ -624,6 +630,12 @@ export function BrandOversightPanel() {
 
               <AlertDeliveryField value={broadcastDelivery} onChange={setBroadcastDelivery} />
 
+              <AnnouncementAudienceField
+                value={broadcastAudience}
+                onChange={setBroadcastAudience}
+                hint="Use “Installed app only” for OTA restart or APK install instructions — website users will not see it."
+              />
+
               <label className="grid gap-1 text-sm">
                 <span className="font-medium">Message</span>
                 <textarea
@@ -639,7 +651,7 @@ export function BrandOversightPanel() {
               <button
                 type="button"
                 className="h-11 rounded-full border border-foreground/15 px-5 text-sm font-medium hover:bg-foreground/5 disabled:opacity-50"
-                disabled={savingBroadcast}
+                disabled={savingBroadcast || offline}
                 onClick={() => setBroadcastOpen(false)}
               >
                 Cancel
@@ -647,7 +659,7 @@ export function BrandOversightPanel() {
               <button
                 type="button"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
-                disabled={savingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
+                disabled={offline || savingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
                 onClick={() => void sendBroadcast()}
               >
                 {savingBroadcast ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -829,7 +841,12 @@ export function BrandOversightPanel() {
               <button
                 type="button"
                 className="inline-flex h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"
-                disabled={savingBrandId === compose.brandId || !compose.title.trim() || !compose.message.trim()}
+                disabled={
+                  offline ||
+                  savingBrandId === compose.brandId ||
+                  !compose.title.trim() ||
+                  !compose.message.trim()
+                }
                 onClick={sendMessage}
               >
                 {savingBrandId === compose.brandId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

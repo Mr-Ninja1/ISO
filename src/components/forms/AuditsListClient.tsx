@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { FileText, MoreVertical, Share2, Printer, Loader2 } from "lucide-react";
+import { FileText, MoreVertical, Loader2 } from "lucide-react";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
-import { shareAuditLink } from "@/components/forms/AuditShareControls";
 import { useAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import {
@@ -14,15 +13,12 @@ import {
   writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
-import { generatePdfFromElement, generatePdfBlobFromElement } from "@/lib/pdfGenerator";
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
 import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { buildTenantHref } from "@/lib/client/tenantHref";
-
-type FormAction = "view" | "share" | "pdf";
 
 function actionButtonClass(busy: boolean) {
   return (
@@ -36,59 +32,39 @@ function actionButtonClass(busy: boolean) {
 function SavedFormRowActions({
   tenantSlug,
   auditId,
-  templateTitle,
-  status,
   layout,
 }: {
   tenantSlug: string;
   auditId: string;
-  templateTitle: string;
-  status: "DRAFT" | "SUBMITTED";
   layout: "row" | "menu";
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<FormAction | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const reportPath = auditReportHref(tenantSlug, auditId);
 
   useEffect(() => {
-    if (busy === "view" && pathname?.includes(auditId)) {
-      setBusy(null);
+    if (busy && pathname?.includes(auditId)) {
+      setBusy(false);
     }
   }, [busy, pathname, auditId]);
 
   useEffect(() => {
-    if (busy !== "view") return;
-    const timeout = window.setTimeout(() => setBusy(null), 15_000);
+    if (!busy) return;
+    const timeout = window.setTimeout(() => setBusy(false), 15_000);
     return () => window.clearTimeout(timeout);
   }, [busy]);
 
-  async function runAction(action: FormAction) {
+  function openReport() {
     if (busy) return;
-    setBusy(action);
+    setBusy(true);
     setOpen(false);
-    try {
-      if (action === "view") {
-        router.push(reportPath);
-        return;
-      }
-      if (action === "share") {
-        const reportUrl = `${window.location.origin}${reportPath}`;
-        await shareAuditLink(reportUrl, templateTitle);
-        return;
-      }
-      window.open(reportPath, "_blank", "noopener,noreferrer");
-      await new Promise((resolve) => window.setTimeout(resolve, 400));
-    } finally {
-      if (action !== "view") setBusy(null);
-    }
+    router.push(reportPath);
   }
 
-  const viewLabel = busy === "view" ? "Opening…" : "View report";
-  const shareLabel = busy === "share" ? "Sharing…" : "Share";
-  const pdfLabel = busy === "pdf" ? "Opening PDF…" : "PDF";
+  const viewLabel = busy ? "Opening…" : "View report";
 
   if (layout === "menu") {
     return (
@@ -96,7 +72,7 @@ function SavedFormRowActions({
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          disabled={Boolean(busy)}
+          disabled={busy}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-60"
           aria-label="More options"
         >
@@ -108,35 +84,13 @@ function SavedFormRowActions({
             <div className="absolute right-0 top-full z-[251] mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
               <button
                 type="button"
-                disabled={Boolean(busy)}
-                onClick={() => void runAction("view")}
+                disabled={busy}
+                onClick={openReport}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
               >
-                {busy === "view" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                 {viewLabel}
               </button>
-              {status === "SUBMITTED" && (
-                <>
-                  <button
-                    type="button"
-                    disabled={Boolean(busy)}
-                    onClick={() => void runAction("pdf")}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
-                  >
-                    {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-                    {pdfLabel}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={Boolean(busy)}
-                    onClick={() => void runAction("share")}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
-                  >
-                    {busy === "share" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-                    Share / WhatsApp
-                  </button>
-                </>
-              )}
             </div>
           </>
         )}
@@ -148,30 +102,12 @@ function SavedFormRowActions({
     <div className="hidden sm:flex w-full items-center gap-2 sm:w-auto">
       <button
         type="button"
-        disabled={Boolean(busy)}
-        onClick={() => void runAction("view")}
-        className={actionButtonClass(busy === "view")}
+        disabled={busy}
+        onClick={openReport}
+        className={actionButtonClass(busy)}
       >
-        {busy === "view" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
         {viewLabel}
-      </button>
-      <button
-        type="button"
-        disabled={Boolean(busy)}
-        onClick={() => void runAction("share")}
-        className={actionButtonClass(busy === "share")}
-      >
-        {busy === "share" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
-        <span className="hidden sm:inline">{shareLabel}</span>
-      </button>
-      <button
-        type="button"
-        disabled={Boolean(busy)}
-        onClick={() => void runAction("pdf")}
-        className={actionButtonClass(busy === "pdf")}
-      >
-        {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-        <span className="hidden sm:inline">{pdfLabel}</span>
       </button>
     </div>
   );
@@ -470,16 +406,12 @@ export function AuditsListClient({
                         <SavedFormRowActions
                           tenantSlug={activeTenantSlug}
                           auditId={row.id}
-                          templateTitle={row.template.title}
-                          status={row.status}
                           layout="row"
                         />
                         <div className="flex sm:hidden">
                           <SavedFormRowActions
                             tenantSlug={activeTenantSlug}
                             auditId={row.id}
-                            templateTitle={row.template.title}
-                            status={row.status}
                             layout="menu"
                           />
                         </div>

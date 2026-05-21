@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
+import { AuthHsePlatformBadge } from "@/components/AuthHsePlatformBadge";
+import { MobileAppInstallBanner } from "@/components/MobileAppInstallBanner";
 import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 
 export default function LoginPage() {
@@ -73,12 +75,15 @@ export default function LoginPage() {
       eyebrowTitle={secureAccessClicks > 0 ? `${6 - secureAccessClicks} clicks left` : "Developer access"}
       title="HSE management for your organisation"
       subtitle="Inspections, evidence, and corrective actions in one workspace—online or offline in the field."
+      brandBadge={<AuthHsePlatformBadge />}
       formTitle="Sign in"
       formSubtitle="Access your HSE workspace"
       footerText="New to ISO Pro?"
       footerHref="/signup"
       footerLabel="Create an account"
     >
+      <MobileAppInstallBanner placement="login" />
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {banner.verified ? (
           <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
@@ -150,7 +155,6 @@ export default function LoginPage() {
             Verify email
           </Link>
         </div>
-
       </form>
     </AuthPageShell>
   );

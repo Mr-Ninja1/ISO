@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { apiUrl } from "@/lib/client/apiBase";
+import { emailVerificationRedirectUrl } from "@/lib/authRedirectUrls";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -16,11 +17,6 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const confirmUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return `${window.location.origin}/login?verified=1`;
-  }, []);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -33,7 +29,9 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      const { userId } = await signUp(email, password, { emailRedirectTo: confirmUrl });
+      const { userId } = await signUp(email, password, {
+        emailRedirectTo: emailVerificationRedirectUrl(),
+      });
 
       const bypassEmailConfirm =
         process.env.NEXT_PUBLIC_DEV_BYPASS_EMAIL_CONFIRMATION === "true";
@@ -126,10 +124,6 @@ export default function SignUpPage() {
         </div>
 
         {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-
-        <p className="text-xs leading-5 text-[var(--accent-soft)]">
-          If email verification is enabled, we will send a confirmation link to your inbox before you can continue.
-        </p>
 
         <button
           type="submit"

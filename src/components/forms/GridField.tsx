@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import SignatureCanvas from "react-signature-canvas";
+import { SIGNATURE_CANVAS_PEN } from "@/lib/signatureCanvasProps";
 import {
   type Control,
   type FieldErrors,
@@ -68,7 +69,7 @@ function SignatureModal({
           <div className="rounded-md border border-foreground/20 bg-background">
             <SignatureCanvas
               ref={(ref) => setCanvas(ref)}
-              penColor="black"
+              {...SIGNATURE_CANVAS_PEN}
               canvasProps={{
                 className: "h-56 w-full",
               }}
@@ -303,16 +304,18 @@ export function GridField({
     if (col.type === "signature") {
       const current = (watch(cellName as any) as string) || "";
       return (
-        <button
-          type="button"
-          className={
-            "h-10 w-full min-w-0 truncate rounded-md border border-foreground/20 px-3 text-left text-sm " +
-            (current ? "bg-foreground/5" : "bg-background text-foreground/70")
-          }
-          onClick={() => setSig({ rowIndex, colId: col.id })}
-        >
-          {current ? "Signed" : "Tap to sign"}
-        </button>
+        <div className="grid-signature-cell mx-auto w-full max-w-[11rem]">
+          <button
+            type="button"
+            className={
+              "h-10 w-full min-w-0 truncate rounded-md border border-foreground/20 px-3 text-left text-sm " +
+              (current ? "bg-foreground/5" : "bg-background text-foreground/70")
+            }
+            onClick={() => setSig({ rowIndex, colId: col.id })}
+          >
+            {current ? "Signed" : "Tap to sign"}
+          </button>
+        </div>
       );
     }
 
@@ -390,13 +393,16 @@ export function GridField({
                   }
                   style={
                     col.type === "checkbox"
-                      ? { width: 72, minWidth: 72 }
-                      : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                        ? {
-                                width: clampColumnWidthPx((col as any).widthPx),
-                                minWidth: clampColumnWidthPx((col as any).widthPx),
-                              }
-                        : undefined
+                      ? { width: 72, minWidth: 72, maxWidth: 72 }
+                      : col.type === "signature"
+                        ? { width: 168, minWidth: 140, maxWidth: 200 }
+                        : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                          ? {
+                              width: clampColumnWidthPx((col as any).widthPx),
+                              minWidth: clampColumnWidthPx((col as any).widthPx),
+                              maxWidth: clampColumnWidthPx((col as any).widthPx),
+                            }
+                          : undefined
                   }
                 >
                   {col.label}
@@ -443,13 +449,16 @@ export function GridField({
                       }
                       style={
                         col.type === "checkbox"
-                          ? { width: 72, minWidth: 72 }
-                          : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
-                            ? {
-                                width: clampColumnWidthPx((col as any).widthPx),
-                                minWidth: clampColumnWidthPx((col as any).widthPx),
-                              }
-                            : undefined
+                          ? { width: 72, minWidth: 72, maxWidth: 72 }
+                          : col.type === "signature"
+                            ? { width: 168, minWidth: 140, maxWidth: 200 }
+                            : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
+                              ? {
+                                  width: clampColumnWidthPx((col as any).widthPx),
+                                  minWidth: clampColumnWidthPx((col as any).widthPx),
+                                  maxWidth: clampColumnWidthPx((col as any).widthPx),
+                                }
+                              : undefined
                       }
                     >
                       {renderCell(col, rowIndex)}

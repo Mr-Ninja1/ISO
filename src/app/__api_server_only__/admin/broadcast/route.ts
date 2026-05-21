@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { requirePlatformDeveloper } from "@/lib/platformDevelopers";
+import { normalizeAnnouncementAudience } from "@/lib/platformAudience";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -21,11 +22,13 @@ export async function POST(req: Request) {
       title?: string;
       message?: string;
       delivery?: string;
+      audience?: string;
     };
     const title = String(body.title || "").trim();
     const message = String(body.message || "").trim();
     const deliveryRaw = String(body.delivery || "modal").trim().toLowerCase();
     const delivery = deliveryRaw === "inbox" || deliveryRaw === "toast" ? deliveryRaw : "modal";
+    const audience = normalizeAnnouncementAudience(body.audience);
     if (!title || !message) {
       return NextResponse.json({ error: "Title and message are required" }, { status: 400 });
     }
@@ -38,6 +41,7 @@ export async function POST(req: Request) {
         created_by_email: adminUser?.email || null,
         is_active: true,
         delivery,
+        audience,
       })
       .select("id,title,message,created_at,is_active")
       .single();
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
       action: "platform.broadcast.send",
       entity_type: "global_announcement",
       entity_id: (row as Record<string, unknown>).id,
-      details: { title, message, createdBy: adminUser?.email || null },
+      details: { title, message, delivery, audience, createdBy: adminUser?.email || null },
     });
     if (logErr) {
       console.warn("[admin/broadcast] activity_logs insert skipped:", logErr.message);

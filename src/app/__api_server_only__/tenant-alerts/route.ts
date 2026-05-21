@@ -4,6 +4,10 @@ import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { getBearerToken, getRouteUser, resolveSupabasePublicEnv } from "@/lib/supabase/routeAuth";
 import { markAnnouncementRead } from "@/lib/data/markAnnouncementRead";
+import {
+  announcementAudienceMatches,
+  type PlatformClientKind,
+} from "@/lib/platformAudience";
 
 type AlertRow = {
   id: string;
@@ -64,6 +68,9 @@ export async function GET(req: Request) {
     const tenantSlug = (url.searchParams.get("tenantSlug") || "").trim();
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
 
+    const clientRaw = (url.searchParams.get("client") || "web").trim().toLowerCase();
+    const client: PlatformClientKind = clientRaw === "native" ? "native" : "web";
+
     const sb = createSupabaseWithBearer(token);
     const tenantResult = await resolveActiveTenant(sb, tenantSlug);
     if ("error" in tenantResult && tenantResult.error) return tenantResult.error;
@@ -73,10 +80,11 @@ export async function GET(req: Request) {
     let minNativeBuild: number | null = null;
     let liveUpdateChannel: string | null = null;
     let liveUpdateBundleUrl: string | null = null;
+    let latestApkUrl: string | null = null;
     if (svc) {
       const { data: ps } = await svc
         .from("platform_settings")
-        .select("min_native_build, live_update_channel, live_update_bundle_url")
+        .select("min_native_build, live_update_channel, live_update_bundle_url, latest_apk_url")
         .eq("id", "default")
         .maybeSingle();
       if (ps) {
@@ -85,6 +93,8 @@ export async function GET(req: Request) {
         minNativeBuild = typeof min === "number" && Number.isFinite(min) ? min : null;
         liveUpdateChannel = typeof row.live_update_channel === "string" ? row.live_update_channel : null;
         liveUpdateBundleUrl = typeof row.live_update_bundle_url === "string" ? row.live_update_bundle_url : null;
+        const apk = row.latest_apk_url;
+        latestApkUrl = typeof apk === "string" && apk.trim() ? apk.trim() : null;
       }
     }
 
@@ -129,13 +139,16 @@ export async function GET(req: Request) {
     let globalMapped: AlertRow[] = [];
     const { data: globalRows, error: globalErr } = await sb
       .from("global_announcements")
-      .select("id,title,message,created_at,delivery")
+      .select("id,title,message,created_at,delivery,audience")
       .eq("is_active", true)
       .order("created_at", { ascending: false })
-      .limit(16);
+      .limit(24);
 
     if (!globalErr && globalRows) {
-      const gIds = globalRows.map((row) => String((row as Record<string, unknown>).id || ""));
+      const filteredGlobal = globalRows.filter((row) =>
+        announcementAudienceMatches((row as Record<string, unknown>).audience, client)
+      );
+      const gIds = filteredGlobal.map((row) => String((row as Record<string, unknown>).id || ""));
       const { data: globalReadRecords } = await sb
         .from("global_announcement_reads")
         .select("announcement_id")
@@ -146,7 +159,7 @@ export async function GET(req: Request) {
         (globalReadRecords || []).map((r) => String((r as Record<string, unknown>).announcement_id || ""))
       );
 
-      globalMapped = globalRows.map((row) => {
+      globalMapped = filteredGlobal.map((row) => {
         const mapped = row as Record<string, unknown>;
         const id = String(mapped.id || "");
         return {
@@ -173,6 +186,8 @@ export async function GET(req: Request) {
         minNativeBuild,
         liveUpdateChannel,
         liveUpdateBundleUrl,
+        latestApkUrl,
+        client,
       },
     });
   } catch (error: unknown) {

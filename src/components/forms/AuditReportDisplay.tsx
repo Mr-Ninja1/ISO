@@ -12,12 +12,19 @@ import { clampColumnWidthPx } from "@/lib/formFieldConstants";
 import { normalizeFormSchema, splitReportSections } from "@/lib/normalizeFormSchema";
 import { DEFAULT_EVIDENCE_FIELD_ID, reportFieldCellClass } from "@/lib/reportEvidence";
 
-function asText(value: unknown) {
+function asText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => asText(item))
+      .filter((part) => part.length > 0)
+      .join(", ");
+  }
+  if (typeof value === "object") return "";
+  return String(value);
 }
 
 function isDataUrl(value: unknown) {
@@ -179,14 +186,17 @@ export function AuditReportDisplay({
                           }
                           style={
                             col.type === "checkbox"
-                              ? { width: 72, minWidth: 72 }
-                              : typeof (col as { widthPx?: number }).widthPx === "number" &&
-                                  Number.isFinite((col as { widthPx?: number }).widthPx)
-                                ? {
-                                    width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
-                                    minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
-                                  }
-                                : undefined
+                              ? { width: 72, minWidth: 72, maxWidth: 72 }
+                              : col.type === "signature"
+                                ? { width: 168, minWidth: 140, maxWidth: 200 }
+                                : typeof (col as { widthPx?: number }).widthPx === "number" &&
+                                    Number.isFinite((col as { widthPx?: number }).widthPx)
+                                  ? {
+                                      width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                      minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                      maxWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                    }
+                                  : undefined
                           }
                         >
                           {col.label || "Column"}
@@ -214,14 +224,17 @@ export function AuditReportDisplay({
                                 }
                                 style={
                                   col.type === "checkbox"
-                                    ? { width: 72, minWidth: 72 }
-                                    : typeof (col as { widthPx?: number }).widthPx === "number" &&
-                                        Number.isFinite((col as { widthPx?: number }).widthPx)
-                                      ? {
-                                          width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
-                                          minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
-                                        }
-                                      : undefined
+                                    ? { width: 72, minWidth: 72, maxWidth: 72 }
+                                    : col.type === "signature"
+                                      ? { width: 168, minWidth: 140, maxWidth: 200 }
+                                      : typeof (col as { widthPx?: number }).widthPx === "number" &&
+                                          Number.isFinite((col as { widthPx?: number }).widthPx)
+                                        ? {
+                                            width: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                            minWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                            maxWidth: clampColumnWidthPx((col as { widthPx: number }).widthPx),
+                                          }
+                                        : undefined
                                 }
                               >
                                 {renderAuditReportTableCellValue(col, value)}

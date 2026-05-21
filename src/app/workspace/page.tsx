@@ -47,10 +47,12 @@ import {
   isTenantDeactivatedError,
   setTenantDeactivatedBlocked,
 } from "@/lib/client/brandAccess";
-import { buildTenantDeactivatedUserMessage } from "@/lib/tenantDeactivation";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
+import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
+import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
+import { MobileAppInstallBanner } from "@/components/MobileAppInstallBanner";
 import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
 import { DueReminderPoller } from "@/components/DueReminderPoller";
 import {
@@ -557,6 +559,7 @@ function WorkspacePageInner() {
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
   const [cardMenuTemplateId, setCardMenuTemplateId] = useState<string | null>(null);
+  const cardMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const [quickSettingsTemplate, setQuickSettingsTemplate] = useState<TemplateSummary | null>(null);
   const [quickSettingsLoading, setQuickSettingsLoading] = useState(false);
   const [quickSettingsSaving, setQuickSettingsSaving] = useState(false);
@@ -2031,12 +2034,9 @@ function WorkspacePageInner() {
   // Only show the full skeleton for first paint / initial checks.
   if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
     return (
-      <OfflineRouteBlock
-        title="Brand deactivated"
-        message={buildTenantDeactivatedUserMessage(getTenantDeactivationReason(tenantSlug))}
-        hint="Choose another brand below, or contact Isopro if you need this brand turned back on."
-        backHref="/workspace"
-        backLabel="Choose another brand"
+      <TenantDeactivatedScreen
+        tenantSlug={tenantSlug}
+        reason={getTenantDeactivationReason(tenantSlug)}
       />
     );
   }
@@ -2047,6 +2047,7 @@ function WorkspacePageInner() {
   if (showTenantPicker) {
     return (
       <div className="workspace-shell min-h-dvh">
+        <MobileAppInstallBanner placement="workspace" />
         <div className="mx-auto max-w-7xl p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -2171,12 +2172,9 @@ function WorkspacePageInner() {
 
   if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
     return (
-      <OfflineRouteBlock
-        title="Brand deactivated"
-        message={buildTenantDeactivatedUserMessage(getTenantDeactivationReason(tenantSlug))}
-        hint="Choose another brand below, or contact Isopro if you need this brand turned back on."
-        backHref="/workspace"
-        backLabel="Choose another brand"
+      <TenantDeactivatedScreen
+        tenantSlug={tenantSlug}
+        reason={getTenantDeactivationReason(tenantSlug)}
       />
     );
   }
@@ -2199,6 +2197,7 @@ function WorkspacePageInner() {
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
       <div className="ws-header-accent" />
+      <MobileAppInstallBanner placement="workspace" />
       <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
@@ -2260,19 +2259,34 @@ function WorkspacePageInner() {
                     role="menu"
                   >
                     {canManageCategories ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          if (blockIfOffline("Categories")) return;
-                          setSeedOpen(true);
-                        }}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Add categories
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            if (blockIfOffline("Manage categories")) return;
+                            pushTenantRoute(router, tenant.slug, "categories");
+                          }}
+                        >
+                          <FolderTree className="h-4 w-4" />
+                          Manage categories
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            if (blockIfOffline("Categories")) return;
+                            setSeedOpen(true);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add categories
+                        </button>
+                      </>
                     ) : null}
 
                     {canCreateForms ? (
@@ -2351,16 +2365,6 @@ function WorkspacePageInner() {
                       onClick={() => clearTenantLocalCache()}
                     >
                       Clear local cache
-                    </button>
-
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100"
-                      onClick={handleSwitchBrand}
-                    >
-                      <LayoutDashboard className="h-4 w-4" />
-                      Switch brand
                     </button>
 
                     {canAccessSettings ? (
@@ -2951,11 +2955,12 @@ function WorkspacePageInner() {
 
                         <div className="flex items-center gap-2">
                           {canStaffManage ? (
-                            <div className="relative">
+                            <div className="relative z-20">
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  cardMenuBtnRef.current = e.currentTarget;
                                   setCardMenuTemplateId((current) => (current === t.id ? null : t.id));
                                 }}
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-foreground/15 bg-background text-foreground/70 hover:bg-foreground/5"
@@ -2965,98 +2970,89 @@ function WorkspacePageInner() {
                                 <MoreVertical className="h-4 w-4" />
                               </button>
 
-                              {cardMenuTemplateId === t.id ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="fixed inset-0 z-[250] cursor-default"
-                                    aria-label="Close template actions"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setCardMenuTemplateId(null);
-                                    }}
-                                  />
-                                  <div className="absolute right-0 top-11 z-[251] w-56 rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl">
-                                    {canManageCategories && categories.length > 0 ? (
-                                      <div className="border-b border-foreground/10 px-3 py-2">
-                                        <div className="text-xs font-medium text-foreground/55">Move to category</div>
-                                        <select
-                                          className="mt-1 h-9 w-full rounded-lg border border-foreground/15 bg-background px-2 text-sm"
-                                          value={t.categoryId || ""}
-                                          disabled={movingTemplateId === t.id}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onChange={(e) => {
-                                            e.stopPropagation();
-                                            const next = e.target.value;
-                                            if (!next) return;
-                                            void moveTemplateToCategory(t, next);
-                                          }}
-                                        >
-                                          {categories.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                              {c.name}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    ) : null}
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                                      onClick={async (e) => {
+                              <FloatingActionMenu
+                                open={cardMenuTemplateId === t.id}
+                                anchorRef={cardMenuBtnRef}
+                                onClose={() => setCardMenuTemplateId(null)}
+                              >
+                                {canManageCategories && categories.length > 0 ? (
+                                  <div className="border-b border-foreground/10 px-3 py-2">
+                                    <div className="text-xs font-medium text-foreground/55">Move to category</div>
+                                    <select
+                                      className="mt-1 h-9 w-full rounded-lg border border-foreground/15 bg-background px-2 text-sm"
+                                      value={t.categoryId || ""}
+                                      disabled={movingTemplateId === t.id}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => {
                                         e.stopPropagation();
-                                        setCardMenuTemplateId(null);
-                                        await openQuickSettings(t);
+                                        const next = e.target.value;
+                                        if (!next) return;
+                                        void moveTemplateToCategory(t, next);
                                       }}
                                     >
-                                      Quick settings
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCardMenuTemplateId(null);
-                                        router.push(
-                                          buildTenantHref(tenant.slug, "templates/new", {
-                                            editTemplateId: t.id,
-                                            categoryId: t.categoryId || undefined,
-                                          })
-                                        );
-                                      }}
-                                    >
-                                      Edit form structure
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCardMenuTemplateId(null);
-                                        const editLink = `${window.location.origin}${buildTenantHref(tenant.slug, "templates/new", {
-                                          editTemplateId: t.id,
-                                          categoryId: t.categoryId || undefined,
-                                        })}`;
-                                        navigator.clipboard.writeText(editLink).then(() => {
-                                          setNotification({
-                                            title: "Link copied",
-                                            message: "The edit link is ready to share.",
-                                            tone: "success",
-                                          });
-                                        }).catch(() => {
-                                          setNotification({
-                                            title: "Copy failed",
-                                            message: "Your browser blocked clipboard access, so copy the form link manually.",
-                                            tone: "warning",
-                                          });
-                                        });
-                                      }}
-                                    >
-                                      Copy edit link
-                                    </button>
+                                      {categories.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                          {c.name}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
-                                </>
-                              ) : null}
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setCardMenuTemplateId(null);
+                                    await openQuickSettings(t);
+                                  }}
+                                >
+                                  Quick settings
+                                </button>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCardMenuTemplateId(null);
+                                    router.push(
+                                      buildTenantHref(tenant.slug, "templates/new", {
+                                        editTemplateId: t.id,
+                                        categoryId: t.categoryId || undefined,
+                                      })
+                                    );
+                                  }}
+                                >
+                                  Edit form structure
+                                </button>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-foreground/5"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCardMenuTemplateId(null);
+                                    const editLink = `${window.location.origin}${buildTenantHref(tenant.slug, "templates/new", {
+                                      editTemplateId: t.id,
+                                      categoryId: t.categoryId || undefined,
+                                    })}`;
+                                    navigator.clipboard.writeText(editLink).then(() => {
+                                      setNotification({
+                                        title: "Link copied",
+                                        message: "The edit link is ready to share.",
+                                        tone: "success",
+                                      });
+                                    }).catch(() => {
+                                      setNotification({
+                                        title: "Copy failed",
+                                        message: "Your browser blocked clipboard access, so copy the form link manually.",
+                                        tone: "warning",
+                                      });
+                                    });
+                                  }}
+                                >
+                                  Copy edit link
+                                </button>
+                              </FloatingActionMenu>
                             </div>
                           ) : null}
 

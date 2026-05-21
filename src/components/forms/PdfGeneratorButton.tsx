@@ -2,20 +2,24 @@
 
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
-import { generateAuditReportPdf } from "@/lib/pdfGenerator";
+import { buildAuditPdfFilename, generateAuditReportPdf } from "@/lib/pdfGenerator";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 type Props = {
-  filename: string;
+  formTitle: string;
+  tenantSlug?: string;
   evidencePhotos?: ReportEvidencePhoto[];
   defaultOrientation?: "portrait" | "landscape";
 };
 
 export function PdfGeneratorButton({
-  filename,
+  formTitle,
+  tenantSlug,
   evidencePhotos = [],
   defaultOrientation = "landscape",
 }: Props) {
+  const filename = buildAuditPdfFilename(formTitle, tenantSlug);
+  const documentTitle = formTitle.trim() || "Form report";
   const [generating, setGenerating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [orientation, setOrientation] = useState<"portrait" | "landscape">(defaultOrientation);
@@ -34,6 +38,7 @@ export function PdfGeneratorButton({
       orientation: orient,
       includeEvidencePages,
       evidencePhotos: includeEvidencePages ? evidencePhotos : [],
+      documentTitle,
     });
   }
 

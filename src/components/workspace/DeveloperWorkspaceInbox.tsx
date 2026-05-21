@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Inbox, Loader2 } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { apiUrl } from "@/lib/client/apiBase";
+import { appendTenantAlertsClientParams } from "@/lib/platformAudience";
 
 export type DeveloperAlert = {
   id: string;
@@ -49,6 +50,7 @@ export function DeveloperWorkspaceInbox({ tenantSlug, accessToken, onTenantDeact
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
+      appendTenantAlertsClientParams(url);
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -107,6 +109,7 @@ export function DeveloperWorkspaceInbox({ tenantSlug, accessToken, onTenantDeact
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
+      appendTenantAlertsClientParams(url);
       const res = await fetch(url.toString(), {
         method: "POST",
         headers: {

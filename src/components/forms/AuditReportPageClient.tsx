@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Printer } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { collectReportEvidencePhotos } from "@/lib/reportEvidence";
 import { useAuth } from "@/components/AuthProvider";
@@ -21,6 +21,7 @@ import {
   parseReportSnapshotFromLocalStorage,
 } from "@/lib/client/loadLocalAuditReport";
 import type { FormSchemaV1 } from "@/types/forms";
+import { normalizeFormSchema } from "@/lib/normalizeFormSchema";
 
 export type { AuditReportData };
 
@@ -138,6 +139,12 @@ export function AuditReportPageClient({
     };
   }, [tenantSlug, auditId, accessToken, offline]);
 
+  const schemaReady = useMemo(() => {
+    if (!audit?.template?.schema) return false;
+    const normalized = normalizeFormSchema(audit.template.schema);
+    return Boolean(normalized.sections?.length || normalized.fields?.length);
+  }, [audit]);
+
   if (!tenantSlug || !auditId) {
     return (
       <div className="rounded-md border border-foreground/20 p-4 text-sm">
@@ -153,7 +160,16 @@ export function AuditReportPageClient({
     return (
       <div className="flex items-center gap-2 rounded-md border border-foreground/20 bg-foreground/5 px-3 py-4 text-sm text-foreground/70">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading report...
+        Loading report…
+      </div>
+    );
+  }
+
+  if (audit && !schemaReady) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-foreground/20 bg-foreground/5 px-3 py-4 text-sm text-foreground/70">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Preparing report…
       </div>
     );
   }
@@ -174,21 +190,6 @@ export function AuditReportPageClient({
   const schema = audit.template.schema;
   const title = schema?.title || audit.template.title;
   const evidencePhotos = collectReportEvidencePhotos(schema, audit.payload);
-
-  function printReport(orientation: "portrait" | "landscape") {
-    const styleId = "report-print-page-style";
-    let el = document.getElementById(styleId) as HTMLStyleElement | null;
-    if (!el) {
-      el = document.createElement("style");
-      el.id = styleId;
-      document.head.appendChild(el);
-    }
-    el.textContent =
-      orientation === "portrait"
-        ? "@media print { @page { size: A4 portrait; margin: 10mm; } }"
-        : "@media print { @page { size: A4 landscape; margin: 10mm; } }";
-    window.print();
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -215,24 +216,10 @@ export function AuditReportPageClient({
           Workspace
         </Link>
         <PdfGeneratorButton
-          filename={`${tenantSlug}-form-${auditId.slice(0, 8)}.pdf`}
+          formTitle={title}
+          tenantSlug={tenantSlug}
           evidencePhotos={evidencePhotos}
         />
-        <button
-          type="button"
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-          onClick={() => printReport("landscape")}
-        >
-          <Printer className="h-4 w-4" />
-          Print (landscape)
-        </button>
-        <button
-          type="button"
-          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-          onClick={() => printReport("portrait")}
-        >
-          Print (portrait)
-        </button>
       </div>
       <AuditReportDisplay audit={audit} tenantSlug={tenantSlug} auditId={auditId} />
     </div>

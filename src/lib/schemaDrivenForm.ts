@@ -198,3 +198,62 @@ export function buildDefaultValues(schema: FormSchemaV1) {
 
   return defaults;
 }
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Merge saved draft payload into schema defaults without surfacing raw objects in the UI. */
+export function mergeDraftValuesIntoDefaults(
+  schema: FormSchemaV1,
+  base: Record<string, unknown>,
+  saved: Record<string, unknown>
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...base };
+
+  for (const section of getSections(schema)) {
+    if (section.type === "fields") {
+      for (const field of section.fields.filter(isActiveField).filter(isInputField)) {
+        const value = saved[field.id];
+        if (value === undefined) continue;
+        if (field.type === "photo") {
+          if (Array.isArray(value)) next[field.id] = value;
+          else if (typeof value === "string" && value.trim()) next[field.id] = [value];
+          continue;
+        }
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+          next[field.id] = value;
+        }
+      }
+      continue;
+    }
+
+    if (section.type === "grid") {
+      const key = section.id || "form_data";
+      const savedRows = saved[key];
+      if (!Array.isArray(savedRows)) continue;
+
+      const activeColumns = section.columns.filter(isActiveField);
+      const baseRows = Array.isArray(base[key]) ? (base[key] as Array<Record<string, unknown>>) : [];
+      const rowCount = Math.max(savedRows.length, baseRows.length, 1);
+
+      next[key] = Array.from({ length: rowCount }, (_, rowIndex) => {
+        const baseRow =
+          baseRows[rowIndex] ||
+          buildGridRowDefaults({ ...section, columns: activeColumns }, rowIndex, rowCount);
+        const savedRow = savedRows[rowIndex];
+        if (!isPlainObject(savedRow)) return baseRow;
+
+        const mergedRow: Record<string, unknown> = { ...baseRow };
+        for (const [colId, cell] of Object.entries(savedRow)) {
+          if (typeof cell === "string" || typeof cell === "number" || typeof cell === "boolean") {
+            mergedRow[colId] = cell;
+          }
+        }
+        return mergedRow;
+      });
+    }
+  }
+
+  return next;
+}

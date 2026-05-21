@@ -1,20 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Megaphone, RefreshCw, Smartphone } from "lucide-react";
+import { Loader2, Megaphone, RefreshCw, Smartphone, Zap } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { apiUrl } from "@/lib/client/apiBase";
+import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
+import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
+import { adminFetch } from "@/lib/client/adminFetch";
+import { useAppOffline } from "@/lib/client/useAppOffline";
+import type { AnnouncementAudience } from "@/lib/platformAudience";
 
 type PlatformSettings = {
   minNativeBuild: number;
   liveUpdateChannel: string;
   liveUpdateBundleUrl: string | null;
+  latestApkUrl: string | null;
   updatedAt: string | null;
 };
 
 export function PlatformOtaPanel() {
   const { session } = useAuth();
   const accessToken = session?.access_token || "";
+  const offline = useAppOffline();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,35 +32,40 @@ export function PlatformOtaPanel() {
   const [broadcastMessage, setBroadcastMessage] = useState(
     "A new version of the app is ready. Please close the app completely and open it again to install the update. If you do not see a prompt, restart while connected to the internet."
   );
+  const [broadcastAudience, setBroadcastAudience] = useState<AnnouncementAudience>("native");
   const [form, setForm] = useState<PlatformSettings>({
     minNativeBuild: 1,
     liveUpdateChannel: "production",
     liveUpdateBundleUrl: null,
+    latestApkUrl: null,
     updatedAt: null,
   });
 
   const load = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken || offline) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
-    try {
-      const res = await fetch(apiUrl("/api/admin/platform-settings"), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const json = (await res.json().catch(() => ({}))) as PlatformSettings & { error?: string };
-      if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
-      setForm({
-        minNativeBuild: json.minNativeBuild ?? 1,
-        liveUpdateChannel: json.liveUpdateChannel || "production",
-        liveUpdateBundleUrl: json.liveUpdateBundleUrl ?? null,
-        updatedAt: json.updatedAt ?? null,
-      });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not load OTA settings");
-    } finally {
+    const result = await adminFetch<PlatformSettings>("/api/admin/platform-settings", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!result.ok) {
+      if (!result.aborted) setError(result.error);
       setLoading(false);
+      return;
     }
-  }, [accessToken]);
+    const json = result.data;
+    setForm({
+      minNativeBuild: json.minNativeBuild ?? 1,
+      liveUpdateChannel: json.liveUpdateChannel || "production",
+      liveUpdateBundleUrl: json.liveUpdateBundleUrl ?? null,
+      latestApkUrl: json.latestApkUrl ?? null,
+      updatedAt: json.updatedAt ?? null,
+    });
+    setLoading(false);
+  }, [accessToken, offline]);
 
   useEffect(() => {
     void load();
@@ -62,64 +73,67 @@ export function PlatformOtaPanel() {
 
   async function sendUpdateBroadcast() {
     if (!accessToken || broadcasting) return;
+    if (offline) {
+      setError("You are offline. Reconnect before sending a broadcast.");
+      return;
+    }
     setBroadcasting(true);
     setError("");
     setBroadcastOk(false);
-    try {
-      const res = await fetch(apiUrl("/api/admin/broadcast"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: broadcastTitle.trim(),
-          message: broadcastMessage.trim(),
-          delivery: "modal",
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error || `Broadcast failed (${res.status})`);
-      setBroadcastOk(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not send broadcast");
-    } finally {
-      setBroadcasting(false);
-    }
+    const result = await adminFetch("/api/admin/broadcast", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: broadcastTitle.trim(),
+        message: broadcastMessage.trim(),
+        delivery: "modal",
+        audience: broadcastAudience,
+      }),
+    });
+    if (!result.ok) setError(result.error);
+    else setBroadcastOk(true);
+    setBroadcasting(false);
   }
 
   async function save() {
     if (!accessToken || saving) return;
+    if (offline) {
+      setError("You are offline. Reconnect before saving settings.");
+      return;
+    }
     setSaving(true);
     setError("");
     setSaved(false);
-    try {
-      const res = await fetch(apiUrl("/api/admin/platform-settings"), {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          minNativeBuild: form.minNativeBuild,
-          liveUpdateChannel: form.liveUpdateChannel,
-          liveUpdateBundleUrl: form.liveUpdateBundleUrl,
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as PlatformSettings & { error?: string };
-      if (!res.ok) throw new Error(json.error || `Save failed (${res.status})`);
+    const result = await adminFetch<PlatformSettings>("/api/admin/platform-settings", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        minNativeBuild: form.minNativeBuild,
+        liveUpdateChannel: form.liveUpdateChannel,
+        liveUpdateBundleUrl: form.liveUpdateBundleUrl,
+        latestApkUrl: form.latestApkUrl,
+      }),
+    });
+    if (!result.ok) {
+      setError(result.error);
+    } else {
+      const json = result.data;
       setForm({
         minNativeBuild: json.minNativeBuild ?? form.minNativeBuild,
         liveUpdateChannel: json.liveUpdateChannel || form.liveUpdateChannel,
         liveUpdateBundleUrl: json.liveUpdateBundleUrl ?? null,
+        latestApkUrl: json.latestApkUrl ?? null,
         updatedAt: json.updatedAt ?? null,
       });
       setSaved(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not save OTA settings");
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   }
 
   return (
@@ -128,12 +142,12 @@ export function PlatformOtaPanel() {
         <div>
           <div className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-foreground/50">
             <Smartphone className="h-3.5 w-3.5" />
-            Native app & OTA
+            Installed app
           </div>
-          <h2 className="mt-2 text-lg font-semibold">Live update controls</h2>
+          <h2 className="mt-2 text-lg font-semibold">Native APK &amp; OTA settings</h2>
           <p className="mt-1 max-w-2xl text-sm text-foreground/70">
-            Point sideloaded APKs at a hosted manifest. Devices download the web bundle zip and prompt users to restart.
-            Bump min native build when users must reinstall a new APK (plugin or Capacitor changes).
+            One save stores all fields in <code className="rounded bg-foreground/5 px-1">platform_settings</code>.
+            Native and OTA use different columns and do not overwrite each other — they only share this form for convenience.
           </p>
         </div>
         <button
@@ -147,84 +161,129 @@ export function PlatformOtaPanel() {
         </button>
       </div>
 
+      <div className="mt-4">
+        <AdminNetworkStatusBanner
+          offline={offline}
+          pending={loading || saving || broadcasting}
+          error={error}
+          onDismissError={() => setError("")}
+        />
+      </div>
+
       {loading ? (
         <div className="mt-4 inline-flex items-center gap-2 text-sm text-foreground/70">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading platform settings…
         </div>
       ) : (
-        <div className="mt-5 grid gap-4">
-          <label className="grid gap-1 text-sm">
-            <span className="font-medium">Minimum native build (APK reinstall gate)</span>
-            <input
-              type="number"
-              min={1}
-              value={form.minNativeBuild}
-              onChange={(e) => setForm((f) => ({ ...f, minNativeBuild: Number(e.target.value) || 1 }))}
-              className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-            />
-            <span className="text-xs text-foreground/60">
-              Set to the latest APK build number. Older installs see “App update required”.
-            </span>
-          </label>
+        <div className="mt-5 space-y-6">
+          <section className="rounded-xl border border-foreground/15 bg-foreground/[0.02] p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Smartphone className="h-4 w-4 text-[var(--hse-teal)]" />
+              Native APK (reinstall required)
+            </div>
+            <p className="mt-1 text-xs text-foreground/65">
+              Used by the update block screen and the mobile-web install banner. OTA cannot replace the APK shell.
+            </p>
+            <div className="mt-4 grid gap-4">
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Minimum native build</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.minNativeBuild}
+                  onChange={(e) => setForm((f) => ({ ...f, minNativeBuild: Number(e.target.value) || 1 }))}
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                />
+                <span className="text-xs text-foreground/60">
+                  Devices below this build number are blocked until they install a newer APK.
+                </span>
+              </label>
 
-          <label className="grid gap-1 text-sm">
-            <span className="font-medium">OTA channel</span>
-            <input
-              type="text"
-              value={form.liveUpdateChannel}
-              onChange={(e) => setForm((f) => ({ ...f, liveUpdateChannel: e.target.value }))}
-              className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-              placeholder="production"
-            />
-            <span className="text-xs text-foreground/60">Must match the channel in your hosted manifest.json.</span>
-          </label>
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">Latest APK download URL (HTTPS)</span>
+                <input
+                  type="url"
+                  value={form.latestApkUrl || ""}
+                  onChange={(e) => setForm((f) => ({ ...f, latestApkUrl: e.target.value.trim() || null }))}
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                  placeholder="https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-pro.apk"
+                />
+                <span className="text-xs text-foreground/60">
+                  Download button on the mandatory update modal. Env fallback: NEXT_PUBLIC_ANDROID_APK_URL.
+                </span>
+              </label>
+            </div>
+          </section>
 
-          <label className="grid gap-1 text-sm">
-            <span className="font-medium">Manifest URL (HTTPS)</span>
-            <input
-              type="url"
-              value={form.liveUpdateBundleUrl || ""}
-              onChange={(e) => setForm((f) => ({ ...f, liveUpdateBundleUrl: e.target.value.trim() || null }))}
-              className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-              placeholder="https://isopro.me/ota/production/manifest.json"
-            />
-            <span className="text-xs text-foreground/60">
-              Public JSON manifest with bundleId, bundleUrl, channel, and optional minNativeBuild.
-            </span>
-          </label>
+          <section className="rounded-xl border border-foreground/15 bg-foreground/[0.02] p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Zap className="h-4 w-4 text-[var(--hse-teal)]" />
+              OTA web bundle (restart in app)
+            </div>
+            <p className="mt-1 text-xs text-foreground/65">
+              Delivers JS/CSS updates inside existing APKs. Skipped automatically when the device build is below minimum native build.
+            </p>
+            <div className="mt-4 grid gap-4">
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">OTA channel</span>
+                <input
+                  type="text"
+                  value={form.liveUpdateChannel}
+                  onChange={(e) => setForm((f) => ({ ...f, liveUpdateChannel: e.target.value }))}
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                  placeholder="production"
+                />
+                <span className="text-xs text-foreground/60">Must match the channel in your hosted manifest.json.</span>
+              </label>
+
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium">OTA manifest URL (HTTPS)</span>
+                <input
+                  type="url"
+                  value={form.liveUpdateBundleUrl || ""}
+                  onChange={(e) => setForm((f) => ({ ...f, liveUpdateBundleUrl: e.target.value.trim() || null }))}
+                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                  placeholder="https://isopro.me/ota/production/manifest.json"
+                />
+                <span className="text-xs text-foreground/60">
+                  Public JSON with bundleId, bundleUrl, channel, and optional minNativeBuild.
+                </span>
+              </label>
+            </div>
+          </section>
 
           {form.updatedAt ? (
             <p className="text-xs text-foreground/55">Last saved: {new Date(form.updatedAt).toLocaleString()}</p>
           ) : null}
 
-          {error ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
-          ) : null}
           {saved ? (
             <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              OTA settings saved. Online devices check within a few hours or on next app open.
+              Platform settings saved (native APK + OTA). Installed apps pick this up on next open when online.
             </p>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 border-t border-foreground/10 pt-4">
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || offline}
               onClick={() => void save()}
               className="inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
             >
-              {saving ? "Saving…" : "Save OTA settings"}
+              {saving ? "Saving…" : "Save platform settings"}
             </button>
+            <p className="w-full text-xs text-foreground/55 sm:w-auto sm:flex-1 sm:self-center">
+              Saves native and OTA fields together. You can change only one section and still save.
+            </p>
           </div>
 
           <div className="rounded-xl border border-foreground/15 bg-foreground/[0.02] p-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Megaphone className="h-4 w-4" />
-              Notify all brands after an update
+              Notify app users (optional)
             </div>
             <p className="mt-1 text-xs text-foreground/65">
-              Sends a platform-wide modal to every brand workspace (same as Developer → Broadcast all). Use after you deploy a new OTA bundle.
+              Separate from save above — sends an announcement. Default audience: installed app only.
             </p>
             <div className="mt-3 grid gap-2">
               <input
@@ -234,16 +293,17 @@ export function PlatformOtaPanel() {
                 className="h-10 rounded-lg border border-foreground/15 bg-background px-3 text-sm"
                 placeholder="Title"
               />
+              <AnnouncementAudienceField value={broadcastAudience} onChange={setBroadcastAudience} />
               <textarea
                 value={broadcastMessage}
                 onChange={(e) => setBroadcastMessage(e.target.value)}
                 className="min-h-24 rounded-lg border border-foreground/15 bg-background px-3 py-2 text-sm"
-                placeholder="Message for all users"
+                placeholder="Message for app users"
               />
             </div>
             <button
               type="button"
-              disabled={broadcasting || !broadcastTitle.trim() || !broadcastMessage.trim()}
+              disabled={offline || broadcasting || !broadcastTitle.trim() || !broadcastMessage.trim()}
               onClick={() => void sendUpdateBroadcast()}
               className="mt-3 inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm font-medium hover:bg-foreground/5 disabled:opacity-60"
             >
@@ -253,29 +313,24 @@ export function PlatformOtaPanel() {
                   Sending…
                 </>
               ) : (
-                "Broadcast update notice"
+                "Send broadcast (does not save settings)"
               )}
             </button>
             {broadcastOk ? (
-              <p className="mt-2 text-xs text-emerald-800">Broadcast sent. Users will see it in workspace on next visit.</p>
+              <p className="mt-2 text-xs text-emerald-800">Broadcast sent.</p>
             ) : null}
           </div>
 
           <div className="rounded-lg border border-foreground/10 bg-foreground/[0.03] p-3 text-xs text-foreground/70">
-            <p className="font-medium text-foreground/85">Release checklist</p>
-            <ol className="mt-2 list-decimal space-y-1 pl-4">
+            <p className="font-medium text-foreground/85">When to change what</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
               <li>
-                Build web bundle: <code className="rounded bg-background px-1">npm run build:capacitor</code>
+                <strong>OTA only</strong> — update manifest URL after deploy; leave min native build unchanged.
               </li>
               <li>
-                Package OTA zip: <code className="rounded bg-background px-1">npm run package:ota</code>
+                <strong>New APK</strong> — upload APK, set download URL + raise min native build to match the new APK build number.
               </li>
-              <li>
-                Publish to site: <code className="rounded bg-background px-1">npm run publish:ota:public</code> then deploy
-              </li>
-              <li>Or one shot: <code className="rounded bg-background px-1">npm run release:ota</code> (build + package + publish)</li>
-              <li>Paste manifest URL above and save</li>
-            </ol>
+            </ul>
           </div>
         </div>
       )}

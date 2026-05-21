@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type SignatureCanvas from "react-signature-canvas";
+import { SIGNATURE_CANVAS_PEN } from "@/lib/signatureCanvasProps";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -25,7 +26,7 @@ import type {
   FormStyle,
 } from "@/types/forms";
 import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
-import { buildDefaultValues, buildZodSchema } from "@/lib/schemaDrivenForm";
+import { buildDefaultValues, buildZodSchema, mergeDraftValuesIntoDefaults } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyncQueue";
@@ -282,6 +283,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
+  const [formHydrated, setFormHydrated] = useState(false);
   const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
   const [activeStaffName, setActiveStaffName] = useState<string>("");
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
@@ -365,30 +367,54 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
   useEffect(() => {
     let alive = true;
-    const baseValues = defaultValuesRef.current;
+    setFormHydrated(false);
 
+    const finishHydration = (values: FormValues, auditId: string | null) => {
+      if (!alive) return;
+      setDraftAuditId(auditId);
+      safeReset(mergeDraftValuesIntoDefaults(effectiveSchema, defaultValuesRef.current, values));
+      setFormHydrated(true);
+    };
+
+    const baseValues = defaultValuesRef.current;
     const local = readLocalDraft(currentUserId, tenantSlug, templateId);
     if (local) {
-      if (initialAuditId && local.auditId && local.auditId !== initialAuditId) return;
-      setDraftAuditId(local.auditId || null);
-      safeReset({ ...baseValues, ...local.values });
+      if (initialAuditId && local.auditId && local.auditId !== initialAuditId) {
+        safeReset(baseValues);
+        setFormHydrated(true);
+        return;
+      }
+      finishHydration(local.values, local.auditId || null);
       return;
     }
 
-    // Durable draft (IndexedDB) – async after mount.
-    (async () => {
+    void (async () => {
       const fromDb = await readLocalDraftAsync(tenantSlug, templateId);
-      if (!alive || !fromDb) return;
-      if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) return;
-      setDraftAuditId(fromDb.auditId || null);
-      safeReset({ ...defaultValuesRef.current, ...fromDb.values });
+      if (!alive) return;
+      if (fromDb) {
+        if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) {
+          safeReset(baseValues);
+          setFormHydrated(true);
+          return;
+        }
+        finishHydration(fromDb.values, fromDb.auditId || null);
+        return;
+      }
+      safeReset(baseValues);
+      setFormHydrated(true);
     })();
+
+    const fallback = window.setTimeout(() => {
+      if (!alive) return;
+      setFormHydrated(true);
+    }, 800);
 
     return () => {
       alive = false;
+      window.clearTimeout(fallback);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, tenantSlug, currentUserId, initialAuditId]);
+  }, [templateId, tenantSlug, currentUserId, initialAuditId, effectiveSchema]);
 
   // Drafts are stored on this device only (localStorage + IndexedDB), not synced to the server.
   useEffect(() => {
@@ -629,6 +655,15 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     } finally {
       setIsSavingDraft(false);
     }
+  }
+
+  if (!formHydrated) {
+    return (
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-center gap-2 rounded-xl border border-foreground/20 bg-background p-10 text-sm text-foreground/70 shadow-sm">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading form…
+      </div>
+    );
   }
 
   return (
@@ -1092,7 +1127,7 @@ function SignatureFieldInput({
                 ref={(ref: SignatureCanvas | null) => {
                   sigRef.current = ref;
                 }}
-                penColor="black"
+                {...SIGNATURE_CANVAS_PEN}
                 canvasProps={{ className: "h-20 w-full" }}
                 onEnd={() => {
                   const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";

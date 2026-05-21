@@ -16,6 +16,7 @@ import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
+import { appendTenantAlertsClientParams } from "@/lib/platformAudience";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { clearTenantDeactivatedBlocked, dispatchTenantDeactivated } from "@/lib/client/brandAccess";
 import {
@@ -213,6 +214,7 @@ export function TenantMessageProvider({ children }: Props) {
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
+      appendTenantAlertsClientParams(url);
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: "no-store",
@@ -291,6 +293,7 @@ export function TenantMessageProvider({ children }: Props) {
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
+      appendTenantAlertsClientParams(url);
       const res = await fetch(url.toString(), {
         method: "POST",
         headers: {

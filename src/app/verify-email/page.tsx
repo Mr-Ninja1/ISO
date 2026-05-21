@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { AuthPageShell } from "@/components/AuthPageShell";
+import { AuthStatusCard } from "@/components/AuthStatusCard";
 import { createClient } from "@/lib/auth";
+import { emailVerificationRedirectUrl } from "@/lib/authRedirectUrls";
 
 export default function VerifyEmailPage() {
   const [email, setEmail] = useState("");
@@ -17,14 +19,9 @@ export default function VerifyEmailPage() {
     setEmail(params.get("email") ?? "");
   }, []);
 
-  const redirectUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return `${window.location.origin}/login?verified=1`;
-  }, []);
-
   async function resendVerification() {
     if (!email.trim()) {
-      setError("Enter the email address that you used to sign up.");
+      setError("Enter the email address you used when signing up.");
       return;
     }
 
@@ -38,44 +35,60 @@ export default function VerifyEmailPage() {
         type: "signup",
         email: email.trim(),
         options: {
-          emailRedirectTo: redirectUrl,
+          emailRedirectTo: emailVerificationRedirectUrl(),
         },
       });
 
       if (resendError) throw resendError;
-      setMessage("Verification email sent again. Check your inbox and spam folder.");
-    } catch (err: any) {
-      setError(err?.message || "Unable to resend verification email.");
+      setMessage("A new verification link has been sent. Check your inbox and spam folder.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unable to resend verification email.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
+  const inboxHint = email.trim() ? (
+    <>
+      We sent a verification link to <strong className="font-semibold">{email.trim()}</strong>. Open
+      your inbox and click the link to activate your account.
+    </>
+  ) : (
+    <>We sent a verification link to your email address. Open your inbox and click the link to activate your account.</>
+  );
+
   return (
     <AuthPageShell
-      eyebrow="Account created"
-      title="Check your email to verify your account."
-      subtitle={email ? `We sent a verification link to ${email}. Open that email and click the button to finish creating your account.` : "We sent a verification link to your inbox. Open that email and click the button to finish creating your account."}
-      formTitle="Need another email?"
-      formSubtitle="Resend the verification link if it does not arrive"
-      footerText="Ready to sign in?"
+      eyebrow="Almost there"
+      title="Verify your email to continue"
+      subtitle="One quick step before you can sign in to your HSE workspace."
+      formTitle="Verification email"
+      formSubtitle="Check your inbox"
+      footerText="Already verified?"
       footerHref="/login"
-      footerLabel="Go to login"
+      footerLabel="Sign in"
     >
       <div className="space-y-4">
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <h3 className="text-lg font-bold text-emerald-900">Check your email to verify your account</h3>
-          <p className="mt-2 text-sm leading-6 text-emerald-700">
-            We sent a verification link to your inbox. Open that email and click the button to finish creating your account.
-            If you do not see it after a minute, check your spam folder or use the resend button below.
+        <AuthStatusCard variant="info" title="We sent you a verification link" icon="mail">
+          <p>{inboxHint}</p>
+          <p className="mt-2">
+            The message is from ISO Pro. If it does not arrive within a few minutes, check spam or
+            resend below.
           </p>
-        </div>
+        </AuthStatusCard>
 
-        {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</div> : null}
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+        {message ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            {message}
+          </div>
+        ) : null}
+        {error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        ) : null}
 
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-foreground/80">
+          <label htmlFor="email" className="text-sm font-medium text-[var(--hse-charcoal)]">
             Email address
           </label>
           <input
@@ -84,7 +97,7 @@ export default function VerifyEmailPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="h-11 w-full rounded-xl border border-foreground/15 bg-background px-3.5 text-sm outline-none transition placeholder:text-foreground/35 focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10"
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-500 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-emerald-100"
             placeholder="your@email.com"
           />
         </div>
@@ -93,17 +106,20 @@ export default function VerifyEmailPage() {
           type="button"
           onClick={resendVerification}
           disabled={loading}
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-50"
+          className="ws-btn-primary inline-flex h-11 w-full items-center justify-center gap-2 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {loading ? "Sending..." : "Resend verification email"}
+          {loading ? "Sending…" : "Resend verification email"}
         </button>
 
-        <p className="text-xs leading-5 text-foreground/60">
-          After you click the verification link, return to the login page and sign in with your password.
+        <p className="text-xs leading-5 text-[var(--accent-soft)]">
+          After you verify, you will see a confirmation screen and can sign in with your password.
         </p>
 
-        <Link href="/signup" className="block text-center text-sm font-medium text-foreground/70 underline underline-offset-4 hover:text-foreground">
+        <Link
+          href="/signup"
+          className="block text-center text-sm font-semibold text-[var(--hse-teal)] underline underline-offset-4"
+        >
           Back to sign up
         </Link>
       </div>

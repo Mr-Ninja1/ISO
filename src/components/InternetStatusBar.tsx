@@ -1,46 +1,87 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CheckCircle2, WifiOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, WifiOff, X } from "lucide-react";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { INTERNET_RESTORED_EVENT } from "@/lib/client/appOffline";
+
+const OFFLINE_AUTO_HIDE_MS = 7000;
+const RESTORED_VISIBLE_MS = 4000;
 
 export function InternetStatusBar() {
   const offline = useAppOffline();
   const [showRestored, setShowRestored] = useState(false);
+  const [offlineVisible, setOfflineVisible] = useState(false);
+  const [offlineDismissed, setOfflineDismissed] = useState(false);
+  const offlineSessionRef = useRef(0);
 
   useEffect(() => {
+    let restoredTimer: number | undefined;
+
     const handleRestored = () => {
       setShowRestored(true);
-      window.setTimeout(() => setShowRestored(false), 4000);
+      setOfflineVisible(false);
+      setOfflineDismissed(false);
+      if (restoredTimer) window.clearTimeout(restoredTimer);
+      restoredTimer = window.setTimeout(() => setShowRestored(false), RESTORED_VISIBLE_MS);
     };
 
     window.addEventListener(INTERNET_RESTORED_EVENT, handleRestored);
     return () => {
       window.removeEventListener(INTERNET_RESTORED_EVENT, handleRestored);
+      if (restoredTimer) window.clearTimeout(restoredTimer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!offline) {
+      setOfflineVisible(false);
+      setOfflineDismissed(false);
+      return;
+    }
+
+    offlineSessionRef.current += 1;
+    const session = offlineSessionRef.current;
+    setOfflineDismissed(false);
+    setOfflineVisible(true);
+
+    const hideTimer = window.setTimeout(() => {
+      if (offlineSessionRef.current === session) setOfflineVisible(false);
+    }, OFFLINE_AUTO_HIDE_MS);
+
+    return () => window.clearTimeout(hideTimer);
+  }, [offline]);
+
+  function dismissOffline() {
+    setOfflineDismissed(true);
+    setOfflineVisible(false);
+  }
 
   if (showRestored) {
     return (
       <div
         role="status"
-        className="fixed top-2 right-2 z-40 max-w-[min(calc(100vw-1rem),20rem)] rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 shadow-md flex items-center gap-2 text-sm text-emerald-900"
+        className="internet-status-toast internet-status-toast--restored"
       >
-        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
         <span>Internet restored. Syncing…</span>
       </div>
     );
   }
 
-  if (offline) {
+  if (offline && offlineVisible && !offlineDismissed) {
     return (
-      <div
-        role="status"
-        className="fixed top-2 right-2 z-40 max-w-[min(calc(100vw-1rem),20rem)] rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 shadow-md flex items-center gap-2 text-sm text-amber-950"
-      >
-        <WifiOff className="h-4 w-4 shrink-0" />
-        <span>No internet. Working offline.</span>
+      <div role="status" className="internet-status-toast internet-status-toast--offline">
+        <WifiOff className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1">No internet. Working offline.</span>
+        <button
+          type="button"
+          onClick={dismissOffline}
+          className="internet-status-toast__close"
+          aria-label="Dismiss offline notice"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
       </div>
     );
   }

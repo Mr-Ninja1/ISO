@@ -12,7 +12,26 @@ type PdfOptions = {
 export type AuditPdfExportOptions = PdfOptions & {
   includeEvidencePages?: boolean;
   evidencePhotos?: ReportEvidencePhoto[];
+  /** Shown in PDF viewer metadata and used when saving the file. */
+  documentTitle?: string;
 };
+
+export function buildAuditPdfFilename(formTitle: string, tenantSlug?: string) {
+  const safeTitle = formTitle
+    .trim()
+    .replace(/[^\w\s-]+/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  const base = safeTitle || "form";
+  const brand =
+    tenantSlug
+      ?.trim()
+      .replace(/[^\w-]+/g, "")
+      .slice(0, 40) || "";
+  return brand ? `${brand}-${base}.pdf` : `${base}.pdf`;
+}
 
 function getPageSizeMm(orientation: 'portrait' | 'landscape') {
   return {
@@ -83,7 +102,21 @@ async function captureForPdf(
   }
 }
 
-async function canvasToA4Pdf(canvas: HTMLCanvasElement, orientation: 'portrait' | 'landscape') {
+function applyPdfDocumentTitle(pdf: import('jspdf').jsPDF, title?: string) {
+  const trimmed = title?.trim();
+  if (!trimmed) return;
+  try {
+    pdf.setProperties({ title: trimmed, subject: trimmed });
+  } catch {
+    // ignore metadata errors on older runtimes
+  }
+}
+
+async function canvasToA4Pdf(
+  canvas: HTMLCanvasElement,
+  orientation: 'portrait' | 'landscape',
+  documentTitle?: string
+) {
   const { default: jsPDF } = await import('jspdf');
   const page = getPageSizeMm(orientation);
   const contentWidthMm = page.width - DEFAULT_MARGIN_MM * 2;
@@ -94,6 +127,7 @@ async function canvasToA4Pdf(canvas: HTMLCanvasElement, orientation: 'portrait' 
     unit: 'mm',
     format: 'a4',
   });
+  applyPdfDocumentTitle(pdf, documentTitle);
 
   // Keep scale stable by fitting width, then slicing vertically into A4 pages.
   const pageSliceHeightPx = Math.max(
@@ -153,8 +187,13 @@ export async function generateAuditReportPdf(
   filename: string = "report.pdf",
   options?: AuditPdfExportOptions
 ): Promise<void> {
-  const { scale = 3, orientation = "landscape", includeEvidencePages = false, evidencePhotos = [] } =
-    options || {};
+  const {
+    scale = 3,
+    orientation = "landscape",
+    includeEvidencePages = false,
+    evidencePhotos = [],
+    documentTitle,
+  } = options || {};
 
   try {
     const canvas = await captureForPdf(
@@ -163,7 +202,7 @@ export async function generateAuditReportPdf(
       scale,
       includeEvidencePages && evidencePhotos.length > 0
     );
-    const pdf = await canvasToA4Pdf(canvas, orientation);
+    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle);
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
       await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);
@@ -188,8 +227,13 @@ export async function generatePdfBlobFromElement(
   element: HTMLElement,
   options?: AuditPdfExportOptions
 ): Promise<Blob> {
-  const { scale = 3, orientation = "landscape", includeEvidencePages = false, evidencePhotos = [] } =
-    options || {};
+  const {
+    scale = 3,
+    orientation = "landscape",
+    includeEvidencePages = false,
+    evidencePhotos = [],
+    documentTitle,
+  } = options || {};
 
   try {
     const canvas = await captureForPdf(
@@ -198,7 +242,7 @@ export async function generatePdfBlobFromElement(
       scale,
       includeEvidencePages && evidencePhotos.length > 0
     );
-    const pdf = await canvasToA4Pdf(canvas, orientation);
+    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle);
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
       await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);

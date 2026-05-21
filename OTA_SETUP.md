@@ -2,6 +2,8 @@
 
 Ship **web-only fixes** to installed APKs without rebuilding the native shell. Native or plugin changes still require a **new APK** and a higher **min native build**.
 
+**Full playbook (APK releases, admin APK URL, build numbers, forced updates):** [NATIVE_APP_UPDATE_GUIDE.md](./NATIVE_APP_UPDATE_GUIDE.md)
+
 ## How it works
 
 ```mermaid
@@ -17,7 +19,7 @@ flowchart LR
 | Layer | What updates | How |
 |-------|----------------|-----|
 | **OTA (this doc)** | HTML/JS/CSS in `out/` | Hosted zip + manifest |
-| **APK reinstall** | Capacitor, plugins, permissions | New APK + `min_native_build` |
+| **APK reinstall** | Capacitor, plugins, permissions | New APK + `min_native_build` + `latest_apk_url` (hard block in app) |
 
 ---
 
@@ -171,6 +173,7 @@ WHERE id = 'default';
 | Symptom | Check |
 |---------|--------|
 | No update prompt | Manifest URL in admin? Device online? `bundleId` newer than last applied? |
-| “App update required” (APK) | Device build &lt; `min_native_build` — install new APK |
+| “App update required” (APK) | Device build &lt; `min_native_build` — fullscreen block + APK download link |
+| Broadcast only to phones | Set announcement **audience** to `native` in Developer console |
 | Download fails | `bundleUrl` reachable in browser? HTTPS valid? |
 | OTA never runs on web | Expected — OTA only runs in Capacitor native shell |

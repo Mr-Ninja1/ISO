@@ -20,6 +20,8 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Sideload / GitHub Releases: sign with debug keystore until a release keystore is configured.
+            signingConfig signingConfigs.debug
         }
     }
 }

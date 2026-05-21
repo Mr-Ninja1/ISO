@@ -5,8 +5,7 @@ import { TenantHeaderNav } from "@/components/tenant/TenantHeaderNav";
 import { TenantBottomTabNav } from "@/components/tenant/TenantBottomTabNav";
 import { BackgroundSyncManager } from "@/components/BackgroundSyncManager";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
-import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
-import { buildTenantDeactivatedUserMessage } from "@/lib/tenantDeactivation";
+import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
 import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessageCenter";
 import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
@@ -94,15 +93,7 @@ export default async function TenantLayout({
   }
 
   if (tenant.isActive === false) {
-    return (
-      <OfflineRouteBlock
-        title="Brand deactivated"
-        message={buildTenantDeactivatedUserMessage(tenant.deactivationReason)}
-        hint="Once your brand is reactivated, you can sign in and continue where you left off."
-        backHref="/workspace"
-        backLabel="Choose another brand"
-      />
-    );
+    return <TenantDeactivatedScreen reason={tenant.deactivationReason} />;
   }
 
   return (

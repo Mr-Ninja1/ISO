@@ -6,14 +6,21 @@ export const REPORT_SIGNATURE_IMG_CLASS =
   "report-signature-img mx-auto block max-h-28 w-full max-w-lg object-contain";
 
 export const REPORT_TABLE_SIGNATURE_IMG_CLASS =
-  "report-signature-img mx-auto block max-h-24 w-full min-w-[140px] max-w-md object-contain";
+  "report-signature-img report-signature-img--table mx-auto block max-h-[4.5rem] w-auto max-w-[11rem] object-contain";
 
-function asText(value: unknown) {
+function asText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => asText(item))
+      .filter((part) => part.length > 0)
+      .join(", ");
+  }
+  if (typeof value === "object") return "";
+  return String(value);
 }
 
 function asYesNo(value: unknown) {

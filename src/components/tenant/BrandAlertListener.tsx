@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
+import { appendTenantAlertsClientParams } from "@/lib/platformAudience";
 
 type TenantAlert = {
   id: string;
@@ -65,6 +66,7 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
+      appendTenantAlertsClientParams(url);
 
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
