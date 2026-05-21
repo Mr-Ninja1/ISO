@@ -10,6 +10,7 @@ import {
   resolvePostAuthDestination,
 } from "@/lib/client/appEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 
 const RECOVER_KEY = "iso-blank-recover-at:v1";
 const MIN_RECOVER_GAP_MS = 3000;
@@ -35,8 +36,14 @@ function pageLooksBlank() {
   return !interactive;
 }
 
+function isNativeUpdateGateVisible() {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector('[data-iso-native-update-gate="true"]'));
+}
+
 function pageLooksStuckOnLoadingShell() {
   if (typeof document === "undefined") return false;
+  if (isNativeUpdateGateVisible()) return false;
   const text = (document.body.textContent || "").toLowerCase();
   return STUCK_LOADING_PHRASES.some((phrase) => text.includes(phrase));
 }
@@ -49,6 +56,8 @@ function shouldForceEntryNavigation() {
 }
 
 function tryRecover(reason: string) {
+  if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
+
   let last = 0;
   try {
     last = Number(sessionStorage.getItem(RECOVER_KEY) || "0");

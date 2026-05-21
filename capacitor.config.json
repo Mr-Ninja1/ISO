@@ -18,7 +18,10 @@
     "allowNavigation": [
       "isopro.me",
       "*.isopro.me",
-      "*.supabase.co"
+      "*.supabase.co",
+      "github.com",
+      "*.github.com",
+      "*.githubusercontent.com"
     ]
   }
 }

@@ -14,9 +14,9 @@ export const OTA_CHANNEL_ENV = process.env.NEXT_PUBLIC_OTA_CHANNEL?.trim() || "p
 
 export function parseNativeBuild(): number {
   const raw = process.env.NEXT_PUBLIC_NATIVE_BUILD;
-  if (!raw) return 0;
-  const n = parseInt(String(raw).replace(/\D/g, ""), 10);
-  return Number.isFinite(n) ? n : 0;
+  const n = raw ? parseInt(String(raw).replace(/\D/g, ""), 10) : NaN;
+  if (Number.isFinite(n) && n >= 0) return n;
+  return 1;
 }
 
 export function readAppliedBundleId(): string | null {

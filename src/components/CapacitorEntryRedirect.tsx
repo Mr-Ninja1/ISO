@@ -10,9 +10,13 @@ import {
   resolvePostAuthDestination,
 } from "@/lib/client/appEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
+import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
+import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
 
 function redirectFromEntryIfNeeded() {
   if (!isCapacitorNativeApp()) return;
+  if (isNativeUpdateBlocked() || isNativeUpdateRequiredFromCache(parseNativeBuild())) return;
 
   const path = normalizeAppPathname(window.location.pathname);
   const search = window.location.search;

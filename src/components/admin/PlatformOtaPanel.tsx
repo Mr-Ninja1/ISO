@@ -8,6 +8,7 @@ import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusB
 import { adminFetch } from "@/lib/client/adminFetch";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import type { AnnouncementAudience } from "@/lib/platformAudience";
+import { clearPlatformClientConfigCache } from "@/lib/capacitor/platformClientConfig";
 
 type PlatformSettings = {
   minNativeBuild: number;
@@ -130,6 +131,7 @@ export function PlatformOtaPanel() {
         latestApkUrl: json.latestApkUrl ?? null,
         updatedAt: json.updatedAt ?? null,
       });
+      clearPlatformClientConfigCache();
       setSaved(true);
     }
     setSaving(false);

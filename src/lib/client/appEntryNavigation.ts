@@ -74,7 +74,27 @@ export function hardNavigate(href: string) {
   window.location.assign(path);
 }
 
+/** Immediate sync destination when credentials / last tenant are already known. */
+export function resolveQuickEntryDestination(): string | null {
+  if (typeof window === "undefined") return null;
+  if (!hasPersistedAuthCredentials()) return "/login";
+  if (readPlatformDeveloperFlag()) return "/admin";
+  return resolveWorkspaceUrlWithLastTenant() || "/workspace";
+}
+
 export function navigateToPostAuthEntry(routerReplace: (href: string) => void) {
+  const quick = resolveQuickEntryDestination();
+  if (quick) {
+    routerReplace(quick);
+    if (isCapacitorNativeApp()) {
+      const path = normalizeAppPathname(window.location.pathname);
+      if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, window.location.search)) {
+        hardNavigate(quick);
+      }
+    }
+    return;
+  }
+
   void resolvePostAuthDestinationAsync().then((destination) => {
     routerReplace(destination);
     if (!isCapacitorNativeApp()) return;

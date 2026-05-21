@@ -49,7 +49,11 @@ export function LiveUpdateBootstrap() {
         typeof config.minNativeBuild === "number" && Number.isFinite(config.minNativeBuild)
           ? config.minNativeBuild
           : null;
-      if (minRequired != null && currentNativeBuild > 0 && currentNativeBuild < minRequired) {
+      if (
+        minRequired != null &&
+        Number.isFinite(currentNativeBuild) &&
+        currentNativeBuild < minRequired
+      ) {
         return;
       }
 

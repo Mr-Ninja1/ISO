@@ -131,7 +131,14 @@ function writeCapacitorWebConfig() {
       androidScheme: "https",
       cleartext: false,
       errorPath: "workspace/index.html",
-      allowNavigation: ["isopro.me", "*.isopro.me", "*.supabase.co"],
+      allowNavigation: [
+        "isopro.me",
+        "*.isopro.me",
+        "*.supabase.co",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+      ],
     },
   };
   fs.writeFileSync(path.join(root, "capacitor.config.json"), `${JSON.stringify(config, null, 2)}\n`);
