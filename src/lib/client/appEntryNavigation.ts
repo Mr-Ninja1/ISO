@@ -83,27 +83,17 @@ export function resolveQuickEntryDestination(): string | null {
 }
 
 export function navigateToPostAuthEntry(routerReplace: (href: string) => void) {
+  if (isCapacitorNativeApp()) {
+    return;
+  }
+
   const quick = resolveQuickEntryDestination();
   if (quick) {
     routerReplace(quick);
-    if (isCapacitorNativeApp()) {
-      const path = normalizeAppPathname(window.location.pathname);
-      if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, window.location.search)) {
-        hardNavigate(quick);
-      }
-    }
     return;
   }
 
   void resolvePostAuthDestinationAsync().then((destination) => {
     routerReplace(destination);
-    if (!isCapacitorNativeApp()) return;
-
-    window.setTimeout(() => {
-      const path = normalizeAppPathname(window.location.pathname);
-      if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, window.location.search)) {
-        hardNavigate(destination);
-      }
-    }, 1200);
   });
 }

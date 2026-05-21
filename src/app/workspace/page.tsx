@@ -53,7 +53,7 @@ import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
-import { MobileAppInstallBanner } from "@/components/MobileAppInstallBanner";
+import { WorkspaceAndroidAppMenuItem } from "@/components/WorkspaceAndroidAppMenuItem";
 import { TemplateDueRuleFields, type DueRuleFormState } from "@/components/TemplateDueRuleFields";
 import { DueReminderPoller } from "@/components/DueReminderPoller";
 import {
@@ -2054,7 +2054,6 @@ function WorkspacePageInner() {
   if (showTenantPicker) {
     return (
       <div className="workspace-shell min-h-dvh">
-        <MobileAppInstallBanner placement="workspace" />
         <div className="mx-auto max-w-7xl p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -2204,7 +2203,6 @@ function WorkspacePageInner() {
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
       <div className="ws-header-accent" />
-      <MobileAppInstallBanner placement="workspace" />
       <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
@@ -2332,6 +2330,8 @@ function WorkspacePageInner() {
                       <GraduationCap className="h-4 w-4" />
                       Staff training
                     </button>
+
+                    <WorkspaceAndroidAppMenuItem onNavigate={() => setMenuOpen(false)} />
 
                     <div className="px-3 py-2">
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">

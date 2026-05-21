@@ -8,14 +8,18 @@ export function isAndroidMobileWeb(): boolean {
   const ua = navigator.userAgent || "";
   if (!/Android/i.test(ua)) return false;
 
-  // Phones typically include "Mobile" in the UA; many tablets do not but are still touch devices.
+  // Most phones include "Mobile" in the UA.
   if (/Mobile/i.test(ua)) return true;
 
+  // Tablets / responsive mode: touch + typical phone/tablet width.
   const touch = navigator.maxTouchPoints > 0;
-  const tabletOrPhoneViewport =
-    window.matchMedia?.("(max-width: 1024px)")?.matches ?? window.innerWidth <= 1024;
+  const narrowViewport =
+    window.matchMedia?.("(max-width: 1280px)")?.matches ?? window.innerWidth <= 1280;
 
-  return touch && tabletOrPhoneViewport;
+  return touch && narrowViewport;
 }
 
+/** @deprecated Use WORKSPACE_ANDROID_APP_CARD_DISMISS_KEY */
 export const MOBILE_APP_BANNER_DISMISS_KEY = "iso-mobile-app-banner-dismissed:v1";
+
+export const WORKSPACE_ANDROID_APP_CARD_DISMISS_KEY = "iso-workspace-android-app-card:v1";

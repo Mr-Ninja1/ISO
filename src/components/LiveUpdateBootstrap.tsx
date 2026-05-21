@@ -11,6 +11,11 @@ import {
   shouldApplyOtaManifest,
   writeAppliedBundleId,
 } from "@/lib/capacitor/liveUpdateClient";
+import {
+  markOtaReloadPending,
+  signalLiveUpdateReady,
+  wasOtaReloadRecent,
+} from "@/lib/capacitor/liveUpdateReady";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isAppOffline } from "@/lib/client/appOffline";
 
@@ -39,6 +44,7 @@ export function LiveUpdateBootstrap() {
     if (!isCapacitorNativeApp()) return;
     if (isAppOffline()) return;
     if (checkingRef.current) return;
+    if (wasOtaReloadRecent()) return;
 
     checkingRef.current = true;
     try {
@@ -77,7 +83,6 @@ export function LiveUpdateBootstrap() {
 
       try {
         const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-        await LiveUpdate.ready();
 
         const channel = (config.liveUpdateChannel || manifest.channel || OTA_CHANNEL_ENV).trim();
         if (channel) {
@@ -89,7 +94,6 @@ export function LiveUpdateBootstrap() {
           bundleId: manifest.bundleId,
         });
 
-        writeAppliedBundleId(manifest.bundleId);
         setPending({
           bundleId: manifest.bundleId,
           releaseNotes: manifest.releaseNotes,
@@ -107,20 +111,14 @@ export function LiveUpdateBootstrap() {
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
 
-    void (async () => {
-      try {
-        const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-        await LiveUpdate.ready();
-      } catch {
-        // Plugin not linked yet
-      }
+    void signalLiveUpdateReady().then(() => {
       void checkForUpdate();
-    })();
+    });
 
     const timer = window.setInterval(() => void checkForUpdate(), 4 * 60 * 60 * 1000);
 
     function onOnline() {
-      void checkForUpdate();
+      if (!wasOtaReloadRecent()) void checkForUpdate();
     }
     window.addEventListener("online", onOnline);
     return () => {
@@ -134,6 +132,8 @@ export function LiveUpdateBootstrap() {
     setApplying(true);
     try {
       const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
+      writeAppliedBundleId(pending.bundleId);
+      markOtaReloadPending();
       await LiveUpdate.setNextBundle({ bundleId: pending.bundleId });
       await LiveUpdate.reload();
     } catch {

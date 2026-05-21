@@ -84,6 +84,25 @@ function listHtmlFiles(dir, base = dir) {
  * Capacitor serves files from disk. Any tenant slug in the URL needs a matching HTML file.
  * We mirror the placeholder slug `_` tree so runtime URLs like `/acme/audits/` resolve offline.
  */
+/** Service workers in OTA zips break Capacitor WebView navigation and cause loading loops. */
+function stripPwaArtifactsFromOut() {
+  if (!fs.existsSync(outDir)) return;
+  let removed = 0;
+  for (const name of fs.readdirSync(outDir)) {
+    const drop =
+      name === "sw.js" ||
+      name.startsWith("workbox-") ||
+      name.startsWith("fallback-") ||
+      name === "sw.js.map";
+    if (!drop) continue;
+    fs.rmSync(path.join(outDir, name), { force: true });
+    removed += 1;
+  }
+  if (removed > 0) {
+    console.log(`[capacitor-build] Removed ${removed} PWA artifact(s) from out/ (not used in native shell).`);
+  }
+}
+
 function mirrorTenantShellRoutes() {
   const shellRoot = path.join(outDir, shellSlug);
   if (!fs.existsSync(shellRoot)) {
@@ -124,7 +143,7 @@ function writeCapacitorWebConfig() {
         enabled: true,
       },
       LiveUpdate: {
-        readyTimeout: 10000,
+        readyTimeout: 30000,
       },
     },
     server: {
@@ -180,6 +199,7 @@ try {
     console.log(`[capacitor-build] App bundle label: ${appBundleLabel}`);
   }
   mirrorTenantShellRoutes();
+  stripPwaArtifactsFromOut();
 
   const skipCapSync =
     process.env.CI === "true" ||

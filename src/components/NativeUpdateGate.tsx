@@ -36,9 +36,13 @@ export function NativeUpdateGate() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    setNativeUpdateBlocked(blocked && initialCheckDone);
+    if (!isNative) {
+      setNativeUpdateBlocked(false);
+      return;
+    }
+    setNativeUpdateBlocked(blocked);
     return () => setNativeUpdateBlocked(false);
-  }, [blocked, initialCheckDone]);
+  }, [blocked, isNative]);
 
   const check = useCallback(
     async (options?: { background?: boolean }) => {
@@ -64,8 +68,17 @@ export function NativeUpdateGate() {
       const needsBlock = shouldBlockForNativeUpdate(currentBuild, min);
       setBlocked(needsBlock);
 
-      if (fetchFailed && needsBlock && fromCache) {
-        setStatusHint("Using last known update policy (offline).");
+      const cachedMin = readCachedPlatformClientConfig()?.minNativeBuild;
+      const blockFromCache = shouldBlockForNativeUpdate(currentBuild, cachedMin);
+
+      if (fetchFailed && (needsBlock || blockFromCache)) {
+        setBlocked(true);
+        setStatusHint(
+          fromCache
+            ? "Using last known update policy (offline)."
+            : "Could not reach the server — showing last known update requirement."
+        );
+        if (min == null && typeof cachedMin === "number") setMinRequired(cachedMin);
       } else if (fetchFailed && !fromCache) {
         setStatusHint("Could not reach the server to verify the required app version.");
         setBlocked(false);
@@ -95,9 +108,14 @@ export function NativeUpdateGate() {
     };
   }, [check]);
 
-  if (!isNative || !blocked || minRequired == null) {
+  if (!isNative || !blocked) {
     return null;
   }
+
+  const minDisplay =
+    minRequired ??
+    readCachedPlatformClientConfig()?.minNativeBuild ??
+    null;
 
   function openApkDownload() {
     const target = apkUrl;
@@ -130,7 +148,11 @@ export function NativeUpdateGate() {
 
         <p className="mt-4 text-sm leading-6 text-[var(--accent-soft)]">
           This device is on build <strong className="text-[var(--hse-charcoal)]">{currentBuild}</strong>.
-          Build <strong className="text-[var(--hse-charcoal)]">{minRequired}</strong> or newer is required for
+          Build{" "}
+          <strong className="text-[var(--hse-charcoal)]">
+            {minDisplay != null ? minDisplay : "…"}
+          </strong>{" "}
+          or newer is required for
           compatibility and security. Web-only updates cannot replace the native shell — you need a new APK.
         </p>
 

@@ -2,13 +2,13 @@
 
 import { useEffect } from "react";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
+import { hardNavigate } from "@/lib/client/appEntryNavigation";
 import {
-  hardNavigate,
-  isAppRootPath,
-  isWorkspaceEntryWithoutTenant,
-  normalizeAppPathname,
-  resolvePostAuthDestination,
-} from "@/lib/client/appEntryNavigation";
+  isNativeEntryShellPath,
+  resolveNativeEntryDestination,
+} from "@/lib/capacitor/nativeEntryNavigation";
+import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 
@@ -24,6 +24,8 @@ const STUCK_LOADING_PHRASES = [
   "signing in",
   "restoring your brand",
 ];
+
+const IGNORED_STUCK_PHRASES = ["preparing the app"];
 
 function pageLooksBlank() {
   if (typeof document === "undefined") return false;
@@ -43,20 +45,21 @@ function isNativeUpdateGateVisible() {
 
 function pageLooksStuckOnLoadingShell() {
   if (typeof document === "undefined") return false;
+  if (!isNativeEntryShellPath()) return false;
   if (isNativeUpdateGateVisible()) return false;
   const text = (document.body.textContent || "").toLowerCase();
+  if (text.includes("preparing your brand for offline")) return false;
+  if (IGNORED_STUCK_PHRASES.some((phrase) => text.includes(phrase))) return false;
   return STUCK_LOADING_PHRASES.some((phrase) => text.includes(phrase));
 }
 
 function shouldForceEntryNavigation() {
-  const path = normalizeAppPathname(window.location.pathname);
-  const search = window.location.search;
-  if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) return true;
-  return pageLooksStuckOnLoadingShell() && (isAppRootPath(path) || path === "/workspace");
+  return isNativeEntryShellPath();
 }
 
 function tryRecover(reason: string) {
   if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
+  if (isCapacitorNativeApp() && isNativeUpdateRequiredFromCache(parseNativeBuild())) return;
 
   let last = 0;
   try {
@@ -75,7 +78,7 @@ function tryRecover(reason: string) {
   }
 
   if (shouldForceEntryNavigation()) {
-    const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
+    const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
     console.warn(`[CapacitorAppRecovery] Stuck entry (${reason}); navigating to ${target}`);
     hardNavigate(target);
     return;
@@ -83,7 +86,7 @@ function tryRecover(reason: string) {
 
   if (!pageLooksBlank()) return;
 
-  const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
+  const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
   console.warn(`[CapacitorAppRecovery] Blank screen (${reason}); navigating to ${target}`);
   hardNavigate(target);
 }

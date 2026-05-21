@@ -532,6 +532,84 @@ body {
   box-shadow: 0 4px 16px rgba(0, 61, 51, 0.08);
 }
 
+/* Workspace HSE console — Android app install card (signed-in, mobile web only) */
+.workspace-android-app-card {
+  border-radius: 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--hse-teal) 14%, transparent);
+  background: color-mix(in srgb, var(--hse-sky) 35%, white);
+}
+
+.workspace-android-app-card__inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.workspace-android-app-card__icon {
+  flex-shrink: 0;
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--hse-copper) 35%, var(--hse-teal));
+  background: #fff;
+}
+
+.workspace-android-app-card__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--hse-charcoal);
+}
+
+.workspace-android-app-card__text {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--accent-soft);
+}
+
+.workspace-android-app-card__cta {
+  margin-top: 0.55rem;
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  border: 1px solid var(--hse-teal);
+  background: #fff;
+  padding: 0 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--hse-teal);
+  text-decoration: none;
+}
+
+.workspace-android-app-card__cta:hover {
+  background: var(--hse-sky);
+}
+
+.workspace-android-app-card__close {
+  flex-shrink: 0;
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--hse-teal-mid);
+  cursor: pointer;
+}
+
+.workspace-android-app-card__close:hover {
+  background: color-mix(in srgb, var(--hse-teal) 8%, transparent);
+  color: var(--hse-charcoal);
+}
+
 .mobile-app-install-banner__inner {
   display: flex;
   align-items: flex-start;

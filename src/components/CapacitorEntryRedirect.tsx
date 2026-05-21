@@ -1,42 +1,33 @@
 "use client";
 
 import { useEffect } from "react";
-import { hasPersistedAuthCredentials } from "@/lib/auth";
-import {
-  hardNavigate,
-  isAppRootPath,
-  isWorkspaceEntryWithoutTenant,
-  normalizeAppPathname,
-  resolvePostAuthDestination,
-} from "@/lib/client/appEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
-import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
-import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
-import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import {
+  canRunNativeEntryRedirect,
+  runNativeEntryRedirectIfNeeded,
+} from "@/lib/capacitor/nativeEntryNavigation";
 
-function redirectFromEntryIfNeeded() {
-  if (!isCapacitorNativeApp()) return;
-  if (isNativeUpdateBlocked() || isNativeUpdateRequiredFromCache(parseNativeBuild())) return;
-
-  const path = normalizeAppPathname(window.location.pathname);
-  const search = window.location.search;
-
-  if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) {
-    hardNavigate(resolvePostAuthDestination());
-  }
-}
-
-/** Static Capacitor bundle: avoid an empty `/` shell before client routing runs. */
+/** Resume-only safety net — primary redirect runs in CapacitorBootstrap before paint. */
 export function CapacitorEntryRedirect() {
   useEffect(() => {
-    redirectFromEntryIfNeeded();
+    if (!isCapacitorNativeApp()) return;
+
+    const tryRedirect = () => {
+      if (!canRunNativeEntryRedirect()) return;
+      runNativeEntryRedirectIfNeeded();
+    };
+
+    let resumeTimer: number | undefined;
 
     let removeAppListener: (() => void) | undefined;
 
     void import("@capacitor/app")
       .then(({ App }) =>
         App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) redirectFromEntryIfNeeded();
+          if (isActive) {
+            window.clearTimeout(resumeTimer);
+            resumeTimer = window.setTimeout(tryRedirect, 400);
+          }
         })
       )
       .then((handle) => {
@@ -49,15 +40,22 @@ export function CapacitorEntryRedirect() {
       });
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") redirectFromEntryIfNeeded();
+      if (document.visibilityState === "visible") {
+        window.clearTimeout(resumeTimer);
+        resumeTimer = window.setTimeout(tryRedirect, 400);
+      }
     };
 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", (event) => {
-      if (event.persisted) redirectFromEntryIfNeeded();
+      if (event.persisted) {
+        window.clearTimeout(resumeTimer);
+        resumeTimer = window.setTimeout(tryRedirect, 400);
+      }
     });
 
     return () => {
+      window.clearTimeout(resumeTimer);
       document.removeEventListener("visibilitychange", onVisible);
       removeAppListener?.();
     };

@@ -6,30 +6,27 @@ import { recoverCapacitorWebViewIfStrayed } from "@/lib/capacitor/openExternalUr
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { setNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import { runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
 import {
-  hardNavigate,
-  isAppRootPath,
-  isWorkspaceEntryWithoutTenant,
-  normalizeAppPathname,
-  resolveQuickEntryDestination,
-} from "@/lib/client/appEntryNavigation";
+  clearOtaReloadMarker,
+  runAfterLiveUpdateReady,
+  signalLiveUpdateReady,
+} from "@/lib/capacitor/liveUpdateReady";
 import { initReachabilityMonitor } from "@/lib/client/reachability";
 
-// Run before first paint so AuthProvider's createClient() reads sb-*-auth-token from localStorage.
+function runNativeBoot() {
+  if (isNativeUpdateRequiredFromCache(parseNativeBuild())) {
+    setNativeUpdateBlocked(true);
+    return;
+  }
+  runNativeEntryRedirectIfNeeded();
+}
+
+// OTA reload: acknowledge bundle before redirects; ready() prevents rollback flicker.
 if (typeof window !== "undefined" && isCapacitorNativeApp()) {
   markCapacitorShell();
   recoverCapacitorWebViewIfStrayed();
-
-  if (isNativeUpdateRequiredFromCache(parseNativeBuild())) {
-    setNativeUpdateBlocked(true);
-  } else {
-    const path = normalizeAppPathname(window.location.pathname);
-    const search = window.location.search;
-    if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) {
-      const dest = resolveQuickEntryDestination();
-      if (dest) hardNavigate(dest);
-    }
-  }
+  runAfterLiveUpdateReady(runNativeBoot);
 }
 
 /** Marks embedded Capacitor sessions so auth/offline helpers use the mobile code paths. */
@@ -40,6 +37,11 @@ export function CapacitorBootstrap() {
     if (typeof window !== "undefined") {
       window.__ISO_IS_NATIVE__ = isCapacitorNativeApp();
     }
+
+    void signalLiveUpdateReady().then(() => {
+      clearOtaReloadMarker();
+    });
+
     return initReachabilityMonitor();
   }, []);
 
