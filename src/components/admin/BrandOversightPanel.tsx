@@ -371,7 +371,6 @@ export function BrandOversightPanel() {
               {inactiveCount} inactive
             </span>
           </div>
-        </div>
       </div>
 
       <AdminNetworkStatusBanner
