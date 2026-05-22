@@ -1,17 +1,21 @@
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
-/** True when the user is on Android mobile browser — not the installed Capacitor app. */
+/** True when the user is on any mobile browser (phones, tablets, all platforms) — not the installed Capacitor app. */
 export function isAndroidMobileWeb(): boolean {
   if (typeof window === "undefined") return false;
   if (isCapacitorNativeApp()) return false;
 
+  // Detect iOS (iPhone, iPad, iPod)
   const ua = navigator.userAgent || "";
-  if (!/Android/i.test(ua)) return false;
+  if (/iPhone|iPad|iPod|iOS/i.test(ua)) return true;
+  
+  // Detect Android
+  if (/Android/i.test(ua)) return true;
 
-  // Most phones include "Mobile" in the UA.
-  if (/Mobile/i.test(ua)) return true;
+  // Detect other mobile platforms
+  if (/Mobile|Tablet|Opera Mini|IEMobile|Windows Phone|webOS|BlackBerry|Kindle/i.test(ua)) return true;
 
-  // Tablets / responsive mode: touch + typical phone/tablet width.
+  // Fallback: detect mobile via touch + typical phone/tablet viewport width
   const touch = navigator.maxTouchPoints > 0;
   const narrowViewport =
     window.matchMedia?.("(max-width: 1280px)")?.matches ?? window.innerWidth <= 1280;
