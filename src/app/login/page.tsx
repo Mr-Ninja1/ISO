@@ -106,7 +106,7 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-500 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeho[...]
             placeholder="your@email.com"
           />
         </div>
@@ -122,7 +122,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-500 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeho[...]
             placeholder="••••••••"
           />
         </div>
@@ -157,6 +157,19 @@ export default function LoginPage() {
 
         {visible && apkUrl ? (
           <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4 mt-4">
+            <a
+              href={apkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
+            >
+              Create an account
+            </a>
+          </div>
+        ) : null}
+
+        {visible && apkUrl ? (
+          <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4">
             <a
               href={apkUrl}
               target="_blank"
