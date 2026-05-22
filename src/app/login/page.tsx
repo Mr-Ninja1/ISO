@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthHsePlatformBadge } from "@/components/AuthHsePlatformBadge";
@@ -106,7 +106,7 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeho[...]
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-400 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] disabled:bg-slate-50 disabled:text-slate-500"
             placeholder="your@email.com"
           />
         </div>
@@ -122,7 +122,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
-            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeho[...]
+            className="h-11 w-full rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white px-3.5 text-sm text-[var(--hse-charcoal)] outline-none transition placeholder:text-slate-400 focus:border-[var(--hse-teal)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] disabled:bg-slate-50 disabled:text-slate-500"
             placeholder="••••••••"
           />
         </div>
@@ -155,27 +155,15 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {visible && apkUrl ? (
+        {apkUrl ? (
           <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4 mt-4">
             <a
               href={apkUrl}
-              target="_blank"
+              download
               rel="noopener noreferrer"
-              className="text-sm font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[var(--hse-teal)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--hse-teal)] transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] focus:outline-none focus:ring-2 focus:ring-[var(--hse-teal)] focus:ring-offset-2"
             >
-              Create an account
-            </a>
-          </div>
-        ) : null}
-
-        {visible && apkUrl ? (
-          <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4">
-            <a
-              href={apkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
-            >
+              <Download className="h-4 w-4" />
               Download ISO Pro for Android
             </a>
           </div>
