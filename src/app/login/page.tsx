@@ -3,14 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Download, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthHsePlatformBadge } from "@/components/AuthHsePlatformBadge";
-import { AndroidIcon } from "@/components/icons/AndroidIcon";
 import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 import { useAndroidMobileWebInstall } from "@/hooks/useAndroidMobileWebInstall";
-import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,7 +19,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState<{ verified: boolean; reset: boolean }>({ verified: false, reset: false });
   const [secureAccessClicks, setSecureAccessClicks] = useState(0);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
   const secureAccessClicksRef = useRef(0);
   const { visible, apkUrl } = useAndroidMobileWebInstall();
 
@@ -72,10 +69,6 @@ export default function LoginPage() {
     }
   }
 
-  const handleDismissBanner = () => {
-    setBannerDismissed(true);
-  };
-
   return (
     <AuthPageShell
       eyebrow="ISO Pro"
@@ -90,39 +83,6 @@ export default function LoginPage() {
       footerHref="/signup"
       footerLabel="Create an account"
     >
-      {visible && apkUrl && !bannerDismissed ? (
-        <div className="mobile-app-install-banner mobile-app-install-banner--login">
-          <div className="mobile-app-install-banner__inner">
-            <div className="mobile-app-install-banner__logo">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#3DDC84] text-[#0d3d2a] shadow-sm">
-                <AndroidIcon className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mobile-app-install-banner__content min-w-0 flex-1">
-              <h3 className="mobile-app-install-banner__title">Get ISO Pro for Android</h3>
-              <p className="mobile-app-install-banner__text">Download the official app for better performance and offline access.</p>
-              <a
-                href={apkUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mobile-app-install-banner__cta"
-              >
-                <Download className="h-3 w-3" aria-hidden />
-                Download APK
-              </a>
-            </div>
-            <button
-              type="button"
-              onClick={handleDismissBanner}
-              className="mobile-app-install-banner__close"
-              aria-label="Dismiss banner"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       <form onSubmit={handleSubmit} className="space-y-4">
         {banner.verified ? (
           <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
@@ -194,6 +154,19 @@ export default function LoginPage() {
             Verify email
           </Link>
         </div>
+
+        {visible && apkUrl ? (
+          <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4 mt-4">
+            <a
+              href={apkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-semibold text-[var(--hse-teal)] underline underline-offset-4 hover:text-[var(--hse-teal-mid)]"
+            >
+              Download ISO Pro for Android
+            </a>
+          </div>
+        ) : null}
       </form>
     </AuthPageShell>
   );
