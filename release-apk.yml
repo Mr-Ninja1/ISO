@@ -1,0 +1,115 @@
+name: Build Release APK (Capacitor Android)
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_build:
+        description: 'Native build number (e.g., 3 for v1.0.0-build3)'
+        required: true
+        default: '3'
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    name: Build Release APK
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Capacitor static bundle
+        env:
+          NEXT_PUBLIC_API_BASE_URL: https://isopro.me
+          NEXT_PUBLIC_NATIVE_BUILD: ${{ github.event.inputs.native_build }}
+          CI: true
+        run: node tools/capacitor-build.mjs
+
+      - name: Sync Capacitor to Android
+        run: npx cap sync android
+
+      - name: Build release APK with Gradle
+        working-directory: ./android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK exists
+        run: |
+          if [ -f "android/app/build/outputs/apk/release/app-release.apk" ]; then
+            echo "✅ APK built successfully"
+            ls -lh android/app/build/outputs/apk/release/app-release.apk
+          else
+            echo "❌ APK not found"
+            find android/app/build/outputs -type f -name "*.apk" 2>/dev/null || echo "No APK files found"
+            exit 1
+          fi
+
+      - name: Copy APK to dist
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk dist/iso-pro.apk
+          ls -lh dist/iso-pro.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v1.0.0-build${{ github.event.inputs.native_build }}
+          name: ISO Pro Android v1.0 (build ${{ github.event.inputs.native_build }})
+          body: |
+            ## Release APK v1.0 Build ${{ github.event.inputs.native_build }}
+            
+            **Changes:**
+            - Fixed login page syntax error
+            - Improved download link visibility across all browsers and devices
+            - Removed device-specific limitations
+            - Enhanced cross-browser compatibility
+            
+            **Installation:**
+            1. Download `iso-pro.apk`
+            2. Enable "Unknown Sources" in Settings > Security
+            3. Tap the APK file to install
+            
+            **Build Info:**
+            - Native Build: ${{ github.event.inputs.native_build }}
+            - API Base: https://isopro.me
+            - Date: ${{ github.event.actor }} on ${{ runner.os }}
+            
+            **Note:** Update admin config with:
+            - min_native_build: ${{ github.event.inputs.native_build }}
+            - latest_apk_url: [APK download link]
+          files: dist/iso-pro.apk
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iso-pro-apk-build${{ github.event.inputs.native_build }}
+          path: dist/iso-pro.apk
+          retention-days: 30
