@@ -22,11 +22,15 @@ function runNativeBoot() {
   runNativeEntryRedirectIfNeeded();
 }
 
-// OTA reload: acknowledge bundle before redirects; ready() prevents rollback flicker.
-if (typeof window !== "undefined" && isCapacitorNativeApp()) {
-  markCapacitorShell();
-  recoverCapacitorWebViewIfStrayed();
-  runAfterLiveUpdateReady(runNativeBoot);
+// Mark shell early (localhost WebView) so promos like “Download APK” hide before Capacitor bridge loads.
+if (typeof window !== "undefined") {
+  if (isCapacitorNativeApp()) {
+    markCapacitorShell();
+  }
+  if (isCapacitorNativeApp()) {
+    recoverCapacitorWebViewIfStrayed();
+    runAfterLiveUpdateReady(runNativeBoot);
+  }
 }
 
 /** Marks embedded Capacitor sessions so auth/offline helpers use the mobile code paths. */

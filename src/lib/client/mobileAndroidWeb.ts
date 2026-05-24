@@ -1,9 +1,22 @@
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
-/** True when the user is on any mobile browser (phones, tablets, all platforms) — not the installed Capacitor app. */
-export function isAndroidMobileWeb(): boolean {
+/** Installed Capacitor APK — never show “download the app” marketing / APK install promos. */
+export function isInstalledNativeApp(): boolean {
   if (typeof window === "undefined") return false;
-  if (isCapacitorNativeApp()) return false;
+  return isCapacitorNativeApp();
+}
+
+/** “Get the app” / APK download promos — mobile browser only, never the installed shell. */
+export function shouldShowApkInstallPromo(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isInstalledNativeApp()) return false;
+  return isMobileWebBrowser();
+}
+
+/** True when the user is on a mobile browser — not the installed Capacitor app. */
+export function isMobileWebBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isInstalledNativeApp()) return false;
 
   // Detect iOS (iPhone, iPad, iPod)
   const ua = navigator.userAgent || "";
@@ -22,6 +35,9 @@ export function isAndroidMobileWeb(): boolean {
 
   return touch && narrowViewport;
 }
+
+/** @deprecated Use isMobileWebBrowser */
+export const isAndroidMobileWeb = isMobileWebBrowser;
 
 /** @deprecated Use WORKSPACE_ANDROID_APP_CARD_DISMISS_KEY */
 export const MOBILE_APP_BANNER_DISMISS_KEY = "iso-mobile-app-banner-dismissed:v1";

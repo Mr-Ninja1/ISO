@@ -845,7 +845,12 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (openingFormsNav) return;
     setOpeningFormsNav(true);
-    router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}`);
+    const href = `/workspace/forms?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}`;
+    if (isCapacitorNativeApp()) {
+      hardNavigate(href);
+    } else {
+      router.push(href);
+    }
     clearNavLoading();
   }
 
@@ -2490,31 +2495,32 @@ function WorkspacePageInner() {
                 className="pointer-events-none absolute -right-12 top-0 h-32 w-32 rounded-full bg-sky-300/25 blur-3xl"
                 aria-hidden
               />
-              <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                <div className="max-w-2xl space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--hse-teal-mid)]">
-                    HSE console
-                  </p>
-                  <h2 className="text-2xl font-semibold tracking-tight text-[var(--hse-charcoal)] sm:text-3xl">
-                    Health, safety &amp; environment management
-                  </h2>
-                  <p className="max-w-xl text-sm leading-6 text-[var(--accent-soft)] sm:text-base">
-                    Configure categories, staff, and compliance settings for this brand. Open field inspections when your team is ready to run checklists or review submissions.
-                  </p>
+              <div className="relative z-10 flex flex-col gap-4">
+                <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                  <div className="max-w-2xl space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--hse-teal-mid)]">
+                      HSE console
+                    </p>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[var(--hse-charcoal)] sm:text-3xl">
+                      Health, safety &amp; environment management
+                    </h2>
+                    <p className="max-w-xl text-sm leading-6 text-[var(--accent-soft)] sm:text-base">
+                      Configure categories, staff, and compliance settings for this brand. Open field inspections when your team is ready to run checklists or review submissions.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenFormsWorkspace}
+                    disabled={openingFormsNav}
+                    className="ws-btn-primary inline-flex h-11 shrink-0 items-center justify-center gap-2 px-4 text-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {openingFormsNav ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {openingFormsNav ? "Opening forms…" : "Open forms workspace"}
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleOpenFormsWorkspace}
-                  disabled={openingFormsNav}
-                  className="ws-btn-primary inline-flex h-11 items-center justify-center gap-2 px-4 text-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {openingFormsNav ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {openingFormsNav ? "Opening forms…" : "Open forms workspace"}
-                </button>
-              </div>
-
-              <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-3">
+                <div className="grid gap-2 sm:grid-cols-3">
                 {canManageCategories ? (
                   <>
                     <button
@@ -2580,6 +2586,7 @@ function WorkspacePageInner() {
                     {openingStaff ? "Opening…" : "Staff management"}
                   </button>
                 ) : null}
+                </div>
               </div>
             </div>
 

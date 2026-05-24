@@ -1,4 +1,6 @@
 import { buildAuditReportHref, buildTenantHref } from "@/lib/client/tenantHref";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { hardNavigate } from "@/lib/client/appEntryNavigation";
 
 type AppRouterLike = {
   push: (href: string) => void;
@@ -14,6 +16,12 @@ export function pushTenantRoute(
   method: "push" | "replace" = "push"
 ) {
   const href = buildTenantHref(tenantSlug, pathAfterTenant, query);
+
+  if (isCapacitorNativeApp()) {
+    hardNavigate(href);
+    return;
+  }
+
   router[method](href);
 }
 

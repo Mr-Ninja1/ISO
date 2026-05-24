@@ -1,29 +1,29 @@
 "use client";
 
 import { Download } from "lucide-react";
+import { AndroidApkDownloadTrigger } from "@/components/AndroidApkDownloadTrigger";
 import { AndroidIcon } from "@/components/icons/AndroidIcon";
 import { useAndroidMobileWebInstall } from "@/hooks/useAndroidMobileWebInstall";
+import { useInstalledNativeShell } from "@/hooks/useInstalledNativeShell";
 
 type Props = {
   onNavigate?: () => void;
 };
 
-/** Workspace ⋮ menu — Android APK download (mobile web only, never in native app). */
+/** Workspace ⋮ menu — APK download promo (mobile browser only; never in installed app). */
 export function WorkspaceAndroidAppMenuItem({ onNavigate }: Props) {
+  const installedShell = useInstalledNativeShell();
   const { visible, apkUrl } = useAndroidMobileWebInstall();
 
-  if (!visible || !apkUrl) return null;
+  if (installedShell || !visible || !apkUrl) return null;
 
   return (
     <>
       <div className="my-1 border-t border-foreground/10" role="separator" />
-      <a
-        href={apkUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        role="menuitem"
-        className="mx-1 flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-sky)_45%,white)] px-3 py-2.5 text-left text-sm transition hover:bg-[color-mix(in_srgb,var(--hse-sky)_65%,white)]"
-        onClick={() => onNavigate?.()}
+      <AndroidApkDownloadTrigger
+        apkUrl={apkUrl}
+        onActivate={onNavigate}
+        className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-sky)_45%,white)] px-3 py-2.5 text-left text-sm transition hover:bg-[color-mix(in_srgb,var(--hse-sky)_65%,white)]"
       >
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3DDC84] text-[#0d3d2a] shadow-sm">
           <AndroidIcon className="h-4 w-4" />
@@ -36,7 +36,7 @@ export function WorkspaceAndroidAppMenuItem({ onNavigate }: Props) {
           <Download className="h-3 w-3" aria-hidden />
           APK
         </span>
-      </a>
+      </AndroidApkDownloadTrigger>
     </>
   );
 }

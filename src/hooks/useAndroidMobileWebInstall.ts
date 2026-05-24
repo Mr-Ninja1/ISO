@@ -1,19 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { fetchPlatformClientConfig } from "@/lib/capacitor/platformClientConfig";
 import { resolveAndroidApkDownloadUrl } from "@/lib/client/apkDownloadUrl";
-import { isAndroidMobileWeb } from "@/lib/client/mobileAndroidWeb";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { shouldShowApkInstallPromo } from "@/lib/client/mobileAndroidWeb";
 
-/** Android mobile browser only — not the installed Capacitor app. */
+/**
+ * APK install promo for mobile web only.
+ * Returns visible=false and empty apkUrl inside the installed native app.
+ */
 export function useAndroidMobileWebInstall() {
   const [visible, setVisible] = useState(false);
-  const [apkUrl, setApkUrl] = useState(() => resolveAndroidApkDownloadUrl());
+  const [apkUrl, setApkUrl] = useState("");
 
   useEffect(() => {
-    if (isCapacitorNativeApp() || !isAndroidMobileWeb()) {
+    const hide = () => {
       setVisible(false);
+      setApkUrl("");
+    };
+
+    if (isCapacitorNativeApp() || !shouldShowApkInstallPromo()) {
+      hide();
       return;
     }
 
@@ -25,10 +33,18 @@ export function useAndroidMobileWebInstall() {
       setApkUrl(resolveAndroidApkDownloadUrl(config));
     });
 
+    const recheck = () => {
+      if (isCapacitorNativeApp()) hide();
+    };
+    recheck();
+    const interval = window.setInterval(recheck, 400);
+    window.setTimeout(() => window.clearInterval(interval), 4000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
-  return { visible, apkUrl };
+  return { visible, apkUrl: visible ? apkUrl : "" };
 }

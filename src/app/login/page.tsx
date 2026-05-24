@@ -8,7 +8,9 @@ import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthHsePlatformBadge } from "@/components/AuthHsePlatformBadge";
 import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
+import { AndroidApkDownloadTrigger } from "@/components/AndroidApkDownloadTrigger";
 import { useAndroidMobileWebInstall } from "@/hooks/useAndroidMobileWebInstall";
+import { useInstalledNativeShell } from "@/hooks/useInstalledNativeShell";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +22,7 @@ export default function LoginPage() {
   const [banner, setBanner] = useState<{ verified: boolean; reset: boolean }>({ verified: false, reset: false });
   const [secureAccessClicks, setSecureAccessClicks] = useState(0);
   const secureAccessClicksRef = useRef(0);
+  const installedShell = useInstalledNativeShell();
   const { visible, apkUrl } = useAndroidMobileWebInstall();
 
   useEffect(() => {
@@ -155,17 +158,15 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {apkUrl ? (
-          <div className="border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4 mt-4">
-            <a
-              href={apkUrl}
-              download
-              rel="noopener noreferrer"
+        {!installedShell && visible && apkUrl ? (
+          <div className="mt-4 border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4">
+            <AndroidApkDownloadTrigger
+              apkUrl={apkUrl}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[var(--hse-teal)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--hse-teal)] transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] focus:outline-none focus:ring-2 focus:ring-[var(--hse-teal)] focus:ring-offset-2"
             >
               <Download className="h-4 w-4" />
               Download ISO Pro for Android
-            </a>
+            </AndroidApkDownloadTrigger>
           </div>
         ) : null}
       </form>
