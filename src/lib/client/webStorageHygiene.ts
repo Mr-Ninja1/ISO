@@ -210,40 +210,42 @@ export function runWebStorageHygieneSync(): WebStorageHygieneResult {
   return { skipped: false, versionChanged, removedKeys };
 }
 
-/** Unregister stale PWA workers after a deploy (web only). Reloads at most once per tab per version. */
+/** Unregister stale PWA workers after a deploy (web only). Deferred so /login redirect is not interrupted. */
 export async function runWebStorageHygieneAsync(result: WebStorageHygieneResult): Promise<void> {
   if (result.skipped || !result.versionChanged) return;
   if (typeof window === "undefined") return;
 
-  const reloadGuard = `${SESSION_SW_RELOAD_KEY}:${WEB_STORAGE_VERSION}`;
+  const bumpGuard = `${SESSION_SW_RELOAD_KEY}:${WEB_STORAGE_VERSION}`;
   try {
-    if (sessionStorage.getItem(reloadGuard) === "1") return;
+    if (sessionStorage.getItem(bumpGuard) === "1") return;
   } catch {
     // ignore
   }
 
-  if (!("serviceWorker" in navigator)) return;
-
-  try {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    if (registrations.length === 0 && !("caches" in window)) return;
-
-    for (const registration of registrations) {
-      await registration.unregister();
-    }
-    if ("caches" in window) {
-      const names = await caches.keys();
-      await Promise.all(names.map((name) => caches.delete(name)));
-    }
+  const resetStalePwa = async () => {
+    if (!("serviceWorker" in navigator)) return;
 
     try {
-      sessionStorage.setItem(reloadGuard, "1");
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.unregister();
+      }
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map((name) => caches.delete(name)));
+      }
+      try {
+        sessionStorage.setItem(bumpGuard, "1");
+      } catch {
+        // ignore
+      }
     } catch {
-      // ignore
+      // ignore — stale SW is annoying but not fatal
     }
+  };
 
-    window.location.reload();
-  } catch {
-    // ignore — stale SW is annoying but not fatal
-  }
+  // Let entry redirect finish first; avoid reload loops that trap users on the splash screen.
+  window.setTimeout(() => {
+    void resetStalePwa();
+  }, 12_000);
 }

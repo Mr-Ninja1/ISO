@@ -90,7 +90,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const [loading, setLoading] = useState(() => {
     if (typeof window === "undefined") return true;
-    return !hasPersistedAuthCredentials() && !readPersistedSupabaseSession()?.access_token;
+    // Only block the UI while hydrating an existing session — logged-out visitors go straight to /login.
+    return hasPersistedAuthCredentials();
   });
   const supabase = useMemo(() => createClient(), []);
 
@@ -112,15 +113,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const getSession = async () => {
+      let resolved: Session | null = null;
       try {
-        const resolved = await hydrateSupabaseSessionWithTimeout(supabase);
+        resolved = await hydrateSupabaseSessionWithTimeout(supabase);
         applySession(resolved);
       } catch {
         if (cancelled) return;
-        const fallback = readPersistedSupabaseSession();
-        applySession(fallback);
+        resolved = readPersistedSupabaseSession();
+        applySession(resolved);
       } finally {
         if (cancelled) return;
+        if (!resolved?.access_token && !readPersistedSupabaseSession()?.access_token) {
+          writeCachedAuthUser(null);
+          setUser(null);
+        }
         setLoading(false);
         window.clearTimeout(timeoutId);
       }
