@@ -40,6 +40,8 @@ jobs:
           OTA_MIN_NATIVE_BUILD: "1"
           OTA_RELEASE_NOTES: Deploy ${{ github.sha }} (run ${{ github.run_number }})
           SKIP_CAP_SYNC: "1"
+          # Baked into the hosted site only — returning browsers drop stale localStorage/PWA caches.
+          NEXT_PUBLIC_WEB_STORAGE_VERSION: web.${{ github.run_number }}
         run: |
           npm install
 

@@ -18,6 +18,7 @@ import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
 import { OtaBundleRecovery } from '@/components/OtaBundleRecovery';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
 import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
+import { WebShellCleanup } from '@/components/WebShellCleanup';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
 
 export const metadata: Metadata = {
@@ -68,6 +69,7 @@ export default function RootLayout({
       </head>
       <body className='min-h-full flex flex-col'>
         <ThemeBootstrap />
+        <WebShellCleanup />
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />

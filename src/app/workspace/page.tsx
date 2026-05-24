@@ -1391,7 +1391,7 @@ function WorkspacePageInner() {
     if (authLoading) return;
     if (user?.id) return;
     if (hasPersistedAuthCredentials()) return;
-    router.push("/login");
+    router.replace("/login");
   }, [authLoading, user, router]);
 
   const sessionRestorePending =

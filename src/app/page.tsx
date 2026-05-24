@@ -6,43 +6,32 @@ import { useAuth } from "@/components/AuthProvider";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
-import {
-  isAppRootPath,
-  navigateToPostAuthEntry,
-  normalizeAppPathname,
-  resolveQuickEntryDestination,
-} from "@/lib/client/appEntryNavigation";
+import { navigateToPostAuthEntry } from "@/lib/client/appEntryNavigation";
 
 export default function Home() {
   const router = useRouter();
-  const { loading, user } = useAuth();
+  const { loading: authLoading, user } = useAuth();
   const redirectedRef = useRef(false);
 
   useEffect(() => {
     if (isCapacitorNativeApp()) return;
-    if (loading) return;
+    if (authLoading) return;
     if (redirectedRef.current) return;
+
     redirectedRef.current = true;
     navigateToPostAuthEntry((href) => router.replace(href));
-  }, [loading, router, user?.id]);
+  }, [authLoading, router, user?.id]);
 
   if (isCapacitorNativeApp()) {
     return null;
   }
 
-  const quickDest = resolveQuickEntryDestination();
-  if (quickDest) {
-    return null;
-  }
-
-  if (!loading) {
-    return null;
-  }
+  const goingToLogin = !hasPersistedAuthCredentials() && !user?.id;
 
   return (
     <WorkspaceLoadingShell
       title="Starting ISO Pro"
-      subtitle={hasPersistedAuthCredentials() ? "Opening your workspace…" : "Taking you to sign in…"}
+      subtitle={goingToLogin ? "Taking you to sign in…" : "Opening your workspace…"}
     />
   );
 }

@@ -35,10 +35,20 @@ function readCapacitorBridge(): boolean {
 export function isCapacitorNativeApp(): boolean {
   if (typeof window === "undefined") return false;
   if (process.env.NEXT_PUBLIC_CAPACITOR_APP === "1") return true;
-  if (readShellMarker()) return true;
   if (readCapacitorBridge()) return true;
   if (isCapacitorWebViewOrigin()) return true;
   return false;
+}
+
+/** Clears a mistaken shell flag left by older web sign-in code (caused redirect flicker on isopro.me). */
+export function clearStaleCapacitorShellMarkerIfWeb() {
+  if (typeof window === "undefined") return;
+  if (isCapacitorNativeApp()) return;
+  try {
+    localStorage.removeItem(SHELL_MARKER_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function markCapacitorShell() {

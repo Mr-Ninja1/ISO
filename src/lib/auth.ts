@@ -62,9 +62,10 @@ export function writeBrowserSupabaseSession(session: Session) {
   if (typeof window === "undefined") return;
 
   try {
-    markCapacitorShell();
+    if (isCapacitorNativeApp()) {
+      markCapacitorShell();
+    }
     localStorage.setItem(browserSupabaseAuthStorageKey(), JSON.stringify(session));
-    localStorage.setItem(ISO_MOBILE_SHELL_LS_KEY, "1");
   } catch {
     // ignore storage failures
   }
@@ -100,7 +101,7 @@ export function createClient() {
         markCapacitorShell();
       }
       const shell = window.localStorage.getItem(ISO_MOBILE_SHELL_LS_KEY);
-      if (shell === "1" || shell === "capacitor") {
+      if (isCapacitorNativeApp() || shell === "capacitor") {
         return createSupabaseClient(url, anon, {
           auth: {
             persistSession: true,
