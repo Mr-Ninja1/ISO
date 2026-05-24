@@ -2482,9 +2482,15 @@ function WorkspacePageInner() {
         {isAdminView ? (
           <section className="ws-panel mb-4 overflow-hidden">
             <div className="ws-admin-hero relative overflow-hidden border-b border-[color-mix(in_srgb,var(--hse-teal)_12%,transparent)] px-4 py-5 sm:px-5 sm:py-6">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,61,51,0.08),transparent_50%)]" />
-              <div className="absolute -right-12 top-0 h-32 w-32 rounded-full bg-sky-300/25 blur-3xl" />
-              <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,61,51,0.08),transparent_50%)]"
+                aria-hidden
+              />
+              <div
+                className="pointer-events-none absolute -right-12 top-0 h-32 w-32 rounded-full bg-sky-300/25 blur-3xl"
+                aria-hidden
+              />
+              <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div className="max-w-2xl space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--hse-teal-mid)]">
                     HSE console
@@ -2508,7 +2514,7 @@ function WorkspacePageInner() {
                 </button>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="relative z-10 mt-4 grid gap-2 sm:grid-cols-3">
                 {canManageCategories ? (
                   <>
                     <button

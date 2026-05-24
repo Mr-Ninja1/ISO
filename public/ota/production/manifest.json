@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260521.lesson-v3",
-  "version": "20260521.lesson-v3",
+  "bundleId": "20260521.ota-fix1",
+  "version": "20260521.ota-fix1",
   "channel": "production",
-  "minNativeBuild": 1,
-  "bundleUrl": "https://isopro.me/ota/production/bundle-20260521.lesson-v3.zip",
-  "publishedAt": "2026-05-20T16:56:53.775Z",
-  "releaseNotes": "Lesson v3 — bolder green OTA banner"
+  "minNativeBuild": 2,
+  "bundleUrl": "https://isopro.me/ota/production/bundle-20260521.ota-fix1.zip",
+  "publishedAt": "2026-05-21T16:54:56.124Z",
+  "releaseNotes": "Fix OTA loading loop and flicker after restart"
 }
