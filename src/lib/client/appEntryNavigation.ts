@@ -64,7 +64,7 @@ export async function resolvePostAuthDestinationAsync(): Promise<string> {
 }
 
 /** Capacitor static export uses trailingSlash — normalize paths so WebView loads the right HTML. */
-function normalizeCapacitorHref(href: string): string {
+export function normalizeCapacitorHref(href: string): string {
   if (!isCapacitorNativeApp()) return href;
   const hashIdx = href.indexOf("#");
   const hash = hashIdx >= 0 ? href.slice(hashIdx) : "";
@@ -100,10 +100,19 @@ export function hardNavigate(href: string) {
     // continue with navigation
   }
   if (isCapacitorNativeApp()) {
-    window.location.replace(target);
+    const absolute = new URL(target, window.location.origin).href;
+    window.location.replace(absolute);
     return;
   }
   window.location.assign(target);
+}
+
+/** Full-page navigation using an absolute URL (most reliable in the Android WebView). */
+export function hardNavigateAbsolute(href: string) {
+  if (typeof window === "undefined") return;
+  const path = normalizeCapacitorHref(href.startsWith("/") ? href : `/${href}`);
+  const absolute = new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).href;
+  window.location.replace(absolute);
 }
 
 /** Immediate sync destination when credentials / last tenant are already known. */

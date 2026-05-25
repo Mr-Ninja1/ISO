@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  hardNavigate,
+  hardNavigateAbsolute,
   isAppRootPath,
   normalizeAppPathname,
   resolvePostAuthDestination,
@@ -27,9 +27,8 @@ export function isNativeEntryShellPath(): boolean {
 
 function entryNavigationBlocked(): boolean {
   if (!isCapacitorNativeApp()) return true;
-  if (isNativeUpdateBlocked()) return true;
-  if (isNativeUpdateRequiredFromCache(parseNativeBuild())) return true;
-  return false;
+  // Only block when the visible APK gate is active — cache-only min-build must not freeze `/`.
+  return isNativeUpdateBlocked();
 }
 
 export function canRunNativeEntryRedirect(): boolean {
@@ -116,7 +115,7 @@ export function runNativeEntryRedirectIfNeeded(options?: { force?: boolean }): b
 
   redirectInFlight = true;
   markRedirectAttempt();
-  hardNavigate(dest);
+  hardNavigateAbsolute(dest);
   markBootCompleteIfLeftHome();
 
   return true;

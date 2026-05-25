@@ -2,16 +2,14 @@
 
 import { useEffect } from "react";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
-import { hardNavigate, isAppRootPath, normalizeAppPathname } from "@/lib/client/appEntryNavigation";
+import { hardNavigateAbsolute, isAppRootPath, normalizeAppPathname } from "@/lib/client/appEntryNavigation";
 import {
   forceNativeEntryExit,
   isNativeEntryShellPath,
   resolveNativeEntryDestination,
   runNativeEntryRedirectIfNeeded,
 } from "@/lib/capacitor/nativeEntryNavigation";
-import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
 import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
-import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 
@@ -47,7 +45,6 @@ function pageLooksBlank() {
 function tryRecover(reason: string) {
   if (wasOtaReloadRecent(60_000)) return;
   if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
-  if (isCapacitorNativeApp() && isNativeUpdateRequiredFromCache(parseNativeBuild())) return;
 
   let last = 0;
   try {
@@ -79,7 +76,7 @@ function tryRecover(reason: string) {
 
   const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
   console.warn(`[CapacitorAppRecovery] Blank screen (${reason}); navigating to ${target}`);
-  hardNavigate(target);
+  hardNavigateAbsolute(target);
 }
 
 /**

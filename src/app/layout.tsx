@@ -64,6 +64,8 @@ export default function RootLayout({
           <>
             <style id="iso-capacitor-critical-css">{CAPACITOR_CRITICAL_CSS}</style>
             {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+            <script src='/capacitor-entry-redirect.js' />
+            {/* eslint-disable-next-line @next/next/no-sync-scripts */}
             <script src='/capacitor-hardware-back.js' />
           </>
         ) : null}
