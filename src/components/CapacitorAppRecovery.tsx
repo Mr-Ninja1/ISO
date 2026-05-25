@@ -27,15 +27,31 @@ const STUCK_LOADING_PHRASES = [
 
 const IGNORED_STUCK_PHRASES = ["preparing the app"];
 
-function pageLooksBlank() {
+function pageHasMainInteractiveContent() {
   if (typeof document === "undefined") return false;
   const root = document.getElementById("__next") ?? document.body;
-  const text = (root.textContent || "").replace(/\s+/g, " ").trim();
-  if (text.length > 80) return false;
-  const interactive = root.querySelector(
-    "button:not([aria-label='Close dialog']), a[href], main h1, main h2, [role='dialog']"
+  const otaBar = document.querySelector("[data-iso-ota-status-bar]");
+  const candidates = root.querySelectorAll(
+    "button:not([aria-label='Close dialog']), a[href], main h1, main h2, [role='dialog'], [data-workspace-shell]"
   );
-  return !interactive;
+  for (const node of candidates) {
+    if (!otaBar?.contains(node)) return true;
+  }
+  return false;
+}
+
+function pageLooksBlank() {
+  if (typeof document === "undefined") return false;
+  if (pageHasMainInteractiveContent()) return false;
+  const root = document.getElementById("__next") ?? document.body;
+  const text = (root.textContent || "").replace(/\s+/g, " ").trim();
+  if (text.length <= 80) return true;
+  const lower = text.toLowerCase();
+  const otaOnly =
+    lower.includes("installed app") &&
+    lower.includes("bundle") &&
+    (lower.includes("latest web bundle") || lower.includes("up to date") || lower.includes("checking for"));
+  return otaOnly;
 }
 
 function isNativeUpdateGateVisible() {

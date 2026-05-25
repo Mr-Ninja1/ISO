@@ -63,10 +63,26 @@ export async function resolvePostAuthDestinationAsync(): Promise<string> {
   return resolvePostAuthDestination();
 }
 
+/** Capacitor static export uses trailingSlash — normalize paths so WebView loads the right HTML. */
+function normalizeCapacitorHref(href: string): string {
+  if (!isCapacitorNativeApp()) return href;
+  const hashIdx = href.indexOf("#");
+  const hash = hashIdx >= 0 ? href.slice(hashIdx) : "";
+  const withoutHash = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+  const queryIdx = withoutHash.indexOf("?");
+  const query = queryIdx >= 0 ? withoutHash.slice(queryIdx) : "";
+  let path = queryIdx >= 0 ? withoutHash.slice(0, queryIdx) : withoutHash;
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path !== "/" && !path.endsWith("/") && !/\.[a-z0-9]+$/i.test(path)) {
+    path = `${path}/`;
+  }
+  return `${path}${query}${hash}`;
+}
+
 /** Reliable navigation after force-close / WebView resume (client router alone can stall). */
 export function hardNavigate(href: string) {
   if (typeof window === "undefined") return;
-  const path = href.startsWith("/") ? href : `/${href}`;
+  const path = normalizeCapacitorHref(href.startsWith("/") ? href : `/${href}`);
   if (isCapacitorNativeApp()) {
     window.location.replace(path);
     return;

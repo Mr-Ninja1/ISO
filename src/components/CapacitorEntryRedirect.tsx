@@ -54,7 +54,11 @@ export function CapacitorEntryRedirect() {
       }
     });
 
+    const mountDelays = [0, 350, 1100, 2400];
+    const mountTimers = mountDelays.map((delay) => window.setTimeout(tryRedirect, delay));
+
     return () => {
+      mountTimers.forEach((id) => window.clearTimeout(id));
       window.clearTimeout(resumeTimer);
       document.removeEventListener("visibilitychange", onVisible);
       removeAppListener?.();

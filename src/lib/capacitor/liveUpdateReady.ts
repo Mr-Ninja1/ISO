@@ -1,6 +1,7 @@
 "use client";
 
 import { OTA_BUNDLE_STORAGE_KEY } from "@/lib/capacitor/liveUpdateClient";
+import { clearNativeRedirectThrottle } from "@/lib/capacitor/nativeEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 const OTA_RELOAD_MARKER = "iso-ota-reload-at:v1";
@@ -35,6 +36,7 @@ export async function signalLiveUpdateReady(): Promise<boolean> {
 
 export function markOtaReloadPending() {
   if (typeof window === "undefined") return;
+  clearNativeRedirectThrottle();
   try {
     sessionStorage.setItem(OTA_RELOAD_MARKER, String(Date.now()));
   } catch {
@@ -55,6 +57,7 @@ export function wasOtaReloadRecent(maxAgeMs = 90_000): boolean {
 
 export function clearOtaReloadMarker() {
   if (typeof window === "undefined") return;
+  clearNativeRedirectThrottle();
   try {
     sessionStorage.removeItem(OTA_RELOAD_MARKER);
   } catch {

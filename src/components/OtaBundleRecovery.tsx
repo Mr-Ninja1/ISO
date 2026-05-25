@@ -27,11 +27,17 @@ export function OtaBundleRecovery() {
       }
 
       const text = (document.body.textContent || "").toLowerCase();
+      const otaStatusOnly =
+        text.includes("installed app") &&
+        text.includes("bundle") &&
+        (text.includes("latest web bundle") || text.includes("up to date"));
       const looksStuck =
+        otaStatusOnly ||
         text.includes("preparing the app") ||
         text.includes("starting iso pro") ||
         text.includes("loading workspace") ||
-        text.includes("signing in");
+        text.includes("signing in") ||
+        text.includes("opening your workspace");
 
       if (!looksStuck) {
         try {

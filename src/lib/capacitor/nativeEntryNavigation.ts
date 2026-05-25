@@ -9,6 +9,7 @@ import {
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -36,7 +37,17 @@ export function resolveNativeEntryDestination(): string {
   return resolveQuickEntryDestination() || resolvePostAuthDestination();
 }
 
+export function clearNativeRedirectThrottle() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(REDIRECT_TS_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 function recentRedirectBlocked(): boolean {
+  if (wasOtaReloadRecent(120_000)) return false;
   try {
     const last = Number(sessionStorage.getItem(REDIRECT_TS_KEY) || "0");
     return Date.now() - last < REDIRECT_MIN_GAP_MS;

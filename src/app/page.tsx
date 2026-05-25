@@ -11,6 +11,8 @@ import {
   navigateToPostAuthEntry,
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
+import { runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
+import { runAfterLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
 
 const ENTRY_FAILSAFE_MS = 2500;
 
@@ -41,6 +43,26 @@ export default function Home() {
   }, [authLoading, user?.id]);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
+
+    runAfterLiveUpdateReady(() => {
+      if (!runNativeEntryRedirectIfNeeded()) {
+        const dest = resolveQuickEntryDestination() || "/login";
+        hardNavigate(dest);
+      }
+    });
+
+    const timer = window.setTimeout(() => {
+      if (!runNativeEntryRedirectIfNeeded()) {
+        const dest = resolveQuickEntryDestination() || "/login";
+        hardNavigate(dest);
+      }
+    }, ENTRY_FAILSAFE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (isCapacitorNativeApp()) return;
 
     const timer = window.setTimeout(() => {
@@ -54,7 +76,13 @@ export default function Home() {
   }, []);
 
   if (isCapacitorNativeApp()) {
-    return null;
+    const dest = resolveQuickEntryDestination();
+    return (
+      <WorkspaceLoadingShell
+        title="Starting ISO Pro"
+        subtitle={dest === "/login" ? "Taking you to sign in…" : "Opening your workspace…"}
+      />
+    );
   }
 
   const goingToLogin = !hasPersistedAuthCredentials() && !user?.id;
