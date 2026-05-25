@@ -83,11 +83,27 @@ function normalizeCapacitorHref(href: string): string {
 export function hardNavigate(href: string) {
   if (typeof window === "undefined") return;
   const path = normalizeCapacitorHref(href.startsWith("/") ? href : `/${href}`);
+  const current = `${window.location.pathname}${window.location.search}`;
+  const target = path.startsWith("/") ? path : `/${path}`;
+  try {
+    const base = window.location.origin;
+    const a = new URL(current, base);
+    const b = new URL(target, base);
+    const norm = (p: string) => {
+      const n = p.replace(/\/+$/, "") || "/";
+      return n.endsWith("/index.html") ? n.slice(0, -"/index.html".length) || "/" : n;
+    };
+    if (norm(a.pathname) === norm(b.pathname) && a.search === b.search) {
+      return;
+    }
+  } catch {
+    // continue with navigation
+  }
   if (isCapacitorNativeApp()) {
-    window.location.replace(path);
+    window.location.replace(target);
     return;
   }
-  window.location.assign(path);
+  window.location.assign(target);
 }
 
 /** Immediate sync destination when credentials / last tenant are already known. */

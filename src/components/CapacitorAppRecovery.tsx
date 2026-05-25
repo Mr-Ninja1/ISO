@@ -2,30 +2,25 @@
 
 import { useEffect } from "react";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
-import { hardNavigate } from "@/lib/client/appEntryNavigation";
+import { hardNavigate, isAppRootPath, normalizeAppPathname } from "@/lib/client/appEntryNavigation";
 import {
   isNativeEntryShellPath,
   resolveNativeEntryDestination,
+  runNativeEntryRedirectIfNeeded,
 } from "@/lib/capacitor/nativeEntryNavigation";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 
 const RECOVER_KEY = "iso-blank-recover-at:v1";
-const MIN_RECOVER_GAP_MS = 3000;
+const MIN_RECOVER_GAP_MS = 8000;
 
-const STUCK_LOADING_PHRASES = [
-  "taking you to your workspace",
-  "starting iso pro",
-  "loading workspace",
-  "restoring your session",
-  "opening workspace",
-  "signing in",
-  "restoring your brand",
-];
-
-const IGNORED_STUCK_PHRASES = ["preparing the app"];
+function isNativeUpdateGateVisible() {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector('[data-iso-native-update-gate="true"]'));
+}
 
 function pageHasMainInteractiveContent() {
   if (typeof document === "undefined") return false;
@@ -45,35 +40,11 @@ function pageLooksBlank() {
   if (pageHasMainInteractiveContent()) return false;
   const root = document.getElementById("__next") ?? document.body;
   const text = (root.textContent || "").replace(/\s+/g, " ").trim();
-  if (text.length <= 80) return true;
-  const lower = text.toLowerCase();
-  const otaOnly =
-    lower.includes("installed app") &&
-    lower.includes("bundle") &&
-    (lower.includes("latest web bundle") || lower.includes("up to date") || lower.includes("checking for"));
-  return otaOnly;
-}
-
-function isNativeUpdateGateVisible() {
-  if (typeof document === "undefined") return false;
-  return Boolean(document.querySelector('[data-iso-native-update-gate="true"]'));
-}
-
-function pageLooksStuckOnLoadingShell() {
-  if (typeof document === "undefined") return false;
-  if (!isNativeEntryShellPath()) return false;
-  if (isNativeUpdateGateVisible()) return false;
-  const text = (document.body.textContent || "").toLowerCase();
-  if (text.includes("preparing your brand for offline")) return false;
-  if (IGNORED_STUCK_PHRASES.some((phrase) => text.includes(phrase))) return false;
-  return STUCK_LOADING_PHRASES.some((phrase) => text.includes(phrase));
-}
-
-function shouldForceEntryNavigation() {
-  return isNativeEntryShellPath();
+  return text.length <= 60;
 }
 
 function tryRecover(reason: string) {
+  if (wasOtaReloadRecent(60_000)) return;
   if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
   if (isCapacitorNativeApp() && isNativeUpdateRequiredFromCache(parseNativeBuild())) return;
 
@@ -93,14 +64,18 @@ function tryRecover(reason: string) {
     // ignore
   }
 
-  if (shouldForceEntryNavigation()) {
+  if (isNativeEntryShellPath()) {
+    if (runNativeEntryRedirectIfNeeded()) return;
     const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
-    console.warn(`[CapacitorAppRecovery] Stuck entry (${reason}); navigating to ${target}`);
+    console.warn(`[CapacitorAppRecovery] Stuck on / (${reason}); navigating to ${target}`);
     hardNavigate(target);
     return;
   }
 
   if (!pageLooksBlank()) return;
+
+  const path = normalizeAppPathname(window.location.pathname);
+  if (!isAppRootPath(path)) return;
 
   const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
   console.warn(`[CapacitorAppRecovery] Blank screen (${reason}); navigating to ${target}`);
@@ -108,8 +83,7 @@ function tryRecover(reason: string) {
 }
 
 /**
- * After a force-close + quick reopen, the WebView can resume before React hydrates.
- * Navigates to workspace/login if the page stayed empty or on the loading shell too long.
+ * Safety net when the WebView resumes before React hydrates — does not fight OTA boot redirects.
  */
 export function CapacitorAppRecovery() {
   useEffect(() => {
@@ -119,25 +93,18 @@ export function CapacitorAppRecovery() {
       window.setTimeout(() => tryRecover(reason), delayMs);
     };
 
-    scheduleCheck("mount-1", 1200);
-    scheduleCheck("mount-2", 2800);
-    scheduleCheck("mount-3", 5000);
+    scheduleCheck("mount-1", 3500);
+    scheduleCheck("mount-2", 9000);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        scheduleCheck("visibility-1", 400);
-        scheduleCheck("visibility-2", 1800);
-        scheduleCheck("visibility-3", 4000);
+        scheduleCheck("visibility", 2000);
       }
     };
 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", (event) => {
-      if (event.persisted) {
-        scheduleCheck("pageshow-1", 300);
-        scheduleCheck("pageshow-2", 1600);
-        scheduleCheck("pageshow-3", 4200);
-      }
+      if (event.persisted) scheduleCheck("pageshow", 1500);
     });
 
     let removeAppListener: (() => void) | undefined;
@@ -145,11 +112,7 @@ export function CapacitorAppRecovery() {
     void import("@capacitor/app")
       .then(({ App }) =>
         App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) {
-            scheduleCheck("resume-1", 500);
-            scheduleCheck("resume-2", 2200);
-            scheduleCheck("resume-3", 4500);
-          }
+          if (isActive) scheduleCheck("resume", 2000);
         })
       )
       .then((handle) => {

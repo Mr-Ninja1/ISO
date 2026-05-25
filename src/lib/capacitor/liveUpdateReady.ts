@@ -44,7 +44,7 @@ export function markOtaReloadPending() {
   }
 }
 
-export function wasOtaReloadRecent(maxAgeMs = 90_000): boolean {
+export function wasOtaReloadRecent(maxAgeMs = 120_000): boolean {
   if (typeof window === "undefined") return false;
   try {
     const at = Number(sessionStorage.getItem(OTA_RELOAD_MARKER) || "0");

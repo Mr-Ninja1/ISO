@@ -11,10 +11,8 @@ import {
   navigateToPostAuthEntry,
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
-import { runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
-import { runAfterLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
 
-const ENTRY_FAILSAFE_MS = 2500;
+const ENTRY_FAILSAFE_MS = 4000;
 
 export default function Home() {
   const router = useRouter();
@@ -29,7 +27,6 @@ export default function Home() {
 
   useLayoutEffect(() => {
     if (isCapacitorNativeApp()) return;
-    // No session to hydrate — redirect immediately (do not wait on AuthProvider).
     if (!hasPersistedAuthCredentials()) {
       redirectToEntry();
     }
@@ -41,26 +38,6 @@ export default function Home() {
       redirectToEntry();
     }
   }, [authLoading, user?.id]);
-
-  useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
-
-    runAfterLiveUpdateReady(() => {
-      if (!runNativeEntryRedirectIfNeeded()) {
-        const dest = resolveQuickEntryDestination() || "/login";
-        hardNavigate(dest);
-      }
-    });
-
-    const timer = window.setTimeout(() => {
-      if (!runNativeEntryRedirectIfNeeded()) {
-        const dest = resolveQuickEntryDestination() || "/login";
-        hardNavigate(dest);
-      }
-    }, ENTRY_FAILSAFE_MS);
-
-    return () => window.clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     if (isCapacitorNativeApp()) return;

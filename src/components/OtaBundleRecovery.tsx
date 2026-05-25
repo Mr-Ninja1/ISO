@@ -7,9 +7,12 @@ import { isNativeEntryShellPath } from "@/lib/capacitor/nativeEntryNavigation";
 import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 
 const STUCK_MARK = "iso-ota-stuck-since:v1";
+const STUCK_MIN_MS = 45_000;
 
 /**
- * If an OTA bundle leaves the app on the loading shell too long, roll back to the APK default bundle.
+ * Last-resort rollback when the WebView is truly blank on `/` after an OTA apply.
+ * Does not react to intentional loading shells ("Starting ISO Pro", etc.) — those
+ * were causing reload loops with entry redirect + recovery.
  */
 export function OtaBundleRecovery() {
   useEffect(() => {
@@ -17,7 +20,9 @@ export function OtaBundleRecovery() {
     if (!readAppliedBundleId()) return;
 
     const tick = window.setInterval(() => {
-      if (!isNativeEntryShellPath() && !wasOtaReloadRecent(120_000)) {
+      if (wasOtaReloadRecent(180_000)) return;
+
+      if (!isNativeEntryShellPath()) {
         try {
           sessionStorage.removeItem(STUCK_MARK);
         } catch {
@@ -26,20 +31,8 @@ export function OtaBundleRecovery() {
         return;
       }
 
-      const text = (document.body.textContent || "").toLowerCase();
-      const otaStatusOnly =
-        text.includes("installed app") &&
-        text.includes("bundle") &&
-        (text.includes("latest web bundle") || text.includes("up to date"));
-      const looksStuck =
-        otaStatusOnly ||
-        text.includes("preparing the app") ||
-        text.includes("starting iso pro") ||
-        text.includes("loading workspace") ||
-        text.includes("signing in") ||
-        text.includes("opening your workspace");
-
-      if (!looksStuck) {
+      const text = (document.body.textContent || "").replace(/\s+/g, " ").trim();
+      if (text.length > 60) {
         try {
           sessionStorage.removeItem(STUCK_MARK);
         } catch {
@@ -59,7 +52,7 @@ export function OtaBundleRecovery() {
         return;
       }
 
-      if (Date.now() - since < 18_000) return;
+      if (Date.now() - since < STUCK_MIN_MS) return;
 
       void (async () => {
         try {
@@ -80,7 +73,7 @@ export function OtaBundleRecovery() {
           // ignore
         }
       })();
-    }, 2000);
+    }, 3000);
 
     return () => window.clearInterval(tick);
   }, []);

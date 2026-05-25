@@ -3,7 +3,6 @@
 import {
   hardNavigate,
   isAppRootPath,
-  isWorkspaceEntryWithoutTenant,
   normalizeAppPathname,
   resolvePostAuthDestination,
   resolveQuickEntryDestination,
@@ -18,16 +17,17 @@ const REDIRECT_TS_KEY = "iso-native-hard-nav-at:v1";
 const REDIRECT_MIN_GAP_MS = 6000;
 
 let redirectInFlight = false;
+let bootRedirectDone = false;
 
+/** Only `/` — bare `/workspace` has its own tenant picker and must not re-trigger entry redirects. */
 export function isNativeEntryShellPath(): boolean {
   if (typeof window === "undefined") return false;
-  const path = normalizeAppPathname(window.location.pathname);
-  const search = window.location.search;
-  return isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search);
+  return isAppRootPath(normalizeAppPathname(window.location.pathname));
 }
 
 export function canRunNativeEntryRedirect(): boolean {
   if (!isCapacitorNativeApp()) return false;
+  if (bootRedirectDone) return false;
   if (isNativeUpdateBlocked()) return false;
   if (isNativeUpdateRequiredFromCache(parseNativeBuild())) return false;
   return isNativeEntryShellPath();
@@ -39,6 +39,8 @@ export function resolveNativeEntryDestination(): string {
 
 export function clearNativeRedirectThrottle() {
   if (typeof window === "undefined") return;
+  bootRedirectDone = false;
+  redirectInFlight = false;
   try {
     sessionStorage.removeItem(REDIRECT_TS_KEY);
   } catch {
@@ -64,16 +66,36 @@ function markRedirectAttempt() {
   }
 }
 
+function hrefsMatch(current: string, target: string): boolean {
+  try {
+    const base = window.location.origin;
+    const a = new URL(current, base);
+    const b = new URL(target, base);
+    const pathA = normalizeAppPathname(a.pathname);
+    const pathB = normalizeAppPathname(b.pathname);
+    return pathA === pathB && a.search === b.search;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * One coordinated redirect from `/` or bare `/workspace`.
- * Persists throttle in sessionStorage so OTA full reloads do not loop.
+ * One coordinated redirect from `/` after OTA or cold start.
+ * Never re-navigate to the same URL (prevents reload flicker on `/workspace/`).
  */
 export function runNativeEntryRedirectIfNeeded(): boolean {
   if (!canRunNativeEntryRedirect()) return false;
   if (redirectInFlight || recentRedirectBlocked()) return false;
 
   const dest = resolveNativeEntryDestination();
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (hrefsMatch(current, dest)) {
+    bootRedirectDone = true;
+    return false;
+  }
+
   redirectInFlight = true;
+  bootRedirectDone = true;
   markRedirectAttempt();
   hardNavigate(dest);
 

@@ -168,9 +168,11 @@ export function LiveUpdateBootstrap() {
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
 
-    void signalLiveUpdateReady().then(() => {
-      void checkForUpdate();
-    });
+    void signalLiveUpdateReady();
+
+    const startCheck = window.setTimeout(() => {
+      if (!wasOtaReloadRecent()) void checkForUpdate();
+    }, wasOtaReloadRecent() ? 12_000 : 2500);
 
     const timer = window.setInterval(() => void checkForUpdate(), 2 * 60 * 60 * 1000);
 
@@ -187,6 +189,7 @@ export function LiveUpdateBootstrap() {
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.clearTimeout(startCheck);
       window.clearInterval(timer);
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
