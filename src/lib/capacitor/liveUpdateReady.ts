@@ -55,9 +55,9 @@ export function wasOtaReloadRecent(maxAgeMs = 120_000): boolean {
   }
 }
 
+/** Clears the post-OTA reload flag only (keeps redirect throttle until entry navigation succeeds). */
 export function clearOtaReloadMarker() {
   if (typeof window === "undefined") return;
-  clearNativeRedirectThrottle();
   try {
     sessionStorage.removeItem(OTA_RELOAD_MARKER);
   } catch {

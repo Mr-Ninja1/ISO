@@ -8,7 +8,7 @@ import {
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
-import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
+import { clearOtaReloadMarker, wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -25,11 +25,16 @@ export function isNativeEntryShellPath(): boolean {
   return isAppRootPath(normalizeAppPathname(window.location.pathname));
 }
 
+function entryNavigationBlocked(): boolean {
+  if (!isCapacitorNativeApp()) return true;
+  if (isNativeUpdateBlocked()) return true;
+  if (isNativeUpdateRequiredFromCache(parseNativeBuild())) return true;
+  return false;
+}
+
 export function canRunNativeEntryRedirect(): boolean {
-  if (!isCapacitorNativeApp()) return false;
+  if (entryNavigationBlocked()) return false;
   if (bootRedirectDone) return false;
-  if (isNativeUpdateBlocked()) return false;
-  if (isNativeUpdateRequiredFromCache(parseNativeBuild())) return false;
   return isNativeEntryShellPath();
 }
 
@@ -79,29 +84,48 @@ function hrefsMatch(current: string, target: string): boolean {
   }
 }
 
+function markBootCompleteIfLeftHome() {
+  window.setTimeout(() => {
+    redirectInFlight = false;
+    if (!isNativeEntryShellPath()) {
+      bootRedirectDone = true;
+      clearOtaReloadMarker();
+    } else {
+      bootRedirectDone = false;
+    }
+  }, 600);
+}
+
 /**
  * One coordinated redirect from `/` after OTA or cold start.
- * Never re-navigate to the same URL (prevents reload flicker on `/workspace/`).
+ * Does not wait on LiveUpdate.ready() — that runs in parallel.
  */
-export function runNativeEntryRedirectIfNeeded(): boolean {
-  if (!canRunNativeEntryRedirect()) return false;
-  if (redirectInFlight || recentRedirectBlocked()) return false;
+export function runNativeEntryRedirectIfNeeded(options?: { force?: boolean }): boolean {
+  if (entryNavigationBlocked()) return false;
+  if (!isNativeEntryShellPath()) return false;
+  if (!options?.force && bootRedirectDone) return false;
+  if (redirectInFlight || (!options?.force && recentRedirectBlocked())) return false;
 
   const dest = resolveNativeEntryDestination();
   const current = `${window.location.pathname}${window.location.search}`;
   if (hrefsMatch(current, dest)) {
     bootRedirectDone = true;
+    clearOtaReloadMarker();
     return false;
   }
 
   redirectInFlight = true;
-  bootRedirectDone = true;
   markRedirectAttempt();
   hardNavigate(dest);
-
-  window.setTimeout(() => {
-    redirectInFlight = false;
-  }, 3000);
+  markBootCompleteIfLeftHome();
 
   return true;
+}
+
+/** Hard exit from `/` when soft router navigation did not leave the loading shell. */
+export function forceNativeEntryExit(): void {
+  if (entryNavigationBlocked() || !isNativeEntryShellPath()) return;
+  bootRedirectDone = false;
+  redirectInFlight = false;
+  runNativeEntryRedirectIfNeeded({ force: true });
 }

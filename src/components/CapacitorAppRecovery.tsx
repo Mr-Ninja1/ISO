@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
 import { hardNavigate, isAppRootPath, normalizeAppPathname } from "@/lib/client/appEntryNavigation";
 import {
+  forceNativeEntryExit,
   isNativeEntryShellPath,
   resolveNativeEntryDestination,
   runNativeEntryRedirectIfNeeded,
@@ -66,9 +67,8 @@ function tryRecover(reason: string) {
 
   if (isNativeEntryShellPath()) {
     if (runNativeEntryRedirectIfNeeded()) return;
-    const target = hasPersistedAuthCredentials() ? resolveNativeEntryDestination() : "/login";
-    console.warn(`[CapacitorAppRecovery] Stuck on / (${reason}); navigating to ${target}`);
-    hardNavigate(target);
+    console.warn(`[CapacitorAppRecovery] Stuck on / (${reason}); forcing entry exit`);
+    forceNativeEntryExit();
     return;
   }
 

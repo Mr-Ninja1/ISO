@@ -7,10 +7,7 @@ import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientC
 import { setNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
 import { runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
-import {
-  clearOtaReloadMarker,
-  signalLiveUpdateReady,
-} from "@/lib/capacitor/liveUpdateReady";
+import { signalLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
 import { initReachabilityMonitor } from "@/lib/client/reachability";
 
 function runNativeBoot() {
@@ -21,10 +18,15 @@ function runNativeBoot() {
   runNativeEntryRedirectIfNeeded();
 }
 
+function scheduleNativeBoot() {
+  runNativeBoot();
+}
+
 if (typeof window !== "undefined" && isCapacitorNativeApp()) {
   markCapacitorShell();
   recoverCapacitorWebViewIfStrayed();
   void signalLiveUpdateReady();
+  scheduleNativeBoot();
 }
 
 /** Marks embedded Capacitor sessions so auth/offline helpers use the mobile code paths. */
@@ -42,12 +44,16 @@ export function CapacitorBootstrap() {
       window.__ISO_IS_NATIVE__ = true;
     }
 
-    void signalLiveUpdateReady().then(() => {
-      clearOtaReloadMarker();
-      runNativeBoot();
-    });
+    void signalLiveUpdateReady();
+    scheduleNativeBoot();
 
-    return stopReachability;
+    const retryDelays = [300, 900, 2000];
+    const timers = retryDelays.map((delay) => window.setTimeout(scheduleNativeBoot, delay));
+
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      stopReachability();
+    };
   }, []);
 
   return null;
