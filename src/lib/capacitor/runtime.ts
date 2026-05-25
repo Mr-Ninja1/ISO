@@ -30,14 +30,23 @@ function readCapacitorBridge(): boolean {
 }
 
 /**
+ * Runtime-only: Capacitor bridge or emulator WebView (never a normal mobile browser tab).
+ * Use this for “hide download APK” promos so a mistaken build flag on the website cannot suppress them.
+ */
+export function isInstalledNativeShell(): boolean {
+  if (typeof window === "undefined") return false;
+  if (readCapacitorBridge()) return true;
+  if (isCapacitorWebViewOrigin()) return true;
+  return false;
+}
+
+/**
  * True when running inside the installed Capacitor shell (APK), not the public website.
  */
 export function isCapacitorNativeApp(): boolean {
   if (typeof window === "undefined") return false;
   if (process.env.NEXT_PUBLIC_CAPACITOR_APP === "1") return true;
-  if (readCapacitorBridge()) return true;
-  if (isCapacitorWebViewOrigin()) return true;
-  return false;
+  return isInstalledNativeShell();
 }
 
 /** Clears a mistaken shell flag left by older web sign-in code (caused redirect flicker on isopro.me). */

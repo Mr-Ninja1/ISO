@@ -1,48 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchPlatformClientConfig } from "@/lib/capacitor/platformClientConfig";
+import { fetchPlatformClientConfig, readCachedPlatformClientConfig } from "@/lib/capacitor/platformClientConfig";
+import { isInstalledNativeShell } from "@/lib/capacitor/runtime";
 import { resolveAndroidApkDownloadUrl } from "@/lib/client/apkDownloadUrl";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { shouldShowApkInstallPromo } from "@/lib/client/mobileAndroidWeb";
 
 /**
- * APK install promo for mobile web only.
- * Returns visible=false and empty apkUrl inside the installed native app.
+ * APK install promo on the public website (desktop and mobile browsers).
+ * Hidden inside the installed native shell (runtime bridge / WebView — not a build flag alone).
  */
 export function useAndroidMobileWebInstall() {
   const [visible, setVisible] = useState(false);
   const [apkUrl, setApkUrl] = useState("");
 
   useEffect(() => {
-    const hide = () => {
+    if (typeof window === "undefined") return;
+
+    if (isInstalledNativeShell() || !shouldShowApkInstallPromo()) {
       setVisible(false);
       setApkUrl("");
-    };
-
-    if (isCapacitorNativeApp() || !shouldShowApkInstallPromo()) {
-      hide();
       return;
     }
 
     setVisible(true);
+    setApkUrl(resolveAndroidApkDownloadUrl(readCachedPlatformClientConfig()));
 
     let cancelled = false;
     void fetchPlatformClientConfig().then(({ config }) => {
-      if (cancelled) return;
+      if (cancelled || isInstalledNativeShell()) return;
       setApkUrl(resolveAndroidApkDownloadUrl(config));
     });
 
-    const recheck = () => {
-      if (isCapacitorNativeApp()) hide();
-    };
-    recheck();
-    const interval = window.setInterval(recheck, 400);
-    window.setTimeout(() => window.clearInterval(interval), 4000);
-
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
     };
   }, []);
 

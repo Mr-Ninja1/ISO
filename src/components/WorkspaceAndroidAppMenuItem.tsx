@@ -10,12 +10,12 @@ type Props = {
   onNavigate?: () => void;
 };
 
-/** Workspace ⋮ menu — APK download promo (mobile browser only; never in installed app). */
+/** Workspace ⋮ menu — APK download promo (website only; never in installed app). */
 export function WorkspaceAndroidAppMenuItem({ onNavigate }: Props) {
   const installedShell = useInstalledNativeShell();
   const { visible, apkUrl } = useAndroidMobileWebInstall();
 
-  if (installedShell || !visible || !apkUrl) return null;
+  if (installedShell || !visible) return null;
 
   return (
     <>

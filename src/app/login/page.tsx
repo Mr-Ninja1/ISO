@@ -158,7 +158,7 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {!installedShell && visible && apkUrl ? (
+        {!installedShell && visible ? (
           <div className="mt-4 border-t border-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] pt-4">
             <AndroidApkDownloadTrigger
               apkUrl={apkUrl}

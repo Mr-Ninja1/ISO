@@ -36,15 +36,17 @@ if (typeof window !== "undefined") {
 /** Marks embedded Capacitor sessions so auth/offline helpers use the mobile code paths. */
 export function CapacitorBootstrap() {
   useEffect(() => {
-    markCapacitorShell();
-    recoverCapacitorWebViewIfStrayed();
-    if (typeof window !== "undefined") {
-      window.__ISO_IS_NATIVE__ = isCapacitorNativeApp();
-    }
+    if (isCapacitorNativeApp()) {
+      markCapacitorShell();
+      recoverCapacitorWebViewIfStrayed();
+      if (typeof window !== "undefined") {
+        window.__ISO_IS_NATIVE__ = true;
+      }
 
-    void signalLiveUpdateReady().then(() => {
-      clearOtaReloadMarker();
-    });
+      void signalLiveUpdateReady().then(() => {
+        clearOtaReloadMarker();
+      });
+    }
 
     return initReachabilityMonitor();
   }, []);

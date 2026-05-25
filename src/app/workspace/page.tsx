@@ -1559,37 +1559,35 @@ function WorkspacePageInner() {
       };
     }
 
-    // Online + stale / missing cache / ?refresh=1 → revalidate (prefer direct Supabase, fall back to /api/workspace).
+    // Online + stale / missing cache / ?refresh=1 → revalidate (API route first, then direct Supabase).
 
     (async () => {
-      let data: WorkspaceData | null = null;
-
-      try {
-        const supabase = createClient();
-        data = (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
-      } catch {
-        /* RLS not deployed yet or transient PostgREST error — use API route */
-      }
-
-      if (!data) {
-        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+      const parseWorkspaceResponse = async (res: Response) => {
         const parsed = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const err = new Error((parsed as any)?.error || `Failed to load workspace (${res.status})`) as Error & {
+          const err = new Error((parsed as { error?: string })?.error || `Failed to load workspace (${res.status})`) as Error & {
             status?: number;
             code?: string;
             deactivationReason?: string | null;
           };
           err.status = res.status;
-          err.code = typeof (parsed as any)?.code === "string" ? (parsed as any).code : undefined;
+          err.code = typeof (parsed as { code?: string }).code === "string" ? (parsed as { code?: string }).code : undefined;
           err.deactivationReason =
-            typeof (parsed as any)?.deactivationReason === "string" ? (parsed as any).deactivationReason : null;
+            typeof (parsed as { deactivationReason?: string }).deactivationReason === "string"
+              ? (parsed as { deactivationReason?: string }).deactivationReason
+              : null;
           throw err;
         }
-        data = parsed as WorkspaceData;
+        return parsed as WorkspaceData;
+      };
+
+      if (accessToken) {
+        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+        return parseWorkspaceResponse(res);
       }
 
-      return data;
+      const supabase = createClient();
+      return (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
     })()
       .then((data) => {
         workspaceBusyRetriesRef.current = 0;
