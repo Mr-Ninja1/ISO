@@ -557,6 +557,8 @@ function WorkspacePageInner() {
   const [addFormOpen, setAddFormOpen] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const workspaceMenuBtnRef = useRef<HTMLButtonElement>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [theme, setTheme] = useState<WorkspaceTheme>("hse-pro");
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
@@ -862,8 +864,26 @@ function WorkspacePageInner() {
     clearNavLoading(400);
   }
 
-  function handleSwitchBrand() {
+  function closeWorkspaceMenu() {
     setMenuOpen(false);
+    setMenuAnchor(null);
+  }
+
+  function toggleWorkspaceMenu() {
+    setMenuOpen((wasOpen) => {
+      const next = !wasOpen;
+      if (next && workspaceMenuBtnRef.current) {
+        const rect = workspaceMenuBtnRef.current.getBoundingClientRect();
+        setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      } else {
+        setMenuAnchor(null);
+      }
+      return next;
+    });
+  }
+
+  function handleSwitchBrand() {
+    closeWorkspaceMenu();
     if (blockIfOffline("Switch brand")) return;
     try {
       localStorage.removeItem("lastTenantSlug");
@@ -875,7 +895,7 @@ function WorkspacePageInner() {
 
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
-    setMenuOpen(false);
+    closeWorkspaceMenu();
     setOpeningSettings(true);
     pushTenantRoute(router, targetTenantSlug, "settings");
     clearNavLoading();
@@ -883,7 +903,7 @@ function WorkspacePageInner() {
 
   function handleOpenStaffManagement(targetTenantSlug: string) {
     if (openingStaff) return;
-    setMenuOpen(false);
+    closeWorkspaceMenu();
     setOpeningStaff(true);
     pushTenantRoute(router, targetTenantSlug, "settings", { focus: "staff" });
     clearNavLoading();
@@ -2206,7 +2226,7 @@ function WorkspacePageInner() {
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
       <div className="ws-header-accent" />
-      <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
+      <div className="ws-header sticky top-0 z-40 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
@@ -2242,6 +2262,7 @@ function WorkspacePageInner() {
 
             <div className="relative">
               <button
+                ref={workspaceMenuBtnRef}
                 type="button"
                 className="ws-btn-ghost inline-flex h-9 items-center justify-center px-3"
                 aria-label="Workspace menu"
@@ -2249,22 +2270,24 @@ function WorkspacePageInner() {
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 disabled={openingSettings || openingStaff || loggingOut}
-                onClick={() => setMenuOpen((v) => !v)}
+                onClick={toggleWorkspaceMenu}
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
 
-              {menuOpen ? (
+              {menuOpen && menuAnchor && typeof document !== "undefined"
+                ? createPortal(
                 <>
                   <button
                     type="button"
-                    className="fixed inset-0 z-[250] cursor-default"
+                    className="fixed inset-0 z-[900] cursor-default bg-black/10"
                     aria-label="Close menu"
-                    onClick={() => setMenuOpen(false)}
+                    onClick={closeWorkspaceMenu}
                   />
                   <div
-                    className="ui-menu absolute right-0 top-11 z-[251] w-56 p-1"
+                    className="ui-menu fixed z-[901] w-56 max-h-[min(70vh,28rem)] overflow-y-auto p-1 shadow-lg"
                     role="menu"
+                    style={{ top: menuAnchor.top, right: menuAnchor.right }}
                   >
                     {canManageCategories ? (
                       <>
@@ -2273,7 +2296,7 @@ function WorkspacePageInner() {
                           role="menuitem"
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                           onClick={() => {
-                            setMenuOpen(false);
+                            closeWorkspaceMenu();
                             if (blockIfOffline("Manage categories")) return;
                             pushTenantRoute(router, tenant.slug, "categories");
                           }}
@@ -2286,7 +2309,7 @@ function WorkspacePageInner() {
                           role="menuitem"
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                           onClick={() => {
-                            setMenuOpen(false);
+                            closeWorkspaceMenu();
                             if (blockIfOffline("Categories")) return;
                             setSeedOpen(true);
                           }}
@@ -2304,13 +2327,11 @@ function WorkspacePageInner() {
                           role="menuitem"
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                           onClick={() => {
-                            setMenuOpen(false);
+                            closeWorkspaceMenu();
                             if (blockIfOffline("Create custom form")) return;
-                            router.push(
-                              buildTenantHref(tenant.slug, "templates/new", {
-                                categoryId: workspaceForRender.selectedCategoryId || undefined,
-                              })
-                            );
+                            pushTenantRoute(router, tenant.slug, "templates/new", {
+                              categoryId: workspaceForRender.selectedCategoryId || undefined,
+                            });
                           }}
                         >
                           <Plus className="h-4 w-4" />
@@ -2325,16 +2346,21 @@ function WorkspacePageInner() {
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                       onClick={() => {
-                        setMenuOpen(false);
+                        closeWorkspaceMenu();
                         if (blockIfOffline("Staff training")) return;
-                        router.push(`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+                        const trainingHref = `/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`;
+                        if (isCapacitorNativeApp()) {
+                          hardNavigate(trainingHref);
+                        } else {
+                          router.push(trainingHref);
+                        }
                       }}
                     >
                       <GraduationCap className="h-4 w-4" />
                       Staff training
                     </button>
 
-                    <WorkspaceAndroidAppMenuItem onNavigate={() => setMenuOpen(false)} />
+                    <WorkspaceAndroidAppMenuItem onNavigate={closeWorkspaceMenu} />
 
                     <div className="px-3 py-2">
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
@@ -2358,7 +2384,7 @@ function WorkspacePageInner() {
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                       onClick={() => {
-                        setMenuOpen(false);
+                        closeWorkspaceMenu();
                         if (blockIfOffline("Prepare offline mode")) return;
                         setConfirmOfflineOpen(true);
                       }}
@@ -2414,8 +2440,10 @@ function WorkspacePageInner() {
                       {loggingOut ? "Signing out…" : "Log out"}
                     </button>
                   </div>
-                </>
-              ) : null}
+                </>,
+                document.body
+              )
+              : null}
             </div>
           </div>
         </div>
@@ -2483,7 +2511,7 @@ function WorkspacePageInner() {
         ) : null}
 
         {isAdminView ? (
-          <section className="ws-panel mb-4 overflow-hidden">
+          <section className="ws-panel relative z-0 mb-4 overflow-hidden">
             <div className="ws-admin-hero relative overflow-hidden border-b border-[color-mix(in_srgb,var(--hse-teal)_12%,transparent)] px-4 py-5 sm:px-5 sm:py-6">
               <div
                 className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,61,51,0.08),transparent_50%)]"

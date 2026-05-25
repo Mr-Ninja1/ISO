@@ -15,6 +15,7 @@ import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
 import { NativeUpdateGate } from '@/components/NativeUpdateGate';
 import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
+import { NativeOtaStatusBar } from '@/components/NativeOtaStatusBar';
 import { OtaBundleRecovery } from '@/components/OtaBundleRecovery';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
 import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
@@ -71,6 +72,7 @@ export default function RootLayout({
         <ThemeBootstrap />
         <WebShellCleanup />
         <InternetStatusBar />
+        <NativeOtaStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
           <CapacitorStylesGuard />
