@@ -172,7 +172,7 @@ export function LiveUpdateBootstrap() {
 
     const startCheck = window.setTimeout(() => {
       if (!wasOtaReloadRecent()) void checkForUpdate();
-    }, wasOtaReloadRecent() ? 12_000 : 2500);
+    }, wasOtaReloadRecent() ? 20_000 : 2500);
 
     const timer = window.setInterval(() => void checkForUpdate(), 2 * 60 * 60 * 1000);
 

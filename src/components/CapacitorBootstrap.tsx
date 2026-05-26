@@ -6,11 +6,13 @@ import { recoverCapacitorWebViewIfStrayed } from "@/lib/capacitor/openExternalUr
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { setNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
-import { runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
+import { isNativeEntryShellPath, runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
+import { shouldSkipReactNativeEntryRedirect } from "@/lib/capacitor/nativeBootCoordinator";
 import { signalLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
 import { initReachabilityMonitor } from "@/lib/client/reachability";
 
 function runNativeBoot() {
+  if (shouldSkipReactNativeEntryRedirect()) return;
   if (isNativeUpdateRequiredFromCache(parseNativeBuild())) {
     setNativeUpdateBlocked(true);
     return;
@@ -18,15 +20,10 @@ function runNativeBoot() {
   runNativeEntryRedirectIfNeeded();
 }
 
-function scheduleNativeBoot() {
-  runNativeBoot();
-}
-
 if (typeof window !== "undefined" && isCapacitorNativeApp()) {
   markCapacitorShell();
   recoverCapacitorWebViewIfStrayed();
   void signalLiveUpdateReady();
-  scheduleNativeBoot();
 }
 
 /** Marks embedded Capacitor sessions so auth/offline helpers use the mobile code paths. */
@@ -45,15 +42,19 @@ export function CapacitorBootstrap() {
     }
 
     void signalLiveUpdateReady();
-    scheduleNativeBoot();
 
-    const retryDelays = [300, 900, 2000];
-    const timers = retryDelays.map((delay) => window.setTimeout(scheduleNativeBoot, delay));
+    if (!shouldSkipReactNativeEntryRedirect() && isNativeEntryShellPath()) {
+      runNativeBoot();
+      const fallback = window.setTimeout(() => {
+        if (isNativeEntryShellPath()) runNativeEntryRedirectIfNeeded();
+      }, 1200);
+      return () => {
+        window.clearTimeout(fallback);
+        stopReachability();
+      };
+    }
 
-    return () => {
-      timers.forEach((id) => window.clearTimeout(id));
-      stopReachability();
-    };
+    return stopReachability;
   }, []);
 
   return null;

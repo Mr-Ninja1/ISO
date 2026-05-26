@@ -7,14 +7,17 @@ import {
   resolvePostAuthDestination,
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
-import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
+import {
+  markNativeBootExitComplete,
+  markOtaEntryNavigationAttempted,
+  shouldSkipReactNativeEntryRedirect,
+} from "@/lib/capacitor/nativeBootCoordinator";
 import { clearOtaReloadMarker, wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
-import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 const REDIRECT_TS_KEY = "iso-native-hard-nav-at:v1";
-const REDIRECT_MIN_GAP_MS = 6000;
+const REDIRECT_MIN_GAP_MS = 8000;
 
 let redirectInFlight = false;
 let bootRedirectDone = false;
@@ -27,7 +30,7 @@ export function isNativeEntryShellPath(): boolean {
 
 function entryNavigationBlocked(): boolean {
   if (!isCapacitorNativeApp()) return true;
-  // Only block when the visible APK gate is active — cache-only min-build must not freeze `/`.
+  if (shouldSkipReactNativeEntryRedirect()) return true;
   return isNativeUpdateBlocked();
 }
 
@@ -53,7 +56,6 @@ export function clearNativeRedirectThrottle() {
 }
 
 function recentRedirectBlocked(): boolean {
-  if (wasOtaReloadRecent(120_000)) return false;
   try {
     const last = Number(sessionStorage.getItem(REDIRECT_TS_KEY) || "0");
     return Date.now() - last < REDIRECT_MIN_GAP_MS;
@@ -88,16 +90,17 @@ function markBootCompleteIfLeftHome() {
     redirectInFlight = false;
     if (!isNativeEntryShellPath()) {
       bootRedirectDone = true;
+      markNativeBootExitComplete();
       clearOtaReloadMarker();
     } else {
       bootRedirectDone = false;
     }
-  }, 600);
+  }, 800);
 }
 
 /**
  * One coordinated redirect from `/` after OTA or cold start.
- * Does not wait on LiveUpdate.ready() — that runs in parallel.
+ * Post-OTA: at most one React-side attempt (pre-React script is primary).
  */
 export function runNativeEntryRedirectIfNeeded(options?: { force?: boolean }): boolean {
   if (entryNavigationBlocked()) return false;
@@ -109,8 +112,13 @@ export function runNativeEntryRedirectIfNeeded(options?: { force?: boolean }): b
   const current = `${window.location.pathname}${window.location.search}`;
   if (hrefsMatch(current, dest)) {
     bootRedirectDone = true;
+    markNativeBootExitComplete();
     clearOtaReloadMarker();
     return false;
+  }
+
+  if (wasOtaReloadRecent(180_000)) {
+    markOtaEntryNavigationAttempted();
   }
 
   redirectInFlight = true;
@@ -121,9 +129,10 @@ export function runNativeEntryRedirectIfNeeded(options?: { force?: boolean }): b
   return true;
 }
 
-/** Hard exit from `/` when soft router navigation did not leave the loading shell. */
+/** Hard exit from `/` when still on home after pre-React redirect failed. */
 export function forceNativeEntryExit(): void {
   if (entryNavigationBlocked() || !isNativeEntryShellPath()) return;
+  if (wasOtaReloadRecent(180_000) && redirectInFlight) return;
   bootRedirectDone = false;
   redirectInFlight = false;
   runNativeEntryRedirectIfNeeded({ force: true });

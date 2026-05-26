@@ -9,7 +9,7 @@ import {
   resolveNativeEntryDestination,
   runNativeEntryRedirectIfNeeded,
 } from "@/lib/capacitor/nativeEntryNavigation";
-import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
+import { isNativePostOtaSettlePhase } from "@/lib/capacitor/nativeBootCoordinator";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 
@@ -43,7 +43,7 @@ function pageLooksBlank() {
 }
 
 function tryRecover(reason: string) {
-  if (wasOtaReloadRecent(60_000)) return;
+  if (isNativePostOtaSettlePhase()) return;
   if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
 
   let last = 0;

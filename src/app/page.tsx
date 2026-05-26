@@ -9,19 +9,15 @@ import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
+import { shouldSkipReactNativeEntryRedirect } from "@/lib/capacitor/nativeBootCoordinator";
 import {
   hardNavigate,
-  hardNavigateAbsolute,
   navigateToPostAuthEntry,
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
-import {
-  forceNativeEntryExit,
-  isNativeEntryShellPath,
-  runNativeEntryRedirectIfNeeded,
-} from "@/lib/capacitor/nativeEntryNavigation";
+import { isNativeEntryShellPath, runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
 
-const ENTRY_FAILSAFE_MS = 2500;
+const ENTRY_FAILSAFE_MS = 4000;
 
 export default function Home() {
   const router = useRouter();
@@ -42,9 +38,8 @@ export default function Home() {
       return;
     }
 
-    const dest = resolveQuickEntryDestination() || "/login";
+    if (shouldSkipReactNativeEntryRedirect()) return;
     runNativeEntryRedirectIfNeeded();
-    hardNavigateAbsolute(dest);
   }, []);
 
   useEffect(() => {
@@ -56,19 +51,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
+    if (shouldSkipReactNativeEntryRedirect()) return;
 
-    const dest = resolveQuickEntryDestination() || "/login";
+    const timer = window.setTimeout(() => {
+      if (!isNativeEntryShellPath()) return;
+      runNativeEntryRedirectIfNeeded();
+    }, ENTRY_FAILSAFE_MS);
 
-    runNativeEntryRedirectIfNeeded();
-    const timers = [600, 1500, ENTRY_FAILSAFE_MS].map((delay) =>
-      window.setTimeout(() => {
-        if (!isNativeEntryShellPath()) return;
-        hardNavigateAbsolute(dest);
-        forceNativeEntryExit();
-      }, delay)
-    );
-
-    return () => timers.forEach((id) => window.clearTimeout(id));
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {

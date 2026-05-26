@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { readAppliedBundleId, OTA_BUNDLE_STORAGE_KEY } from "@/lib/capacitor/liveUpdateClient";
 import { isNativeEntryShellPath } from "@/lib/capacitor/nativeEntryNavigation";
+import { isNativePostOtaSettlePhase } from "@/lib/capacitor/nativeBootCoordinator";
 import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 
 const STUCK_MARK = "iso-ota-stuck-since:v1";
@@ -20,6 +21,7 @@ export function OtaBundleRecovery() {
     if (!readAppliedBundleId()) return;
 
     const tick = window.setInterval(() => {
+      if (isNativePostOtaSettlePhase()) return;
       if (wasOtaReloadRecent(180_000)) return;
 
       if (!isNativeEntryShellPath()) {

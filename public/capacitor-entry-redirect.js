@@ -1,8 +1,10 @@
 /**
- * Leave `/` before React hydrates — fixes stuck "Opening your workspace" after OTA.
- * Loaded synchronously in Capacitor builds only (see root layout).
+ * Single pre-React redirect off `/` after OTA/cold start.
+ * Prevents reload loops between "Starting ISO Pro" and "Preparing the app…".
  */
 (function () {
+  var ATTEMPT_KEY = "iso-native-ota-nav-attempted:v1";
+
   function isNativeShell() {
     try {
       if (localStorage.getItem("__ISO_MOBILE_SHELL__") === "1") return true;
@@ -29,8 +31,14 @@
     return path || "/";
   }
 
-  var path = normalizePath(location.pathname);
-  if (path !== "/") return;
+  if (normalizePath(location.pathname) !== "/") return;
+
+  try {
+    if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return;
+    sessionStorage.setItem(ATTEMPT_KEY, "1");
+  } catch (e) {
+    /* continue */
+  }
 
   function hasPersistedAuth() {
     try {
@@ -58,11 +66,6 @@
     }
   }
 
-  function withTrailingSlash(route) {
-    if (route === "/") return "/";
-    return route.endsWith("/") ? route : route + "/";
-  }
-
   var dest;
   if (!hasPersistedAuth()) {
     dest = "/login/";
@@ -75,8 +78,7 @@
 
   try {
     var target = new URL(dest, location.origin).href;
-    var current = location.href.split("#")[0];
-    if (current !== target) {
+    if (location.href.split("#")[0] !== target) {
       location.replace(target);
     }
   } catch (e) {
