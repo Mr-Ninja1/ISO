@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthStatusCard } from "@/components/AuthStatusCard";
 import { createClient } from "@/lib/auth";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export default function EmailVerifiedPage() {
   const [status, setStatus] = useState<"loading" | "verified" | "invalid">("loading");
@@ -58,7 +59,7 @@ export default function EmailVerifiedPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
+      eyebrow={PRODUCT_NAME}
       title="Email verification"
       subtitle="Confirm your address to activate your HSE workspace account."
       formTitle="Verification"
@@ -78,7 +79,7 @@ export default function EmailVerifiedPage() {
         <div className="space-y-5">
           <AuthStatusCard variant="success" title="Your email is verified" icon="success">
             <p>
-              Your ISO Pro account is active. Sign in with the email and password you used when you
+              Your {PRODUCT_NAME} account is active. Sign in with the email and password you used when you
               registered.
             </p>
           </AuthStatusCard>
@@ -96,7 +97,7 @@ export default function EmailVerifiedPage() {
           <AuthStatusCard variant="warning" title="We could not confirm this link" icon="shield">
             <p>
               The link may have expired or already been used. Request a new verification email, then
-              open the latest message from ISO Pro.
+              open the latest message from {PRODUCT_NAME}.
             </p>
           </AuthStatusCard>
           <Link

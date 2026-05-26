@@ -1,9 +1,9 @@
-const DEFAULT_SITE_ORIGIN = "https://isopro.me";
+import { getConfiguredSiteOrigin } from "@/lib/siteOrigin";
 
 /** Browser origin for Supabase email redirect URLs. */
 export function authSiteOrigin(): string {
   if (typeof window !== "undefined") return window.location.origin;
-  return (process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_SITE_ORIGIN).replace(/\/$/, "");
+  return getConfiguredSiteOrigin();
 }
 
 export function emailVerificationRedirectUrl(): string {

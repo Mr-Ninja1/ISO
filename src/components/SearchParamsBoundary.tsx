@@ -6,6 +6,7 @@ import { RouteLoadingFallback } from "@/components/SuspenseFallback";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
 import { normalizeAppPathname } from "@/lib/client/appEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { startingAppTitle } from "@/lib/branding";
 
 type Props = {
   children: ReactNode;
@@ -47,7 +48,7 @@ function resolveLoadingFallback(fullScreen: boolean, pathname: string | null) {
   if (fullScreen && (normalized === "/" || path === "")) {
     return (
       <WorkspaceLoadingShell
-        title="Starting ISO Pro"
+        title={startingAppTitle()}
         subtitle="Opening your workspace…"
       />
     );

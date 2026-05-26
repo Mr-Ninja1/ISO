@@ -1,6 +1,6 @@
 /**
  * Single pre-React redirect off `/` after OTA/cold start.
- * Prevents reload loops between "Starting ISO Pro" and "Preparing the app…".
+ * Prevents reload loops between "Starting ISO Grid" and "Preparing the app…".
  */
 (function () {
   var ATTEMPT_KEY = "iso-native-ota-nav-attempted:v1";

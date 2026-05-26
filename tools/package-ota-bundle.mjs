@@ -3,7 +3,7 @@
  * Zip the Capacitor `out/` folder and write an OTA manifest for self-hosted live updates.
  *
  * Usage (after npm run build:capacitor):
- *   OTA_BUNDLE_ID=20260520.2 OTA_PUBLIC_BASE_URL=https://isopro.me/ota/production npm run package:ota
+ *   OTA_BUNDLE_ID=20260520.2 OTA_PUBLIC_BASE_URL=https://your-host/ota/production npm run package:ota
  *
  * Upload ota-dist/production/* to your CDN/host, then set platform_settings.live_update_bundle_url
  * to the manifest URL in Supabase or the developer console.

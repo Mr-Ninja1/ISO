@@ -1,6 +1,9 @@
-package com.isopro.app;
+package com.isogrid.app;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -22,7 +25,22 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    ensureDefaultNotificationChannel();
     registerInAppBackNavigation();
+  }
+
+  private void ensureDefaultNotificationChannel() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+    NotificationChannel channel = new NotificationChannel(
+      "iso_grid_default",
+      "ISO Grid",
+      NotificationManager.IMPORTANCE_DEFAULT
+    );
+    channel.setDescription("Messages, alerts, and app updates");
+    NotificationManager manager = getSystemService(NotificationManager.class);
+    if (manager != null) {
+      manager.createNotificationChannel(channel);
+    }
   }
 
   /**

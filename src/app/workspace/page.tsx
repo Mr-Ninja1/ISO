@@ -11,6 +11,7 @@ import { hardNavigate } from "@/lib/client/appEntryNavigation";
 import { usePlatformDeveloperRedirect } from "@/lib/client/usePlatformDeveloperRedirect";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { PRODUCT_NAME } from "@/lib/branding";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { pushTenantRoute, tenantRouteHref } from "@/lib/client/tenantNavigation";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
@@ -2247,7 +2248,7 @@ function WorkspacePageInner() {
                 <h1 className="truncate text-base font-semibold text-foreground">{tenant.name}</h1>
               </div>
               <p className="hidden text-sm text-[var(--hse-teal-mid)] sm:block">
-                {isAdminView ? "HSE management · ISO Pro" : "Field inspections · ISO Pro"}
+                {isAdminView ? `HSE management · ${PRODUCT_NAME}` : `Field inspections · ${PRODUCT_NAME}`}
               </p>
             </div>
           </div>

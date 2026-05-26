@@ -1,7 +1,7 @@
 #!/usr/bin node
 /**
  * Copy the latest OTA bundle from ota-dist/ into public/ota/ for deployment with the Next.js site.
- * Zips are gitignored; manifest.json is committed so deploys can serve it from isopro.me.
+ * Zips are gitignored; manifest.json is committed so deploys can serve it from your hosted origin.
  */
 import fs from "node:fs";
 import path from "node:path";

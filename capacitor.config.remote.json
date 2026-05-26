@@ -1,11 +1,14 @@
 {
-  "appId": "com.isopro.app",
-  "appName": "ISO Pro",
+  "appId": "com.isogrid.app",
+  "appName": "ISO Grid",
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
     "cleartext": false,
-    "url": "https://isopro.me/",
-    "allowNavigation": ["isopro.me", "*.isopro.me"]
+    "url": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/",
+    "allowNavigation": [
+      "iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net",
+      "*.azurewebsites.net"
+    ]
   }
 }

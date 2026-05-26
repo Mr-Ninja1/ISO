@@ -1,6 +1,7 @@
 "use client";
 
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { getConfiguredSiteOrigin } from "@/lib/siteOrigin";
 
 function trimTrailingSlash(value: string) {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -11,10 +12,11 @@ export function getApiBaseUrl() {
     return window.location.origin;
   }
 
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const configured =
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (configured) return trimTrailingSlash(configured);
   if (typeof window !== "undefined") return window.location.origin;
-  return "";
+  return getConfiguredSiteOrigin();
 }
 
 export function apiUrl(pathname: string) {

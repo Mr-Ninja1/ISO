@@ -5,6 +5,7 @@ import { Inbox, Loader2 } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { apiUrl } from "@/lib/client/apiBase";
 import { appendTenantAlertsClientParams } from "@/lib/platformAudience";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export type DeveloperAlert = {
   id: string;
@@ -137,7 +138,7 @@ export function DeveloperWorkspaceInbox({ tenantSlug, accessToken, onTenantDeact
       <button
         type="button"
         className="relative inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 bg-background px-2.5 text-sm font-medium text-foreground hover:bg-foreground/5"
-        title="Messages from ISO Pro"
+        title={`Messages from ${PRODUCT_NAME}`}
         aria-label="Developer messages inbox"
         onClick={() => {
           setOpen(true);

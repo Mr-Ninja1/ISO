@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "333323334683",
+    "project_id": "isogrid-861f8",
+    "storage_bucket": "isogrid-861f8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:333323334683:android:6a6117d4008677ed4b34be",
+        "android_client_info": {
+          "package_name": "com.isogrid.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBn4RSHNrLel9HPO1STOSyKkSBkVAIJHTA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

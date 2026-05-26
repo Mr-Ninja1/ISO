@@ -14,6 +14,7 @@ const withPWA = nextPWA({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  serverExternalPackages: ["firebase-admin"],
   output: isCapacitorBuild ? "export" : "standalone",
   trailingSlash: isCapacitorBuild ? true : undefined,
   images: isCapacitorBuild ? { unoptimized: true } : undefined,

@@ -42,7 +42,7 @@ When shipping a **new APK**, bump the build number baked into the bundle:
 
 ```powershell
 $env:NEXT_PUBLIC_NATIVE_BUILD="2"
-$env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
+$env:NEXT_PUBLIC_API_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net"
 npm run build:capacitor
 ```
 
@@ -60,7 +60,7 @@ Run migration `20260520143000_global_announcements_platform_settings.sql` if not
 
 Push to `main`. GitHub Actions (`main_iso-pro.yml`) runs `npm run release:ota:ci`, then builds the site and deploys `public/ota/production/` (manifest + zip) to Azure. Bundle id: `ci.<github.run_number>`.
 
-You only need Supabase/console to point `live_update_bundle_url` at `https://isopro.me/ota/production/manifest.json` once.
+You only need Supabase/console to point `live_update_bundle_url` at `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json` once.
 
 ### Local / manual (optional)
 
@@ -68,7 +68,7 @@ You only need Supabase/console to point `live_update_bundle_url` at `https://iso
 
 ```powershell
 cd web
-$env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
+$env:NEXT_PUBLIC_API_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net"
 $env:NEXT_PUBLIC_NATIVE_BUILD="2"   # match your current APK
 npm run build:capacitor
 ```
@@ -78,7 +78,7 @@ npm run build:capacitor
 ```powershell
 $env:OTA_BUNDLE_ID="20260520.1"
 $env:OTA_CHANNEL="production"
-$env:OTA_PUBLIC_BASE_URL="https://isopro.me/ota/production"
+$env:OTA_PUBLIC_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production"
 $env:OTA_MIN_NATIVE_BUILD="2"
 $env:OTA_RELEASE_NOTES="Fix inbox mark-read and report loading"
 npm run package:ota
@@ -86,7 +86,7 @@ npm run package:ota
 
 Output: `web/ota-dist/production/manifest.json` and `bundle-20260520.1.zip`.
 
-### Step 3 — Publish to your site (isopro.me)
+### Step 3 — Publish to your site (iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net)
 
 ```powershell
 npm run publish:ota:public
@@ -96,8 +96,8 @@ This copies files into `public/ota/production/` so they deploy with your Next.js
 
 Then deploy the web app (Vercel/hosting push) so these URLs work:
 
-- `https://isopro.me/ota/production/manifest.json`
-- `https://isopro.me/ota/production/bundle-20260520.1.zip`
+- `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json`
+- `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260520.1.zip`
 
 **Or** upload `ota-dist/production/*` manually to any HTTPS static host.
 
@@ -105,7 +105,7 @@ Then deploy the web app (Vercel/hosting push) so these URLs work:
 
 **Developer console** → **Live update controls** → set:
 
-- **Manifest URL**: `https://isopro.me/ota/production/manifest.json`
+- **Manifest URL**: `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json`
 - **OTA channel**: `production`
 - **Minimum native build**: `2` (lowest APK build allowed to use OTA)
 
@@ -114,7 +114,7 @@ Or run `supabase/ops/seed_ota_platform_settings.sql` in Supabase SQL editor.
 ```sql
 UPDATE public.platform_settings
 SET
-  live_update_bundle_url = 'https://isopro.me/ota/production/manifest.json',
+  live_update_bundle_url = 'https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json',
   live_update_channel = 'production',
   min_native_build = 2,
   updated_at = now()
@@ -137,7 +137,7 @@ WHERE id = 'default';
   "version": "20260520.1",
   "channel": "production",
   "minNativeBuild": 2,
-  "bundleUrl": "https://isopro.me/ota/production/bundle-20260520.1.zip",
+  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260520.1.zip",
   "publishedAt": "2026-05-20T14:00:00.000Z",
   "releaseNotes": "Optional text shown in the restart prompt"
 }
@@ -161,7 +161,7 @@ WHERE id = 'default';
 
 ## What you can do to help
 
-1. **Pick OTA hosting** — e.g. `https://isopro.me/ota/production/` (folder on your site).
+1. **Pick OTA hosting** — e.g. `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/` (folder on your site).
 2. **Rebuild APK once** with the Live Update plugin (`npm install`, `cap sync`, Android Studio build).
 3. **Tell us your production URL** so `OTA_PUBLIC_BASE_URL` matches.
 4. **Run a test OTA** — build, package, upload, set manifest URL in admin console, confirm restart prompt on a phone.

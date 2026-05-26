@@ -11,6 +11,7 @@ import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
 import { AndroidApkDownloadTrigger } from "@/components/AndroidApkDownloadTrigger";
 import { useAndroidMobileWebInstall } from "@/hooks/useAndroidMobileWebInstall";
 import { useInstalledNativeShell } from "@/hooks/useInstalledNativeShell";
+import { PRODUCT_NAME, downloadAndroidLabel, newToProductLabel } from "@/lib/branding";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -74,7 +75,7 @@ export default function LoginPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
+      eyebrow={PRODUCT_NAME}
       onEyebrowClick={handleSecureAccessClick}
       eyebrowTitle={secureAccessClicks > 0 ? `${6 - secureAccessClicks} clicks left` : "Developer access"}
       title="HSE management for your organisation"
@@ -82,7 +83,7 @@ export default function LoginPage() {
       brandBadge={<AuthHsePlatformBadge />}
       formTitle="Sign in"
       formSubtitle="Access your HSE workspace"
-      footerText="New to ISO Pro?"
+      footerText={newToProductLabel()}
       footerHref="/signup"
       footerLabel="Create an account"
     >
@@ -165,7 +166,7 @@ export default function LoginPage() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[var(--hse-teal)] bg-transparent px-4 py-2.5 text-sm font-semibold text-[var(--hse-teal)] transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] focus:outline-none focus:ring-2 focus:ring-[var(--hse-teal)] focus:ring-offset-2"
             >
               <Download className="h-4 w-4" />
-              Download ISO Pro for Android
+              {downloadAndroidLabel()}
             </AndroidApkDownloadTrigger>
           </div>
         ) : null}

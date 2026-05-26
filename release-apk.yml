@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Capacitor static bundle
         env:
-          NEXT_PUBLIC_API_BASE_URL: https://isopro.me
+          NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
           NEXT_PUBLIC_NATIVE_BUILD: ${{ github.event.inputs.native_build }}
           CI: true
         run: node tools/capacitor-build.mjs
@@ -72,14 +72,14 @@ jobs:
       - name: Copy APK to dist
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk dist/iso-pro.apk
-          ls -lh dist/iso-pro.apk
+          cp android/app/build/outputs/apk/release/app-release.apk dist/iso-grid.apk
+          ls -lh dist/iso-grid.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.0-build${{ github.event.inputs.native_build }}
-          name: ISO Pro Android v1.0 (build ${{ github.event.inputs.native_build }})
+          name: ISO Grid Android v1.0 (build ${{ github.event.inputs.native_build }})
           body: |
             ## Release APK v1.0 Build ${{ github.event.inputs.native_build }}
             
@@ -90,19 +90,19 @@ jobs:
             - Enhanced cross-browser compatibility
             
             **Installation:**
-            1. Download `iso-pro.apk`
+            1. Download `iso-grid.apk`
             2. Enable "Unknown Sources" in Settings > Security
             3. Tap the APK file to install
             
             **Build Info:**
             - Native Build: ${{ github.event.inputs.native_build }}
-            - API Base: https://isopro.me
+            - API Base: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
             - Date: ${{ github.event.actor }} on ${{ runner.os }}
             
             **Note:** Update admin config with:
             - min_native_build: ${{ github.event.inputs.native_build }}
             - latest_apk_url: [APK download link]
-          files: dist/iso-pro.apk
+          files: dist/iso-grid.apk
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -110,6 +110,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iso-pro-apk-build${{ github.event.inputs.native_build }}
-          path: dist/iso-pro.apk
+          name: iso-grid-apk-build${{ github.event.inputs.native_build }}
+          path: dist/iso-grid.apk
           retention-days: 30

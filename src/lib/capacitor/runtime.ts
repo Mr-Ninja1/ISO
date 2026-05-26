@@ -49,7 +49,7 @@ export function isCapacitorNativeApp(): boolean {
   return isInstalledNativeShell();
 }
 
-/** Clears a mistaken shell flag left by older web sign-in code (caused redirect flicker on isopro.me). */
+/** Clears a mistaken shell flag left by older web sign-in code (caused redirect flicker on the hosted site). */
 export function clearStaleCapacitorShellMarkerIfWeb() {
   if (typeof window === "undefined") return;
   if (isCapacitorNativeApp()) return;

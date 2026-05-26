@@ -1,4 +1,4 @@
-# Native app update guide (ISO Pro / Capacitor)
+# Native app update guide (ISO Grid / Capacitor)
 
 This guide explains **two ways** users get updates, when you must ship a **new APK**, and how the **admin console** settings connect to the **Download APK** button in the app.
 
@@ -60,7 +60,7 @@ Open **Developer / Admin** → **Native app & OTA** (`PlatformOtaPanel`).
 Optional env fallback (Azure / `.env`):
 
 ```env
-NEXT_PUBLIC_ANDROID_APK_URL=https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-pro.apk
+NEXT_PUBLIC_ANDROID_APK_URL=https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-grid.apk
 ```
 
 Prefer the **admin console URL** so you can change the release link **without redeploying the website**.
@@ -78,7 +78,7 @@ Each new APK must have a **higher** `NEXT_PUBLIC_NATIVE_BUILD` than the previous
 ```powershell
 cd web
 $env:NEXT_PUBLIC_NATIVE_BUILD="5"
-$env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
+$env:NEXT_PUBLIC_API_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net"
 ```
 
 **GitHub Actions** (`android-apk-release.yml` / `main_iso-pro.yml`) often sets this from `github.run_number` — keep that consistent so CI build numbers always increase.
@@ -92,26 +92,26 @@ npm run package:apk
 Outputs:
 
 - `android/app/build/outputs/apk/release/app-release.apk`
-- `web/dist/iso-pro.apk` (copy for upload)
+- `web/dist/iso-grid.apk` (copy for upload)
 
 Or: `npm run build:capacitor` then Android Studio → **Build → Generate Signed Bundle / APK**.
 
 ### 3. Publish to GitHub Releases
 
 1. Create a release on `Mr-Ninja1/ISO` (tag e.g. `v1.0.5`).
-2. Attach **`iso-pro.apk`** (or rename asset consistently).
+2. Attach **`iso-grid.apk`** (or rename asset consistently).
 3. Copy the **direct HTTPS download** link to the `.apk` file.
 
 Example pattern:
 
 ```text
-https://github.com/Mr-Ninja1/ISO/releases/download/v1.0.5/iso-pro.apk
+https://github.com/Mr-Ninja1/ISO/releases/download/v1.0.5/iso-grid.apk
 ```
 
 Or “latest” redirect (if you always upload the same asset name):
 
 ```text
-https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-pro.apk
+https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-grid.apk
 ```
 
 ### 4. Update admin console (no website deploy required)
@@ -130,7 +130,7 @@ https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-pro.apk
 ## Releasing an OTA-only update (no new APK)
 
 1. Deploy web/OTA (push `main` or `npm run release:ota`).
-2. Ensure **Manifest URL** in admin points at `https://isopro.me/ota/production/manifest.json` (or your host).
+2. Ensure **Manifest URL** in admin points at `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json` (or your host).
 3. Do **not** raise **Minimum native build** unless you also shipped a new APK.
 4. Optional: native-only broadcast — “Close the app and reopen” / “Restart when prompted”.
 

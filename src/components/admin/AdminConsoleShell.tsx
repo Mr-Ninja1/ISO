@@ -11,6 +11,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 type NavItem = {
   href: string;
@@ -73,7 +74,7 @@ export function AdminConsoleShell({
         <div className="admin-console-sidebar-brand">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/80">
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-            ISO Pro
+            {PRODUCT_NAME}
           </div>
           <h1 className="mt-4 text-lg font-semibold tracking-tight text-white">Developer console</h1>
           <p className="mt-1 text-xs leading-relaxed text-white/65">

@@ -12,7 +12,7 @@ const STUCK_MIN_MS = 45_000;
 
 /**
  * Last-resort rollback when the WebView is truly blank on `/` after an OTA apply.
- * Does not react to intentional loading shells ("Starting ISO Pro", etc.) — those
+ * Does not react to intentional loading shells ("Starting ISO Grid", etc.) — those
  * were causing reload loops with entry redirect + recovery.
  */
 export function OtaBundleRecovery() {

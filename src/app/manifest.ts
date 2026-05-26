@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ISO Pro",
-    short_name: "ISO Pro",
+    name: PRODUCT_NAME,
+    short_name: PRODUCT_NAME,
     description: "Offline-capable compliance platform for ISO-led operations.",
     id: "/workspace",
     start_url: "/workspace",

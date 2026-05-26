@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { dispatchTenantAnnouncementPush } from "@/lib/push/dispatch";
+import { normalizeAnnouncementAudience } from "@/lib/platformAudience";
+import { dispatchGlobalBroadcastPush } from "@/lib/push/dispatch";
 import { isFcmConfigured } from "@/lib/push/fcm";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { requirePlatformDeveloper } from "@/lib/platformDevelopers";
@@ -10,12 +11,10 @@ function getBearerToken(req: Request) {
   return match?.[1] || null;
 }
 
-export async function POST(req: Request, { params }: { params: Promise<{ tenantId: string }> }) {
+export async function POST(req: Request) {
   try {
-    const { tenantId } = await params;
     const token = getBearerToken(req);
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!tenantId) return NextResponse.json({ error: "Missing tenant id" }, { status: 400 });
 
     const adminUser = await requirePlatformDeveloper(token);
     const svc = createServiceRoleSupabase();
@@ -25,62 +24,56 @@ export async function POST(req: Request, { params }: { params: Promise<{ tenantI
       title?: string;
       message?: string;
       delivery?: string;
+      audience?: string;
     };
+
     const title = String(body.title || "").trim();
     const message = String(body.message || "").trim();
     const deliveryRaw = String(body.delivery || "modal").trim().toLowerCase();
     const delivery = deliveryRaw === "inbox" || deliveryRaw === "toast" ? deliveryRaw : "modal";
+    const audience = normalizeAnnouncementAudience(body.audience);
+
     if (!title || !message) {
       return NextResponse.json({ error: "Title and message are required" }, { status: 400 });
     }
 
-    const { data: alert, error } = await svc
-      .from("tenant_announcements")
+    const { data: announcement, error } = await svc
+      .from("global_announcements")
       .insert({
-        tenant_id: tenantId,
         title,
         message,
         created_by_email: adminUser?.email || null,
         is_active: true,
         delivery,
+        audience,
       })
-      .select("id,tenant_id,title,message,created_at,is_active")
+      .select("id,title,message,created_at,audience,delivery")
       .single();
 
-    if (error || !alert) {
-      return NextResponse.json({ error: error?.message || "Failed to create alert" }, { status: 500 });
+    if (error || !announcement) {
+      return NextResponse.json({ error: error?.message || "Failed to create broadcast" }, { status: 500 });
     }
 
     await svc.from("activity_logs").insert({
-      tenant_id: tenantId,
       user_id: adminUser?.id,
-      action: "brand.message.send",
-      entity_type: "tenant_announcement",
-      entity_id: alert.id,
-      details: {
-        title,
-        message,
-        createdBy: adminUser?.email || null,
-      },
+      action: "platform.broadcast.send",
+      entity_type: "global_announcement",
+      entity_id: announcement.id,
+      details: { title, message, audience, delivery },
     });
-
-    const { data: tenantRow } = await svc.from("tenants").select("slug").eq("id", tenantId).maybeSingle();
-    const tenantSlug = tenantRow ? String((tenantRow as { slug: string }).slug) : "";
 
     let pushResult: { sent: number; invalidRemoved?: number; skipped?: string } = {
       sent: 0,
       skipped: "fcm_not_configured",
     };
-    if (isFcmConfigured() && tenantSlug) {
-      pushResult = await dispatchTenantAnnouncementPush({
-        tenantId,
-        tenantSlug,
-        title,
-        message,
-      });
+    if (isFcmConfigured()) {
+      pushResult = await dispatchGlobalBroadcastPush({ title, message, audience });
     }
 
-    return NextResponse.json({ alert, push: pushResult });
+    return NextResponse.json({
+      announcement,
+      push: pushResult,
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";
     const status = typeof (error as { status?: number }).status === "number" ? (error as { status?: number }).status! : 500;

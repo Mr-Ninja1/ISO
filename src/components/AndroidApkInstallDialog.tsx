@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Download, ShieldCheck, Smartphone, X } from "lucide-react";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 type Props = {
   open: boolean;
@@ -49,7 +50,7 @@ export function AndroidApkInstallDialog({ open, apkUrl, onClose }: Props) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--hse-teal-mid)]">
-                Official ISO Pro app
+                Official {PRODUCT_NAME} app
               </p>
               <h2 id="apk-install-dialog-title" className="text-lg font-semibold text-[var(--hse-charcoal)]">
                 Install on Android
@@ -70,7 +71,7 @@ export function AndroidApkInstallDialog({ open, apkUrl, onClose }: Props) {
           <div className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50/90 p-3 text-emerald-950">
             <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
             <p>
-              <strong className="text-emerald-950">ISO Pro is safe.</strong> This is the official HSE workspace app
+              <strong className="text-emerald-950">{PRODUCT_NAME} is safe.</strong> This is the official HSE workspace app
               from your organisation — not a random file from the internet. We distribute the APK directly so your
               team can work offline in the field.
             </p>
@@ -84,10 +85,10 @@ export function AndroidApkInstallDialog({ open, apkUrl, onClose }: Props) {
 
           <ol className="list-decimal space-y-2 pl-5 text-[var(--hse-charcoal)]">
             <li>Tap <strong>Continue download</strong> below.</li>
-            <li>When the download finishes, open the <strong>iso-pro.apk</strong> file.</li>
+            <li>When the download finishes, open the <strong>downloaded APK</strong> file.</li>
             <li>If asked, allow install from <strong>Chrome</strong> or <strong>Files</strong> (Install unknown apps).</li>
             <li>If Play Protect appears, tap <strong>More details</strong> → <strong>Install anyway</strong>.</li>
-            <li>Open ISO Pro and sign in with your usual account.</li>
+            <li>Open {PRODUCT_NAME} and sign in with your usual account.</li>
           </ol>
         </div>
 

@@ -21,9 +21,10 @@ import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter
 import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
 import { WebShellCleanup } from '@/components/WebShellCleanup';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
+import { PRODUCT_NAME } from '@/lib/branding';
 
 export const metadata: Metadata = {
-  title: 'ISO Pro',
+  title: PRODUCT_NAME,
   description: 'Offline-capable compliance platform for ISO-led service brands and compliance workflows',
   manifest: '/manifest.webmanifest',
   icons: {

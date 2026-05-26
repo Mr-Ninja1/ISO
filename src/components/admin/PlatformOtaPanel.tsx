@@ -208,7 +208,7 @@ export function PlatformOtaPanel() {
                   value={form.latestApkUrl || ""}
                   onChange={(e) => setForm((f) => ({ ...f, latestApkUrl: e.target.value.trim() || null }))}
                   className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-                  placeholder="https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-pro.apk"
+                  placeholder="https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-grid.apk"
                 />
                 <span className="text-xs text-foreground/60">
                   Download button on the mandatory update modal. Env fallback: NEXT_PUBLIC_ANDROID_APK_URL.
@@ -245,7 +245,7 @@ export function PlatformOtaPanel() {
                   value={form.liveUpdateBundleUrl || ""}
                   onChange={(e) => setForm((f) => ({ ...f, liveUpdateBundleUrl: e.target.value.trim() || null }))}
                   className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-                  placeholder="https://isopro.me/ota/production/manifest.json"
+                  placeholder="https://your-app.azurewebsites.net/ota/production/manifest.json"
                 />
                 <span className="text-xs text-foreground/60">
                   Public JSON with bundleId, bundleUrl, channel, and optional minNativeBuild.

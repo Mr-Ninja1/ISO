@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { AuthPageShell } from "@/components/AuthPageShell";
 import { apiUrl } from "@/lib/client/apiBase";
 import { emailVerificationRedirectUrl } from "@/lib/authRedirectUrls";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -65,11 +66,11 @@ export default function SignUpPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
-      title="Create your ISO Pro account"
+      eyebrow={PRODUCT_NAME}
+      title={`Create your ${PRODUCT_NAME} account`}
       subtitle="Set up your organisation, brands, and HSE checklists. Your team can inspect offline from day one."
       formTitle="Create account"
-      formSubtitle="Join ISO Pro"
+      formSubtitle={`Join ${PRODUCT_NAME}`}
       footerText="Already have an account?"
       footerHref="/login"
       footerLabel="Sign in"

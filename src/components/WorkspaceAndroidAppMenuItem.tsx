@@ -5,6 +5,7 @@ import { AndroidApkDownloadTrigger } from "@/components/AndroidApkDownloadTrigge
 import { AndroidIcon } from "@/components/icons/AndroidIcon";
 import { useAndroidMobileWebInstall } from "@/hooks/useAndroidMobileWebInstall";
 import { useInstalledNativeShell } from "@/hooks/useInstalledNativeShell";
+import { PRODUCT_NAME_ANDROID } from "@/lib/branding";
 
 type Props = {
   onNavigate?: () => void;
@@ -29,7 +30,7 @@ export function WorkspaceAndroidAppMenuItem({ onNavigate }: Props) {
           <AndroidIcon className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-semibold text-[var(--hse-charcoal)]">ISO Pro for Android</span>
+          <span className="block font-semibold text-[var(--hse-charcoal)]">{PRODUCT_NAME_ANDROID}</span>
           <span className="block text-[11px] text-[var(--hse-teal-mid)]">Download the app (APK)</span>
         </span>
         <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--hse-teal)] ring-1 ring-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]">

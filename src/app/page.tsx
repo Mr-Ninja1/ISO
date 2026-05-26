@@ -16,6 +16,7 @@ import {
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
 import { isNativeEntryShellPath, runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
+import { startingAppTitle } from "@/lib/branding";
 
 const ENTRY_FAILSAFE_MS = 4000;
 
@@ -90,7 +91,7 @@ export default function Home() {
 
     return (
       <WorkspaceLoadingShell
-        title="Starting ISO Pro"
+        title={startingAppTitle()}
         subtitle={dest === "/login" ? "Taking you to sign in…" : "Opening your workspace…"}
       />
     );
@@ -100,7 +101,7 @@ export default function Home() {
 
   return (
     <WorkspaceLoadingShell
-      title="Starting ISO Pro"
+      title={startingAppTitle()}
       subtitle={goingToLogin ? "Taking you to sign in…" : "Opening your workspace…"}
     />
   );

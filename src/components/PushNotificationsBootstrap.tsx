@@ -1,45 +1,55 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useOptionalAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
-import { attachPushNotificationListeners, isPushNotificationsEnabled } from "@/lib/push/pushNotificationService";
+import {
+  attachPushNotificationListeners,
+  isPushNotificationsEnabled,
+  registerDeviceForPush,
+} from "@/lib/push/pushNotificationService";
 
 /**
- * Prepares push notification listeners when enabled.
- * Registration is triggered from settings once FCM/APNs is configured (see docs/PUSH_NOTIFICATIONS.md).
+ * Native-only: registers FCM token and handles notification tap → in-app route.
  */
 export function PushNotificationsBootstrap() {
   const router = useRouter();
   const auth = useOptionalAuth();
   const accessToken = getWorkspaceAccessToken(auth?.session);
-
-  useEffect(() => {
-    if (!isPushNotificationsEnabled()) return;
-
-    let removeListeners: (() => void) | undefined;
-
-    void attachPushNotificationListeners((deepLink) => {
-      if (!deepLink) return;
-      if (deepLink.startsWith("http")) {
-        window.location.href = deepLink;
-        return;
-      }
-      router.push(deepLink.startsWith("/") ? deepLink : `/${deepLink}`);
-    }).then((remove) => {
-      removeListeners = remove;
-    });
-
-    return () => {
-      removeListeners?.();
-    };
-  }, [router]);
+  const sessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isPushNotificationsEnabled() || !accessToken) return;
-    // Auto-register can be enabled later via settings UI + tenant preference.
-  }, [accessToken]);
+
+    let cancelled = false;
+    let removeListeners: (() => void) | undefined;
+
+    void (async () => {
+      removeListeners = await attachPushNotificationListeners((deepLink) => {
+        if (!deepLink) return;
+        if (deepLink.startsWith("http")) {
+          window.location.href = deepLink;
+          return;
+        }
+        router.push(deepLink.startsWith("/") ? deepLink : `/${deepLink}`);
+      });
+
+      if (cancelled) return;
+      if (sessionRef.current === accessToken) return;
+      sessionRef.current = accessToken;
+
+      const result = await registerDeviceForPush({ accessToken });
+      if (!result.ok && process.env.NODE_ENV !== "production") {
+        console.info("[push] register:", result.error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      removeListeners?.();
+    };
+  }, [accessToken, router]);
 
   return null;
 }

@@ -14,10 +14,44 @@ const apiBackup = path.join(root, "src", "app", "__api_server_only__");
 const outDir = path.join(root, "out");
 const shellSlug = "_";
 
+const DEFAULT_SITE_ORIGIN =
+  "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net";
+
 const apiBase =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
   process.env.CAPACITOR_API_BASE_URL?.trim() ||
-  "https://isopro.me";
+  DEFAULT_SITE_ORIGIN;
+
+function siteHostname() {
+  try {
+    return new URL(apiBase).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function extraAllowedHosts() {
+  const raw = process.env.NEXT_PUBLIC_EXTRA_ALLOWED_HOSTS?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+}
+
+function buildAllowNavigation() {
+  const hosts = new Set([
+    siteHostname(),
+    "*.azurewebsites.net",
+    ...extraAllowedHosts(),
+    "*.supabase.co",
+    "github.com",
+    "*.github.com",
+    "*.githubusercontent.com",
+  ]);
+  return [...hosts].filter(Boolean);
+}
 
 /** Embedded in the static bundle; bump per APK when native/plugins change. */
 const nativeBuild =
@@ -134,8 +168,8 @@ function mirrorTenantShellRoutes() {
 
 function writeCapacitorWebConfig() {
   const config = {
-    appId: "com.isopro.app",
-    appName: "ISO Pro",
+    appId: "com.isogrid.app",
+    appName: "ISO Grid",
     webDir: "out",
     bundledWebRuntime: false,
     plugins: {
@@ -150,14 +184,7 @@ function writeCapacitorWebConfig() {
       androidScheme: "https",
       cleartext: false,
       errorPath: "workspace/index.html",
-      allowNavigation: [
-        "isopro.me",
-        "*.isopro.me",
-        "*.supabase.co",
-        "github.com",
-        "*.github.com",
-        "*.githubusercontent.com",
-      ],
+      allowNavigation: buildAllowNavigation(),
     },
   };
   fs.writeFileSync(path.join(root, "capacitor.config.json"), `${JSON.stringify(config, null, 2)}\n`);
@@ -192,6 +219,7 @@ try {
     CAPACITOR_BUILD: "1",
     NEXT_PUBLIC_API_BASE_URL: apiBase,
     NEXT_PUBLIC_CAPACITOR_APP: "1",
+    NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: "1",
     NEXT_PUBLIC_NATIVE_BUILD: nativeBuild,
     ...(appBundleLabel ? { NEXT_PUBLIC_APP_BUNDLE_LABEL: appBundleLabel } : {}),
   });

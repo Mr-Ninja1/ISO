@@ -7,6 +7,7 @@ import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthStatusCard } from "@/components/AuthStatusCard";
 import { createClient } from "@/lib/auth";
 import { passwordResetRedirectUrl } from "@/lib/authRedirectUrls";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -84,7 +85,7 @@ export default function ForgotPasswordPage() {
           <AuthStatusCard variant="info" title="Check your email" icon="mail">
             <p>{inboxHint}</p>
             <p className="mt-2">
-              Open the message from ISO Pro and tap <strong className="font-semibold">Reset password</strong>.
+              Open the message from {PRODUCT_NAME} and tap <strong className="font-semibold">Reset password</strong>.
               The link opens a secure page where you can set a new password.
             </p>
           </AuthStatusCard>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { isInstalledNativeShell } from "@/lib/capacitor/runtime";
 
-/** True when the Capacitor bridge or dev WebView is present (not a normal browser tab on isopro.me). */
+/** True when the Capacitor bridge or dev WebView is present (not a normal browser tab on the hosted site). */
 export function useInstalledNativeShell(): boolean {
   const [installed, setInstalled] = useState(() =>
     typeof window !== "undefined" ? isInstalledNativeShell() : false

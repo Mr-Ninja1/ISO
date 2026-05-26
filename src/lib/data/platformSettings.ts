@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getDefaultOtaManifestUrl } from "@/lib/siteOrigin";
 
 export type PlatformSettingsRow = {
   id: string;
@@ -9,10 +10,7 @@ export type PlatformSettingsRow = {
   updated_at: string | null;
 };
 
-const DEFAULT_MANIFEST_URL =
-  process.env.OTA_PUBLIC_BASE_URL?.trim()
-    ? `${process.env.OTA_PUBLIC_BASE_URL.replace(/\/+$/, "")}/manifest.json`
-    : "https://isopro.me/ota/production/manifest.json";
+const DEFAULT_MANIFEST_URL = getDefaultOtaManifestUrl();
 
 export async function readPlatformSettingsRow(
   svc: SupabaseClient

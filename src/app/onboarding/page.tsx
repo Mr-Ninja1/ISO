@@ -8,6 +8,7 @@ import { createClient } from "@/lib/auth";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { apiUrl } from "@/lib/client/apiBase";
 import { usePlatformDeveloperRedirect } from "@/lib/client/usePlatformDeveloperRedirect";
+import { PRODUCT_NAME } from "@/lib/branding";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -102,7 +103,7 @@ export default function OnboardingPage() {
     <div className="create-brand-page min-h-dvh">
       <header className="create-brand-page__header">
         <div className="create-brand-page__header-inner">
-          <span className="create-brand-page__logo">ISO Pro</span>
+          <span className="create-brand-page__logo">{PRODUCT_NAME}</span>
           <div className="flex items-center gap-3">
             <span className="hidden max-w-[12rem] truncate text-xs text-[var(--accent-soft)] sm:inline">
               {accountLabel}

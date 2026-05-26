@@ -1,6 +1,6 @@
 Capacitor Android Setup (recommended path)
 
-This is the preferred native strategy for ISO Pro: ship the existing Next.js web app inside a Capacitor shell, keep the web app as the single source of truth, and rely on the browser engine plus the app's offline cache/local data for native-like behavior.
+This is the preferred native strategy for ISO Grid: ship the existing Next.js web app inside a Capacitor shell, keep the web app as the single source of truth, and rely on the browser engine plus the app's offline cache/local data for native-like behavior.
 
 Why this is the best option
 - The checklist/form builder already depends on browser rendering for fully custom shapes, signatures, and dynamic layouts.
@@ -17,8 +17,8 @@ npm install @capacitor/core @capacitor/cli --save-exact
 2) Initialize Capacitor (only once):
 
 ```bash
-# set a proper package id (reverse domain) e.g. com.yourcompany.isopro
-npx cap init "ISO Pro" com.yourcompany.isopro
+# package id (reverse domain), e.g. com.isogrid.app
+npx cap init "ISO Grid" com.isogrid.app
 ```
 
 Note: this updates `capacitor.config.json`. The repo already contains a placeholder `capacitor.config.json` you can edit.
@@ -29,7 +29,7 @@ Note: this updates `capacitor.config.json`. The repo already contains a placehol
 # from web/
 # Optional: pre-generate route HTML for known tenant slugs (comma-separated)
 $env:CAPACITOR_TENANT_SLUGS="your-brand-slug"
-$env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
+$env:NEXT_PUBLIC_API_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net"
 npm run build:capacitor
 npm run cap:open-android
 ```
@@ -46,12 +46,12 @@ Copy `capacitor.config.remote.json` over `capacitor.config.json`, then `npx cap 
 
 ```json
 {
-  "appId": "com.yourcompany.isopro",
-  "appName": "ISO Pro",
+  "appId": "com.isogrid.app",
+  "appName": "ISO Grid",
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://isopro.me/"
+    "url": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/"
   }
 }
 ```
