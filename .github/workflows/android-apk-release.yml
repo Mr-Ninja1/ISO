@@ -35,14 +35,24 @@ jobs:
           fi
           echo "Resolved native build: $(cat $GITHUB_OUTPUT | grep build=)"
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: "24.x"
           package-manager-cache: false
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK (compileSdk 36)
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          echo y | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Verify google-services.json
         run: |
