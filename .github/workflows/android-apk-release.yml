@@ -62,6 +62,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Prepare Gradle
+        run: chmod +x android/gradlew
+
       - name: Build release APK
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
