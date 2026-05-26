@@ -3,6 +3,12 @@ name: Android APK release
 
 on:
   workflow_dispatch:
+    inputs:
+      native_build:
+        description: Native build number baked into APK (admin min_native_build should match)
+        required: true
+        default: "3"
+        type: string
   push:
     tags:
       - "v*"
@@ -16,6 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Resolve native build number
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build=${{ github.event.inputs.native_build }}" >> "$GITHUB_OUTPUT"
+          else
+            REF="${GITHUB_REF_NAME}"
+            BUILD="${REF##*build}"
+            if [ "$BUILD" = "$REF" ]; then BUILD="${{ github.run_number }}"; fi
+            echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved native build: $(cat $GITHUB_OUTPUT | grep build=)"
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
@@ -28,6 +47,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Verify google-services.json
+        run: |
+          test -f android/app/google-services.json
+          grep -q 'com.isogrid.app' android/app/google-services.json
+
       - name: Install dependencies
         run: npm install
 
@@ -37,19 +61,37 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_SITE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
           NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
-          NEXT_PUBLIC_NATIVE_BUILD: ${{ github.run_number }}
+          NEXT_PUBLIC_NATIVE_BUILD: ${{ steps.meta.outputs.build }}
           NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: "1"
         run: npm run package:apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iso-grid-apk
+          name: iso-grid-apk-build${{ steps.meta.outputs.build }}
           path: dist/iso-grid.apk
 
       - name: Create GitHub Release (tag pushes only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: ISO Grid Android v1.0 (build ${{ steps.meta.outputs.build }})
           files: dist/iso-grid.apk
-          generate_release_notes: true
+          make_latest: true
+          body: |
+            ## ISO Grid Android (replaces ISO Pro APK)
+
+            - **Package:** `com.isogrid.app` (uninstall old `com.isopro.app` before installing)
+            - **Asset:** `iso-grid.apk`
+            - **Native build:** `${{ steps.meta.outputs.build }}`
+            - **Push notifications:** FCM enabled
+            - **API:** https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
+
+            ### Admin console after release
+            - **Minimum native build:** `${{ steps.meta.outputs.build }}`
+            - **Latest APK URL:** `https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-grid.apk`
+
+            ### Install
+            1. Download `iso-grid.apk`
+            2. Allow install from browser/files if prompted
+            3. Open app → sign in → allow notifications

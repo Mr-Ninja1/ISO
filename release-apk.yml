@@ -44,8 +44,10 @@ jobs:
 
       - name: Build Capacitor static bundle
         env:
+          NEXT_PUBLIC_SITE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
           NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
           NEXT_PUBLIC_NATIVE_BUILD: ${{ github.event.inputs.native_build }}
+          NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED: "1"
           CI: true
         run: node tools/capacitor-build.mjs
 
@@ -81,13 +83,12 @@ jobs:
           tag_name: v1.0.0-build${{ github.event.inputs.native_build }}
           name: ISO Grid Android v1.0 (build ${{ github.event.inputs.native_build }})
           body: |
-            ## Release APK v1.0 Build ${{ github.event.inputs.native_build }}
+            ## ISO Grid Android v1.0 (build ${{ github.event.inputs.native_build }})
             
-            **Changes:**
-            - Fixed login page syntax error
-            - Improved download link visibility across all browsers and devices
-            - Removed device-specific limitations
-            - Enhanced cross-browser compatibility
+            **Includes:**
+            - Rebrand to ISO Grid (`com.isogrid.app`)
+            - FCM push notifications (messages, broadcasts, OTA prompts)
+            - ISO Grid UI and Azure-hosted API
             
             **Installation:**
             1. Download `iso-grid.apk`
@@ -99,9 +100,10 @@ jobs:
             - API Base: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
             - Date: ${{ github.event.actor }} on ${{ runner.os }}
             
-            **Note:** Update admin config with:
-            - min_native_build: ${{ github.event.inputs.native_build }}
-            - latest_apk_url: [APK download link]
+            **Admin console after install:**
+            - **Minimum native build:** `${{ github.event.inputs.native_build }}`
+            - **Latest APK URL:** `https://github.com/Mr-Ninja1/ISO/releases/download/v1.0.0-build${{ github.event.inputs.native_build }}/iso-grid.apk`
+            - Or: `https://github.com/Mr-Ninja1/ISO/releases/latest/download/iso-grid.apk`
           files: dist/iso-grid.apk
           fail_on_unmatched_files: false
         env:
