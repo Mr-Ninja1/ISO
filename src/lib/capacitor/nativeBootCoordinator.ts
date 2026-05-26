@@ -34,6 +34,15 @@ export function wasOtaEntryNavigationAttempted(): boolean {
   }
 }
 
+export function wasNativeBootExitComplete(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(BOOT_EXIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function markNativeBootExitComplete() {
   if (typeof window === "undefined") return;
   try {
@@ -48,9 +57,12 @@ export function isNativePostOtaSettlePhase(): boolean {
   return wasOtaReloadRecent(180_000);
 }
 
-/** React must not fire another full-page redirect if pre-React script already left `/`. */
+/**
+ * React must not double-redirect after OTA only when we already left `/`.
+ * Pre-React may set "nav attempted" even when redirect failed — do not skip then.
+ */
 export function shouldSkipReactNativeEntryRedirect(): boolean {
   if (!isNativePostOtaSettlePhase()) return false;
   if (!isNativeEntryShellPath()) return true;
-  return wasOtaEntryNavigationAttempted();
+  return wasOtaEntryNavigationAttempted() && wasNativeBootExitComplete();
 }

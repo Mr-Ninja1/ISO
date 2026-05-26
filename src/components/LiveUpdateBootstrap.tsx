@@ -19,6 +19,7 @@ import {
 } from "@/lib/capacitor/liveUpdateReady";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isAppOffline } from "@/lib/client/appOffline";
+import { isNativeEntryShellPath } from "@/lib/capacitor/nativeEntryNavigation";
 
 type ClientConfig = {
   minNativeBuild?: number | null;
@@ -170,9 +171,16 @@ export function LiveUpdateBootstrap() {
 
     void signalLiveUpdateReady();
 
-    const startCheck = window.setTimeout(() => {
-      if (!wasOtaReloadRecent()) void checkForUpdate();
-    }, wasOtaReloadRecent() ? 20_000 : 2500);
+    const scheduleCheckWhenPastEntry = () => {
+      if (wasOtaReloadRecent()) return;
+      if (isNativeEntryShellPath()) {
+        window.setTimeout(scheduleCheckWhenPastEntry, 2000);
+        return;
+      }
+      void checkForUpdate();
+    };
+
+    const startCheck = window.setTimeout(scheduleCheckWhenPastEntry, wasOtaReloadRecent() ? 20_000 : 8000);
 
     const timer = window.setInterval(() => void checkForUpdate(), 2 * 60 * 60 * 1000);
 

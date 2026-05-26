@@ -33,11 +33,21 @@
 
   if (normalizePath(location.pathname) !== "/") return;
 
+  var otaReloadAt = 0;
   try {
-    if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return;
-    sessionStorage.setItem(ATTEMPT_KEY, "1");
+    otaReloadAt = Number(sessionStorage.getItem("iso-ota-reload-at:v1") || "0");
   } catch (e) {
-    /* continue */
+    /* ignore */
+  }
+  var postOta = otaReloadAt > 0 && Date.now() - otaReloadAt < 180000;
+
+  if (postOta) {
+    try {
+      if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return;
+      sessionStorage.setItem(ATTEMPT_KEY, "1");
+    } catch (e) {
+      /* continue */
+    }
   }
 
   function hasPersistedAuth() {

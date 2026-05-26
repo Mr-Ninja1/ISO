@@ -43,10 +43,15 @@ export function CapacitorBootstrap() {
 
     void signalLiveUpdateReady();
 
-    if (!shouldSkipReactNativeEntryRedirect() && isNativeEntryShellPath()) {
-      runNativeBoot();
+    if (isNativeEntryShellPath()) {
+      if (!shouldSkipReactNativeEntryRedirect()) {
+        runNativeBoot();
+      }
       const fallback = window.setTimeout(() => {
-        if (isNativeEntryShellPath()) runNativeEntryRedirectIfNeeded();
+        if (!isNativeEntryShellPath()) return;
+        if (!runNativeEntryRedirectIfNeeded()) {
+          runNativeEntryRedirectIfNeeded({ force: true });
+        }
       }, 1200);
       return () => {
         window.clearTimeout(fallback);

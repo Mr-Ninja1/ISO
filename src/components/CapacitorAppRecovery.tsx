@@ -42,8 +42,15 @@ function pageLooksBlank() {
   return text.length <= 60;
 }
 
+function isEntryLoadingShellStuck(): boolean {
+  if (!isNativeEntryShellPath()) return false;
+  const text = (document.body.textContent || "").toLowerCase();
+  return text.includes("starting") && text.includes("sign in");
+}
+
 function tryRecover(reason: string) {
-  if (isNativePostOtaSettlePhase()) return;
+  const entryShellStuck = isEntryLoadingShellStuck();
+  if (isNativePostOtaSettlePhase() && !entryShellStuck) return;
   if (isNativeUpdateBlocked() || isNativeUpdateGateVisible()) return;
 
   let last = 0;

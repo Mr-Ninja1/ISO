@@ -4,11 +4,16 @@ import { useEffect } from "react";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { readAppliedBundleId, OTA_BUNDLE_STORAGE_KEY } from "@/lib/capacitor/liveUpdateClient";
 import { isNativeEntryShellPath } from "@/lib/capacitor/nativeEntryNavigation";
-import { isNativePostOtaSettlePhase } from "@/lib/capacitor/nativeBootCoordinator";
 import { wasOtaReloadRecent } from "@/lib/capacitor/liveUpdateReady";
 
 const STUCK_MARK = "iso-ota-stuck-since:v1";
-const STUCK_MIN_MS = 45_000;
+const STUCK_MIN_MS = 20_000;
+
+function isEntryShellLoadingStuck(): boolean {
+  if (!isNativeEntryShellPath()) return false;
+  const text = (document.body.textContent || "").toLowerCase();
+  return text.includes("starting") && (text.includes("sign in") || text.includes("workspace"));
+}
 
 /**
  * Last-resort rollback when the WebView is truly blank on `/` after an OTA apply.
@@ -18,13 +23,14 @@ const STUCK_MIN_MS = 45_000;
 export function OtaBundleRecovery() {
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
-    if (!readAppliedBundleId()) return;
 
     const tick = window.setInterval(() => {
-      if (isNativePostOtaSettlePhase()) return;
-      if (wasOtaReloadRecent(180_000)) return;
+      const hasOtaBundle = Boolean(readAppliedBundleId());
+      const entryLoadingStuck = isEntryShellLoadingStuck();
+      if (!hasOtaBundle && !entryLoadingStuck) return;
+      if (wasOtaReloadRecent(180_000) && !entryLoadingStuck) return;
 
-      if (!isNativeEntryShellPath()) {
+      if (!isNativeEntryShellPath() && !entryLoadingStuck) {
         try {
           sessionStorage.removeItem(STUCK_MARK);
         } catch {
@@ -33,14 +39,16 @@ export function OtaBundleRecovery() {
         return;
       }
 
-      const text = (document.body.textContent || "").replace(/\s+/g, " ").trim();
-      if (text.length > 60) {
-        try {
-          sessionStorage.removeItem(STUCK_MARK);
-        } catch {
-          // ignore
+      if (!entryLoadingStuck) {
+        const text = (document.body.textContent || "").replace(/\s+/g, " ").trim();
+        if (text.length > 60) {
+          try {
+            sessionStorage.removeItem(STUCK_MARK);
+          } catch {
+            // ignore
+          }
+          return;
         }
-        return;
       }
 
       let since = 0;

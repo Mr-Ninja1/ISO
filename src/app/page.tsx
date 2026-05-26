@@ -9,13 +9,21 @@ import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { parseNativeBuild } from "@/lib/capacitor/liveUpdateClient";
 import { isNativeUpdateBlocked } from "@/lib/capacitor/nativeUpdateBlock";
 import { isNativeUpdateRequiredFromCache } from "@/lib/capacitor/platformClientConfig";
-import { shouldSkipReactNativeEntryRedirect } from "@/lib/capacitor/nativeBootCoordinator";
+import {
+  clearOtaEntryNavigationAttempted,
+  shouldSkipReactNativeEntryRedirect,
+} from "@/lib/capacitor/nativeBootCoordinator";
+import { clearOtaReloadMarker } from "@/lib/capacitor/liveUpdateReady";
 import {
   hardNavigate,
   navigateToPostAuthEntry,
   resolveQuickEntryDestination,
 } from "@/lib/client/appEntryNavigation";
-import { isNativeEntryShellPath, runNativeEntryRedirectIfNeeded } from "@/lib/capacitor/nativeEntryNavigation";
+import {
+  clearNativeRedirectThrottle,
+  isNativeEntryShellPath,
+  runNativeEntryRedirectIfNeeded,
+} from "@/lib/capacitor/nativeEntryNavigation";
 import { startingAppTitle } from "@/lib/branding";
 
 const ENTRY_FAILSAFE_MS = 4000;
@@ -52,11 +60,15 @@ export default function Home() {
 
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
-    if (shouldSkipReactNativeEntryRedirect()) return;
 
     const timer = window.setTimeout(() => {
       if (!isNativeEntryShellPath()) return;
-      runNativeEntryRedirectIfNeeded();
+      if (!runNativeEntryRedirectIfNeeded()) {
+        clearOtaReloadMarker();
+        clearOtaEntryNavigationAttempted();
+        clearNativeRedirectThrottle();
+        runNativeEntryRedirectIfNeeded({ force: true });
+      }
     }, ENTRY_FAILSAFE_MS);
 
     return () => window.clearTimeout(timer);
