@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 256" role="img" aria-labelledby="title desc">
-  <title id="title">ISO Pro</title>
-  <desc id="desc">ISO Pro wordmark with shield and checkmark brand icon.</desc>
+  <title id="title">ISO Grid</title>
+  <desc id="desc">ISO Grid wordmark with shield and checkmark brand icon.</desc>
   <defs>
     <linearGradient id="bg" x1="32" y1="20" x2="224" y2="236" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#08111f" />
@@ -21,6 +21,6 @@
   <circle cx="182" cy="180" r="30" fill="#22c55e" opacity="0.12" />
   <path d="M128 54c30 20 60 28 88 34v58c0 54-35 90-88 104-53-14-88-50-88-104V88c28-6 58-14 88-34Z" fill="url(#shield)" transform="translate(16 6) scale(.86)" />
   <path d="M94 112l24 24 48-58" fill="none" stroke="url(#check)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" transform="translate(16 6)" />
-  <text x="260" y="118" fill="#08111f" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="56" font-weight="800" letter-spacing="0.02em">ISO Pro</text>
+  <text x="260" y="118" fill="#08111f" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="56" font-weight="800" letter-spacing="0.02em">ISO Grid</text>
   <text x="260" y="168" fill="#475569" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="500">Offline-capable compliance platform</text>
 </svg>

@@ -1,6 +1,43 @@
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
-import type { DevicePushRegistration, PushNotificationCategory } from "@/lib/push/types";
+import type {
+  DevicePushRegistration,
+  PushNotificationCategory,
+} from "@/lib/push/types";
+
+type PushPermissionState = "granted" | "denied" | "prompt";
+
+type PushRegistrationEvent = { value?: string };
+type PushActionPerformedEvent = {
+  notification?: { data?: Record<string, string> };
+};
+
+type PushListener = {
+  registration: (event: PushRegistrationEvent) => void | Promise<void>;
+  registrationError: (event: unknown) => void;
+  pushNotificationActionPerformed: (event: PushActionPerformedEvent) => void;
+  pushNotificationReceived: (event: unknown) => void;
+};
+
+type PushPlugin = {
+  requestPermissions: () => Promise<{
+    receive?: PushPermissionState;
+  }>;
+  register: () => Promise<void>;
+  addListener<E extends keyof PushListener>(
+    eventName: E,
+    listener: PushListener[E],
+  ): Promise<{ remove: () => Promise<void> }>;
+};
+
+async function getPushPlugin(): Promise<PushPlugin | null> {
+  try {
+    const mod = await import("@capacitor/push-notifications");
+    return mod.PushNotifications as unknown as PushPlugin;
+  } catch {
+    return null;
+  }
+}
 
 const ENABLED = process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "1";
 const REGISTRATION_STORAGE_KEY = "iso-push-registration:v1";
@@ -34,7 +71,7 @@ export async function savePushTokenOnServer(input: {
   try {
     localStorage.setItem(
       REGISTRATION_STORAGE_KEY,
-      JSON.stringify({ token: input.registration.token, at: Date.now() })
+      JSON.stringify({ token: input.registration.token, at: Date.now() }),
     );
   } catch {
     // ignore
@@ -43,25 +80,116 @@ export async function savePushTokenOnServer(input: {
   return { ok: true };
 }
 
-export async function registerDeviceForPush(_input: {
+export async function registerDeviceForPush(input: {
   accessToken: string;
   tenantSlug?: string | null;
   categories?: PushNotificationCategory[];
 }): Promise<{ ok: boolean; error?: string }> {
   if (!isPushNotificationsEnabled()) {
-    return { ok: false, error: "Push notifications are not enabled for this build." };
+    return {
+      ok: false,
+      error: "Push notifications are not enabled for this build.",
+    };
   }
 
-  return {
-    ok: false,
-    error:
-      "Install @capacitor/push-notifications, add google-services.json, then connect listeners in PushNotificationsBootstrap. See docs/PUSH_NOTIFICATIONS.md.",
-  };
+  const PushNotifications = await getPushPlugin();
+  if (!PushNotifications) {
+    return {
+      ok: false,
+      error: "Push notifications plugin is not installed in this build.",
+    };
+  }
+
+  const permission = await PushNotifications.requestPermissions();
+  if (permission.receive !== "granted") {
+    return { ok: false, error: "Notification permission was not granted." };
+  }
+
+  try {
+    localStorage.setItem(
+      `${REGISTRATION_STORAGE_KEY}:pending`,
+      JSON.stringify({
+        accessToken: input.accessToken,
+        tenantSlug: input.tenantSlug ?? null,
+        categories: input.categories ?? ["announcement", "system", "reminder"],
+      }),
+    );
+  } catch {
+    // ignore
+  }
+
+  await PushNotifications.register();
+  return { ok: true };
 }
 
 export async function attachPushNotificationListeners(
-  _onOpen?: (deepLink?: string) => void
+  onOpen?: (deepLink?: string) => void,
 ): Promise<() => void> {
   if (!isPushNotificationsEnabled()) return () => {};
-  return () => {};
+
+  const PushNotifications = await getPushPlugin();
+  if (!PushNotifications) return () => {};
+
+  const listeners = await Promise.all([
+    PushNotifications.addListener(
+      "registration",
+      async (tokenEvent: { value?: string }) => {
+        const token =
+          typeof tokenEvent?.value === "string" ? tokenEvent.value.trim() : "";
+        if (!token) return;
+
+        let pending: {
+          accessToken?: string;
+          tenantSlug?: string | null;
+          categories?: PushNotificationCategory[];
+        } | null = null;
+        try {
+          pending = JSON.parse(
+            localStorage.getItem(`${REGISTRATION_STORAGE_KEY}:pending`) ||
+              "null",
+          );
+        } catch {
+          pending = null;
+        }
+
+        const accessToken = pending?.accessToken || "";
+        if (!accessToken) return;
+
+        await savePushTokenOnServer({
+          accessToken,
+          registration: {
+            tenantSlug: pending?.tenantSlug ?? null,
+            platform: "android",
+            token,
+            categories: pending?.categories ?? [
+              "announcement",
+              "system",
+              "reminder",
+            ],
+          },
+        });
+      },
+    ),
+    PushNotifications.addListener("registrationError", (error: unknown) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[push] registration error", error);
+      }
+    }),
+    PushNotifications.addListener(
+      "pushNotificationActionPerformed",
+      (event: { notification?: { data?: Record<string, string> } }) => {
+        const deepLink = event?.notification?.data?.deepLink;
+        onOpen?.(deepLink);
+      },
+    ),
+    PushNotifications.addListener("pushNotificationReceived", () => {
+      // Native OS UI handles background notifications; foreground handling can be enhanced later.
+    }),
+  ]);
+
+  return () => {
+    for (const listener of listeners) {
+      void listener.remove();
+    }
+  };
 }

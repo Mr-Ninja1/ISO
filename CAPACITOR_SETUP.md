@@ -29,7 +29,7 @@ Note: this updates `capacitor.config.json`. The repo already contains a placehol
 # from web/
 # Optional: pre-generate route HTML for known tenant slugs (comma-separated)
 $env:CAPACITOR_TENANT_SLUGS="your-brand-slug"
-$env:NEXT_PUBLIC_API_BASE_URL="https://isopro.me"
+$env:NEXT_PUBLIC_API_BASE_URL="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net"
 npm run build:capacitor
 npm run cap:open-android
 ```
@@ -51,7 +51,7 @@ Copy `capacitor.config.remote.json` over `capacitor.config.json`, then `npx cap 
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://isopro.me/"
+    "url": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/"
   }
 }
 ```

@@ -1,6 +1,6 @@
 {
-  "name": "ISO Pro",
-  "short_name": "ISO Pro",
+  "name": "ISO Grid",
+  "short_name": "ISO Grid",
   "description": "Offline-capable compliance platform for ISO-led operations.",
   "id": "/workspace",
   "start_url": "/workspace",

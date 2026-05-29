@@ -13,6 +13,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { Z_HEADER_MENU, Z_HEADER_MENU_BACKDROP } from "@/lib/ui/zIndex";
 
 const MenuCloseContext = createContext<(() => void) | null>(null);
 
@@ -76,7 +77,8 @@ export function HeaderKebabMenu({
           <MenuCloseContext.Provider value={close}>
             <button
               type="button"
-              className="fixed inset-0 z-[250] cursor-default bg-black/20"
+              className="fixed inset-0 cursor-default bg-black/20"
+              style={{ zIndex: Z_HEADER_MENU_BACKDROP }}
               aria-label="Close menu"
               onClick={close}
             />
@@ -84,9 +86,9 @@ export function HeaderKebabMenu({
               id={menuId}
               role="menu"
               className={
-                "ui-menu fixed z-[251] max-h-[min(70vh,420px)] overflow-y-auto p-1 " + menuClassName
+                "ui-menu fixed max-h-[min(70vh,420px)] overflow-y-auto p-1 " + menuClassName
               }
-              style={{ top: coords.top, right: coords.right }}
+              style={{ top: coords.top, right: coords.right, zIndex: Z_HEADER_MENU }}
             >
               {children}
             </div>

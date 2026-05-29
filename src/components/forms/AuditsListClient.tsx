@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, MoreVertical, Loader2 } from "lucide-react";
+import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
 import { useAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
@@ -42,6 +43,7 @@ function SavedFormRowActions({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const reportPath = auditReportHref(tenantSlug, auditId);
 
@@ -70,6 +72,7 @@ function SavedFormRowActions({
     return (
       <div className="relative">
         <button
+          ref={menuBtnRef}
           type="button"
           onClick={() => setOpen(!open)}
           disabled={busy}
@@ -78,22 +81,17 @@ function SavedFormRowActions({
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
         </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-[250]" onClick={() => setOpen(false)} aria-hidden />
-            <div className="absolute right-0 top-full z-[251] mt-1 w-48 rounded-md border border-foreground/20 bg-background p-1 shadow-lg">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={openReport}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                {viewLabel}
-              </button>
-            </div>
-          </>
-        )}
+        <FloatingActionMenu open={open} anchorRef={menuBtnRef} onClose={() => setOpen(false)} menuWidthPx={192}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={openReport}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            {viewLabel}
+          </button>
+        </FloatingActionMenu>
       </div>
     );
   }

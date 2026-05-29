@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { Z_CARD_MENU, Z_CARD_MENU_BACKDROP } from "@/lib/ui/zIndex";
 
 type Props = {
   open: boolean;
@@ -9,9 +10,18 @@ type Props = {
   anchorRef: RefObject<HTMLElement | null>;
   children: ReactNode;
   menuWidthPx?: number;
+  /** Close when the user scrolls (keeps card menus under the sticky header). */
+  closeOnScroll?: boolean;
 };
 
-export function FloatingActionMenu({ open, onClose, anchorRef, children, menuWidthPx = 224 }: Props) {
+export function FloatingActionMenu({
+  open,
+  onClose,
+  anchorRef,
+  children,
+  menuWidthPx = 224,
+  closeOnScroll = true,
+}: Props) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
@@ -32,13 +42,20 @@ export function FloatingActionMenu({ open, onClose, anchorRef, children, menuWid
     };
 
     update();
-    window.addEventListener("scroll", update, true);
+    function onScroll() {
+      if (closeOnScroll) {
+        onClose();
+        return;
+      }
+      update();
+    }
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", update);
     return () => {
-      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", update);
     };
-  }, [open, anchorRef, menuWidthPx]);
+  }, [open, anchorRef, menuWidthPx, closeOnScroll, onClose]);
 
   if (!open || !position) return null;
 
@@ -46,14 +63,15 @@ export function FloatingActionMenu({ open, onClose, anchorRef, children, menuWid
     <>
       <button
         type="button"
-        className="fixed inset-0 z-[99980] cursor-default"
+        className="fixed inset-0 cursor-default"
+        style={{ zIndex: Z_CARD_MENU_BACKDROP }}
         aria-label="Close menu"
         onClick={onClose}
       />
       <div
         role="menu"
-        className="fixed z-[99990] rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl"
-        style={{ top: position.top, left: position.left, width: menuWidthPx }}
+        className="fixed rounded-2xl border border-foreground/15 bg-background p-2 shadow-xl"
+        style={{ top: position.top, left: position.left, width: menuWidthPx, zIndex: Z_CARD_MENU }}
       >
         {children}
       </div>

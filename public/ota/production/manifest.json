@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260521.lesson-v3",
-  "version": "20260521.lesson-v3",
+  "bundleId": "20260529.ota-theme-contrast-v1",
+  "version": "20260529.ota-theme-contrast-v1",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260521.lesson-v3.zip",
-  "publishedAt": "2026-05-20T16:56:53.775Z",
-  "releaseNotes": "Lesson v3 — bolder green OTA banner"
+  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260529.ota-theme-contrast-v1.zip",
+  "publishedAt": "2026-05-29T14:57:54.549Z",
+  "releaseNotes": "GitHub dark card text fix; girly pink theme"
 }

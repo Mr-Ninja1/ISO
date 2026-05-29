@@ -1,157 +1,201 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NotificationModal } from "@/components/NotificationModal";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { applyDownloadedOtaBundle } from "@/lib/capacitor/otaApply";
+import { ISO_AUTH_READY_EVENT } from "@/lib/capacitor/otaEvents";
+import { ensureLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
+import { clearOtaBootGracePeriod, isWithinOtaBootGracePeriod } from "@/lib/capacitor/otaBoot";
 import {
-  OTA_CHANNEL_ENV,
-  parseNativeBuild,
-  parseOtaManifest,
-  readAppliedBundleId,
-  shouldApplyOtaManifest,
-  writeAppliedBundleId,
-} from "@/lib/capacitor/liveUpdateClient";
-import { apiUrl } from "@/lib/client/apiBase";
-import { isAppOffline } from "@/lib/client/appOffline";
-
-type ClientConfig = {
-  minNativeBuild?: number | null;
-  liveUpdateChannel?: string | null;
-  liveUpdateBundleUrl?: string | null;
-};
+  checkForOtaUpdate,
+  dispatchOtaPending,
+  OTA_PENDING_EVENT,
+  syncOtaStateFromPlugin,
+} from "@/lib/capacitor/otaManualCheck";
+import { readPendingOtaBundle } from "@/lib/capacitor/liveUpdateClient";
+import { OTA_PUSH_EVENT, subscribeToOtaRealtime } from "@/lib/capacitor/otaRealtime";
+import { remoteOtaBundleDiffersFromActive } from "@/lib/capacitor/otaRemoteSignal";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { INTERNET_RESTORED_EVENT, isAppOffline } from "@/lib/client/appOffline";
 
 type PendingUpdate = {
   bundleId: string;
   releaseNotes?: string;
 };
 
+/** Fallback if Realtime is unavailable (hours, not seconds). */
+const FALLBACK_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const FOREGROUND_CHECK_GAP_MS = 20 * 60 * 1000;
+
 /**
- * Self-hosted OTA for bundled Capacitor APKs.
- * Reads manifest URL from platform_settings, downloads zip via @capawesome/capacitor-live-update.
+ * OTA: Supabase Realtime pushes when a new bundle is published; light fallback checks otherwise.
  */
 export function LiveUpdateBootstrap() {
-  const currentNativeBuild = useMemo(() => parseNativeBuild(), []);
   const [pending, setPending] = useState<PendingUpdate | null>(null);
   const [applying, setApplying] = useState(false);
-  const checkingRef = useRef(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const checkGeneration = useRef(0);
+  const checkInFlight = useRef(false);
+  const lastCheckAt = useRef(0);
 
-  const checkForUpdate = useCallback(async () => {
-    if (!isCapacitorNativeApp()) return;
-    if (isAppOffline()) return;
-    if (checkingRef.current) return;
+  const showPending = useCallback((next: PendingUpdate) => {
+    setPending(next);
+    dispatchOtaPending(next);
+  }, []);
 
-    checkingRef.current = true;
-    try {
-      const configRes = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
-      const config = (await configRes.json().catch(() => ({}))) as ClientConfig;
+  const restorePendingFromDevice = useCallback(async () => {
+    const fromPlugin = await syncOtaStateFromPlugin();
+    const stored = fromPlugin ?? readPendingOtaBundle();
+    if (stored?.bundleId) {
+      showPending({ bundleId: stored.bundleId, releaseNotes: stored.releaseNotes });
+      return true;
+    }
+    return false;
+  }, [showPending]);
 
-      const minRequired =
-        typeof config.minNativeBuild === "number" && Number.isFinite(config.minNativeBuild)
-          ? config.minNativeBuild
-          : null;
-      if (minRequired != null && currentNativeBuild > 0 && currentNativeBuild < minRequired) {
-        return;
-      }
+  const runBackgroundCheck = useCallback(
+    async (reason: string, options?: { force?: boolean }) => {
+      if (!isCapacitorNativeApp() || isAppOffline()) return;
+      if (checkInFlight.current) return;
 
-      const manifestUrl = (config.liveUpdateBundleUrl || "").trim();
-      if (!manifestUrl) return;
+      const now = Date.now();
+      if (!options?.force && now - lastCheckAt.current < 12_000) return;
 
-      const manifestRes = await fetch(manifestUrl, { cache: "no-store" });
-      if (!manifestRes.ok) return;
-
-      const manifest = parseOtaManifest(await manifestRes.json().catch(() => null));
-      if (!manifest) return;
-
-      const decision = shouldApplyOtaManifest({
-        manifest,
-        configuredChannel: config.liveUpdateChannel || OTA_CHANNEL_ENV,
-        currentNativeBuild,
-        appliedBundleId: readAppliedBundleId(),
-      });
-
-      if (!decision.apply) return;
+      checkInFlight.current = true;
+      lastCheckAt.current = now;
+      const generation = ++checkGeneration.current;
 
       try {
-        const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-        await LiveUpdate.ready();
+        const result = await checkForOtaUpdate();
+        if (generation !== checkGeneration.current) return;
 
-        const channel = (config.liveUpdateChannel || manifest.channel || OTA_CHANNEL_ENV).trim();
-        if (channel) {
-          await LiveUpdate.setChannel({ channel }).catch(() => undefined);
+        if (result.status === "available" && result.pending) {
+          showPending(result.pending);
+        } else if (process.env.NODE_ENV === "development" && result.status !== "idle") {
+          console.info(`[OTA] check (${reason}):`, result.status, result.message);
         }
-
-        await LiveUpdate.downloadBundle({
-          url: manifest.bundleUrl,
-          bundleId: manifest.bundleId,
-        });
-
-        writeAppliedBundleId(manifest.bundleId);
-        setPending({
-          bundleId: manifest.bundleId,
-          releaseNotes: manifest.releaseNotes,
-        });
-      } catch {
-        // Plugin missing until cap sync, or download failed — silent on device
+      } finally {
+        checkInFlight.current = false;
       }
-    } catch {
-      // ignore network errors
-    } finally {
-      checkingRef.current = false;
-    }
-  }, [currentNativeBuild]);
+    },
+    [showPending]
+  );
+
+  const runCheckIfRemoteNewer = useCallback(
+    async (reason: string) => {
+      const differs = await remoteOtaBundleDiffersFromActive();
+      if (differs) {
+        await runBackgroundCheck(reason, { force: true });
+      }
+    },
+    [runBackgroundCheck]
+  );
+
+  useLayoutEffect(() => {
+    if (!isCapacitorNativeApp()) return;
+    void ensureLiveUpdateReady();
+  }, []);
 
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
 
+    function onPending(ev: Event) {
+      const detail = (ev as CustomEvent<PendingUpdate>).detail;
+      if (detail?.bundleId) setPending(detail);
+    }
+
+    function onOtaPush() {
+      void runBackgroundCheck("realtime-push", { force: true });
+    }
+
+    function onAuthReady() {
+      void runCheckIfRemoteNewer("auth-ready");
+      // Realtime needs a session — (re)subscribe after login hydration.
+    }
+
+    function onInternetRestored() {
+      window.setTimeout(() => void runCheckIfRemoteNewer("internet-restored"), 1_000);
+    }
+
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      const gap = Date.now() - lastCheckAt.current;
+      if (gap < FOREGROUND_CHECK_GAP_MS) return;
+      window.setTimeout(() => void runCheckIfRemoteNewer("foreground"), 800);
+    }
+
+    window.addEventListener(OTA_PENDING_EVENT, onPending);
+    window.addEventListener(OTA_PUSH_EVENT, onOtaPush);
+    window.addEventListener(ISO_AUTH_READY_EVENT, onAuthReady);
+    window.addEventListener(INTERNET_RESTORED_EVENT, onInternetRestored);
+    window.addEventListener("online", onInternetRestored);
+    document.addEventListener("visibilitychange", onVisible);
+
+    const removeRealtime = subscribeToOtaRealtime(() => {
+      void runBackgroundCheck("realtime", { force: true });
+    });
+
     void (async () => {
-      try {
-        const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-        await LiveUpdate.ready();
-      } catch {
-        // Plugin not linked yet
+      await ensureLiveUpdateReady();
+      await restorePendingFromDevice();
+
+      if (isWithinOtaBootGracePeriod()) {
+        clearOtaBootGracePeriod();
       }
-      void checkForUpdate();
+
+      await runCheckIfRemoteNewer("cold-start");
     })();
 
-    const timer = window.setInterval(() => void checkForUpdate(), 4 * 60 * 60 * 1000);
+    const timer = window.setInterval(
+      () => void runCheckIfRemoteNewer("fallback-interval"),
+      FALLBACK_CHECK_INTERVAL_MS
+    );
 
-    function onOnline() {
-      void checkForUpdate();
-    }
-    window.addEventListener("online", onOnline);
     return () => {
+      checkGeneration.current += 1;
+      window.removeEventListener(OTA_PENDING_EVENT, onPending);
+      window.removeEventListener(OTA_PUSH_EVENT, onOtaPush);
+      window.removeEventListener(ISO_AUTH_READY_EVENT, onAuthReady);
+      window.removeEventListener(INTERNET_RESTORED_EVENT, onInternetRestored);
+      window.removeEventListener("online", onInternetRestored);
+      document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
-      window.removeEventListener("online", onOnline);
+      removeRealtime();
     };
-  }, [checkForUpdate]);
+  }, [restorePendingFromDevice, runBackgroundCheck, runCheckIfRemoteNewer]);
 
   async function applyUpdate() {
     if (!pending || applying) return;
     setApplying(true);
-    try {
-      const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-      await LiveUpdate.setNextBundle({ bundleId: pending.bundleId });
-      await LiveUpdate.reload();
-    } catch {
+    setApplyError(null);
+    const result = await applyDownloadedOtaBundle(pending);
+    if (!result.ok) {
       setApplying(false);
+      setApplyError(result.message);
     }
   }
 
   if (!pending) return null;
 
+  const messageBase = pending.releaseNotes?.trim()
+    ? `Version ${pending.bundleId} is ready. Restart to apply UI changes:\n\n${pending.releaseNotes}`
+    : `Version ${pending.bundleId} is ready. Restart now to apply the latest UI changes.`;
+
   return (
     <NotificationModal
       open
       title="App update ready"
-      message={
-        pending.releaseNotes?.trim()
-          ? `A new version (${pending.bundleId}) is downloaded. Restart to apply:\n\n${pending.releaseNotes}`
-          : `A new version (${pending.bundleId}) is downloaded. Restart now to apply the latest fixes and features.`
-      }
+      message={applyError ? `${messageBase}\n\n${applyError}` : messageBase}
       actionLabel={applying ? "Restarting…" : "Restart now"}
       cancelLabel="Later"
-      onClose={() => setPending(null)}
-      onCancel={() => setPending(null)}
+      onClose={() => {
+        setApplyError(null);
+        setPending(null);
+      }}
+      onCancel={() => {
+        setApplyError(null);
+        setPending(null);
+      }}
       onAction={() => void applyUpdate()}
     />
   );

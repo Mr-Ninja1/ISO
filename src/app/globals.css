@@ -40,6 +40,17 @@
   --shell-tint-c: rgba(232, 244, 241, 0.65);
   --shadow-card: 0 1px 2px rgba(0, 61, 51, 0.06), 0 10px 28px rgba(0, 61, 51, 0.08);
   --shadow-card-hover: 0 12px 32px rgba(0, 61, 51, 0.14);
+  --ws-panel-bg: rgba(255, 255, 255, 0.94);
+  --ws-card-bg: #ffffff;
+  --ws-card-border: #e2e8f0;
+  --ws-card-title: var(--foreground);
+  --ws-card-subtitle: color-mix(in srgb, var(--foreground) 65%, transparent);
+  --ws-hero-bg: linear-gradient(
+    135deg,
+    rgba(209, 233, 246, 0.55) 0%,
+    rgba(245, 239, 230, 0.9) 50%,
+    rgba(255, 255, 255, 0.95) 100%
+  );
 }
 
 :root[data-theme="slate-soft"] {
@@ -64,6 +75,205 @@
   --shell-tint-a: rgba(16, 34, 27, 0.03);
   --shell-tint-b: rgba(16, 34, 27, 0.015);
   --shell-tint-c: rgba(16, 34, 27, 0.04);
+}
+
+/* Lavender — soft purple shell */
+:root[data-theme="lavender"],
+:root[data-theme="ota-lavender"] {
+  --background: #f3e8ff;
+  --foreground: #3b0764;
+  --hse-cream: #f3e8ff;
+  --hse-cream-deep: #e9d5ff;
+  --hse-teal: #5b21b6;
+  --hse-teal-mid: #7c3aed;
+  --hse-teal-light: #8b5cf6;
+  --hse-copper: #c026d3;
+  --hse-copper-soft: #fae8ff;
+  --hse-sky: #ddd6fe;
+  --hse-sky-deep: #a78bfa;
+  --hse-charcoal: #3b0764;
+  --hse-caution: #e879f9;
+  --hse-caution-dark: #86198f;
+  --shell-tint-a: rgba(124, 58, 237, 0.22);
+  --shell-tint-b: rgba(243, 232, 255, 0.98);
+  --shell-tint-c: rgba(192, 132, 252, 0.18);
+}
+
+:root[data-theme="lavender"] .ws-header-accent,
+:root[data-theme="ota-lavender"] .ws-header-accent {
+  height: 6px;
+  background: linear-gradient(90deg, #7c3aed, #c026d3, #a78bfa);
+}
+
+:root[data-theme="lavender"] .ws-header,
+:root[data-theme="ota-lavender"] .ws-header {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(237, 233, 254, 0.94));
+  border-bottom-color: color-mix(in srgb, #7c3aed 22%, transparent);
+}
+
+/* Pink — girly soft pink shell (stored as theme id "rose") */
+:root[data-theme="rose"] {
+  --background: #fff5fb;
+  --foreground: #9d174d;
+  --accent-soft: #be185d;
+  --hse-cream: #fff0f8;
+  --hse-cream-deep: #ffe4f3;
+  --hse-teal: #ec4899;
+  --hse-teal-mid: #f472b6;
+  --hse-teal-light: #f9a8d4;
+  --hse-copper: #db2777;
+  --hse-copper-soft: #fce7f3;
+  --hse-sky: #fbcfe8;
+  --hse-sky-deep: #f9a8d4;
+  --hse-charcoal: #831843;
+  --hse-caution: #f472b6;
+  --hse-caution-dark: #be185d;
+  --shell-tint-a: rgba(244, 114, 182, 0.28);
+  --shell-tint-b: rgba(255, 245, 251, 0.98);
+  --shell-tint-c: rgba(251, 207, 232, 0.35);
+}
+
+:root[data-theme="rose"] .ws-header-accent {
+  height: 6px;
+  background: linear-gradient(90deg, #f9a8d4, #ec4899, #fbcfe8);
+}
+
+:root[data-theme="rose"] .ws-header {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 228, 245, 0.95));
+  border-bottom-color: color-mix(in srgb, #ec4899 22%, transparent);
+}
+
+/* Hacker — GitHub-style dark + green accents, high-contrast text */
+:root[data-theme="hacker"] {
+  color-scheme: dark;
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --accent-soft: #8b949e;
+  --surface: #161b22;
+  --surface-muted: #21262d;
+  --border: #30363d;
+  --border-strong: #3fb950;
+  --hse-cream: #161b22;
+  --hse-cream-deep: #010409;
+  --hse-teal: #3fb950;
+  --hse-teal-mid: #2ea043;
+  --hse-teal-light: #56d364;
+  --hse-copper: #3fb950;
+  --hse-copper-soft: #1a2e1a;
+  --hse-sky: #21262d;
+  --hse-sky-deep: #30363d;
+  --hse-charcoal: #f0f6fc;
+  --hse-caution: #d29922;
+  --hse-caution-dark: #0d1117;
+  --shell-tint-a: rgba(63, 185, 80, 0.12);
+  --shell-tint-b: rgba(13, 17, 23, 0.98);
+  --shell-tint-c: rgba(33, 38, 45, 0.75);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ws-panel-bg: #161b22;
+  --ws-card-bg: #161b22;
+  --ws-card-border: #30363d;
+  --ws-card-title: #f0f6fc;
+  --ws-card-subtitle: #8b949e;
+  --ws-hero-bg: linear-gradient(135deg, #161b22 0%, #0d1117 52%, #010409 100%);
+}
+
+:root[data-theme="hacker"] .ws-header-accent {
+  height: 5px;
+  background: linear-gradient(90deg, #238636, #3fb950, #0d1117);
+}
+
+:root[data-theme="hacker"] .ws-header {
+  background: linear-gradient(180deg, rgba(22, 27, 34, 0.98), rgba(13, 17, 23, 0.96));
+  border-bottom-color: #30363d;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="hacker"] .ws-category-active {
+  background: linear-gradient(135deg, #238636, #2ea043);
+  color: #ffffff;
+  border-color: #3fb950;
+}
+
+:root[data-theme="hacker"] .ws-category-inactive {
+  border-color: #30363d;
+  background: #21262d;
+  color: #e6edf3;
+}
+
+:root[data-theme="hacker"] .ws-btn-ghost,
+:root[data-theme="hacker"] .ui-menu,
+:root[data-theme="hacker"] input,
+:root[data-theme="hacker"] select,
+:root[data-theme="hacker"] textarea {
+  background-color: #161b22;
+  color: #e6edf3;
+  border-color: #30363d;
+}
+
+:root[data-theme="hacker"] .ws-panel {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+:root[data-theme="hacker"] .ws-admin-hero {
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 52%, #010409 100%);
+  border-bottom-color: var(--border) !important;
+}
+
+:root[data-theme="hacker"] .ws-admin-hero [class*="bg-sky"],
+:root[data-theme="hacker"] .ws-admin-hero [class*="radial-gradient"] {
+  opacity: 0.35;
+}
+
+:root[data-theme="hacker"] .ws-action-card {
+  background: var(--surface);
+  border-color: var(--border);
+  color: #e6edf3;
+}
+
+:root[data-theme="hacker"] .ws-action-card:hover {
+  border-color: #3fb950;
+  background: #1c2128;
+}
+
+:root[data-theme="hacker"] .ws-action-card .font-medium {
+  color: #f0f6fc;
+}
+
+:root[data-theme="hacker"] .ws-icon-indigo,
+:root[data-theme="hacker"] .ws-icon-sky,
+:root[data-theme="hacker"] .ws-icon-violet {
+  border-color: #30363d;
+  background: linear-gradient(145deg, #21262d, #161b22);
+  color: #56d364;
+}
+
+:root[data-theme="hacker"] .ws-icon-emerald {
+  border-color: #238636;
+  background: linear-gradient(145deg, #1a2e1a, #161b22);
+  color: #3fb950;
+}
+
+:root[data-theme="hacker"] .ws-icon-amber {
+  border-color: #9e6a03;
+  background: linear-gradient(145deg, #2d2410, #161b22);
+  color: #d29922;
+}
+
+:root[data-theme="hacker"] .ws-category-inactive:hover {
+  background: #30363d;
+  color: #e6edf3;
+}
+
+:root[data-theme="hacker"] .ws-btn-ghost:hover {
+  background: #30363d;
+  color: #e6edf3;
+}
+
+:root[data-theme="hacker"] .text-slate-600 {
+  color: #8b949e;
 }
 
 @theme inline {

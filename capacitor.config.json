@@ -1,6 +1,6 @@
 {
-  "appId": "com.isopro.app",
-  "appName": "ISO Pro",
+  "appId": "com.isogrid.app",
+  "appName": "ISO Grid",
   "webDir": "out",
   "bundledWebRuntime": false,
   "plugins": {
@@ -8,16 +8,15 @@
       "enabled": true
     },
     "LiveUpdate": {
-      "readyTimeout": 10000
+      "readyTimeout": 30000
     }
   },
   "server": {
     "androidScheme": "https",
     "cleartext": false,
-    "errorPath": "workspace/index.html",
     "allowNavigation": [
-      "isopro.me",
-      "*.isopro.me",
+      "iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net",
+      "*.azurewebsites.net",
       "*.supabase.co"
     ]
   }

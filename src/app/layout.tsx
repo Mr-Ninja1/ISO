@@ -70,13 +70,15 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <LiveUpdateBootstrap />
           <CapacitorStylesGuard />
           <NativeUpdateGate />
-          <LiveUpdateBootstrap />
           <CapacitorEntryRedirect />
           <CapacitorAppRecovery />
           <CapacitorBackButtonHandler />
-          <PushNotificationsBootstrap />
+          <SearchParamsBoundary>
+            <PushNotificationsBootstrap />
+          </SearchParamsBoundary>
           <RequiresInternetDialogHost />
           <OfflineNavigationGuard />
           <SearchParamsBoundary fullScreen>

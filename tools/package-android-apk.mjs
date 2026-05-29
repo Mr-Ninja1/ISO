@@ -12,7 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const androidDir = path.join(root, "android");
 const gradlew = process.platform === "win32" ? "gradlew.bat" : "gradlew";
 const releaseApk = path.join(androidDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
-const distApk = path.join(root, "dist", "iso-pro.apk");
+const distApk = path.join(root, "dist", "iso-grid.apk");
 
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, {
@@ -23,6 +23,10 @@ function run(command, args, cwd = root) {
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+
+console.log("=== Brand assets (icons + Android splash) ===");
+run("node", ["tools/generate-icons.js"]);
+run("node", ["tools/generate-android-splash.js"]);
 
 console.log("=== Capacitor static build ===");
 run("node", ["tools/capacitor-build.mjs"]);
@@ -48,4 +52,4 @@ fs.copyFileSync(releaseApk, distApk);
 console.log("\nRelease APK ready:");
 console.log(" ", releaseApk);
 console.log(" ", distApk);
-console.log("\nUpload dist/iso-pro.apk to GitHub Releases and set NEXT_PUBLIC_ANDROID_APK_URL.");
+console.log("\nUpload dist/iso-grid.apk to GitHub Releases and set NEXT_PUBLIC_ANDROID_APK_URL.");

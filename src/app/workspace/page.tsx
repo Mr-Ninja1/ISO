@@ -4,7 +4,9 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, Search, Settings, Users2, X } from "lucide-react";
+import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, RefreshCw, Search, Settings, Users2, X } from "lucide-react";
+import { checkForOtaUpdate } from "@/lib/capacitor/otaManualCheck";
+import { Z_HEADER_MENU, Z_HEADER_MENU_BACKDROP, Z_STICKY_HEADER } from "@/lib/ui/zIndex";
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
@@ -50,6 +52,12 @@ import {
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
+import { OtaBundleBadge } from "@/components/OtaBundleBadge";
+import {
+  applyWorkspaceThemeToDocument,
+  normalizeWorkspaceTheme,
+  type WorkspaceTheme,
+} from "@/lib/client/workspaceTheme";
 import { useRequiresInternet } from "@/hooks/useRequiresInternet";
 import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
 import { MobileAppInstallBanner } from "@/components/MobileAppInstallBanner";
@@ -127,7 +135,6 @@ type WorkspaceCacheEnvelope = {
 };
 
 const RECENT_TEMPLATES_LIMIT = 6;
-type WorkspaceTheme = "hse-pro" | "default" | "slate-soft" | "warm-paper" | "mint-soft";
 const THEME_STORAGE_KEY = "iso-theme-v1";
 
 function templateCardClasses(color: string | undefined) {
@@ -555,7 +562,10 @@ function WorkspacePageInner() {
   const [addFormOpen, setAddFormOpen] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [theme, setTheme] = useState<WorkspaceTheme>("hse-pro");
+  const [checkingOta, setCheckingOta] = useState(false);
+  const [wsMenuCoords, setWsMenuCoords] = useState<{ top: number; right: number } | null>(null);
+  const wsMenuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [theme, setTheme] = useState<WorkspaceTheme>("mint-soft");
   const [uiActiveCategoryId, setUiActiveCategoryId] = useState<string | null>(null);
   const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null);
   const [cardMenuTemplateId, setCardMenuTemplateId] = useState<string | null>(null);
@@ -706,6 +716,34 @@ function WorkspacePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantSlug]);
 
+  useEffect(() => {
+    if (!menuOpen) {
+      setWsMenuCoords(null);
+      return;
+    }
+
+    const updateCoords = () => {
+      const el = wsMenuBtnRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setWsMenuCoords({
+        top: rect.bottom + 6,
+        right: Math.max(8, window.innerWidth - rect.right),
+      });
+    };
+
+    updateCoords();
+    function onScroll() {
+      setMenuOpen(false);
+    }
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", updateCoords);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", updateCoords);
+    };
+  }, [menuOpen]);
+
   async function prefetchTemplateSchema(templateId: string) {
     if (!accessToken || !tenantSlug) return;
     if (readAuditTemplateCache(tenantSlug, templateId)) return;
@@ -721,6 +759,45 @@ function WorkspacePageInner() {
     if (!res.ok) throw new Error(data?.error || `Template prefetch failed (${res.status})`);
 
     writeAuditTemplateCache(tenantSlug, templateId, data);
+  }
+
+  async function handleCheckForUpdates() {
+    setMenuOpen(false);
+    if (blockIfOffline("Check for updates")) return;
+    if (!isCapacitorNativeApp()) {
+      setNotification({
+        title: "Native app only",
+        message: "Install the ISO Grid app to receive over-the-air updates.",
+        tone: "default",
+      });
+      return;
+    }
+
+    setCheckingOta(true);
+    try {
+      const result = await checkForOtaUpdate();
+      if (result.status === "available") {
+        setNotification({
+          title: "Update ready",
+          message: result.message || "Restart when prompted to apply the update.",
+          tone: "success",
+        });
+      } else if (result.status === "up_to_date") {
+        setNotification({
+          title: "Up to date",
+          message: result.message || "You already have the latest update.",
+          tone: "success",
+        });
+      } else if (result.status === "error") {
+        setNotification({
+          title: "Update check failed",
+          message: result.message || "Could not check for updates.",
+          tone: "warning",
+        });
+      }
+    } finally {
+      setCheckingOta(false);
+    }
   }
 
   async function prepareOfflineMode() {
@@ -1192,24 +1269,16 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY) as WorkspaceTheme | null;
-      if (!stored) return;
-      if (!["hse-pro", "default", "slate-soft", "warm-paper", "mint-soft"].includes(stored)) return;
-      setTheme(stored);
+      const stored = localStorage.getItem(THEME_STORAGE_KEY);
+      const normalized = normalizeWorkspaceTheme(stored);
+      if (normalized) setTheme(normalized);
     } catch {
       // ignore storage errors
     }
   }, []);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === "default") {
-      root.removeAttribute("data-theme");
-    } else if (theme === "hse-pro") {
-      root.setAttribute("data-theme", "hse-pro");
-    } else {
-      root.setAttribute("data-theme", theme);
-    }
+    applyWorkspaceThemeToDocument(theme);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
@@ -2198,7 +2267,7 @@ function WorkspacePageInner() {
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
       <div className="ws-header-accent" />
       <MobileAppInstallBanner placement="workspace" />
-      <div className="ws-header sticky top-0 z-10 backdrop-blur-xl">
+      <div className="ws-header sticky top-0 isolate backdrop-blur-xl" style={{ zIndex: Z_STICKY_HEADER }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
@@ -2218,8 +2287,9 @@ function WorkspacePageInner() {
                 <LayoutDashboard className="h-4 w-4 text-[var(--hse-teal)]" />
                 <h1 className="truncate text-base font-semibold text-foreground">{tenant.name}</h1>
               </div>
-              <p className="hidden text-sm text-[var(--hse-teal-mid)] sm:block">
-                {isAdminView ? "HSE management · ISO Pro" : "Field inspections · ISO Pro"}
+              <p className="hidden items-center gap-2 text-sm text-[var(--hse-teal-mid)] sm:flex">
+                <span>{isAdminView ? "HSE management · ISO Grid" : "Field inspections · ISO Grid"}</span>
+                <OtaBundleBadge />
               </p>
             </div>
           </div>
@@ -2234,6 +2304,7 @@ function WorkspacePageInner() {
 
             <div className="relative">
               <button
+                ref={wsMenuBtnRef}
                 type="button"
                 className="ws-btn-ghost inline-flex h-9 items-center justify-center px-3"
                 aria-label="Workspace menu"
@@ -2246,17 +2317,24 @@ function WorkspacePageInner() {
                 <MoreVertical className="h-4 w-4" />
               </button>
 
-              {menuOpen ? (
+              {menuOpen && wsMenuCoords
+                ? createPortal(
                 <>
                   <button
                     type="button"
-                    className="fixed inset-0 z-[250] cursor-default"
+                    className="fixed inset-0 cursor-default bg-black/20"
+                    style={{ zIndex: Z_HEADER_MENU_BACKDROP }}
                     aria-label="Close menu"
                     onClick={() => setMenuOpen(false)}
                   />
                   <div
-                    className="ui-menu absolute right-0 top-11 z-[251] w-56 p-1"
+                    className="ui-menu fixed w-56 p-1"
                     role="menu"
+                    style={{
+                      top: wsMenuCoords.top,
+                      right: wsMenuCoords.right,
+                      zIndex: Z_HEADER_MENU,
+                    }}
                   >
                     {canManageCategories ? (
                       <>
@@ -2326,6 +2404,23 @@ function WorkspacePageInner() {
                       Staff training
                     </button>
 
+                    {isCapacitorNativeApp() ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => void handleCheckForUpdates()}
+                        disabled={checkingOta || offlinePreparing}
+                      >
+                        {checkingOta ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                        {checkingOta ? "Checking for updates…" : "Check for updates"}
+                      </button>
+                    ) : null}
+
                     <div className="px-3 py-2">
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
                         Theme
@@ -2335,11 +2430,12 @@ function WorkspacePageInner() {
                         value={theme}
                         onChange={(e) => setTheme(e.target.value as WorkspaceTheme)}
                       >
-                        <option value="hse-pro">HSE Professional</option>
-                        <option value="default">Classic</option>
-                        <option value="slate-soft">Slate soft</option>
-                        <option value="warm-paper">Warm paper</option>
                         <option value="mint-soft">Mint soft</option>
+                        <option value="lavender">Lavender</option>
+                        <option value="rose">Pink</option>
+                        <option value="hacker">GitHub dark</option>
+                        <option value="hse-pro">HSE Professional</option>
+                        <option value="warm-paper">Warm paper</option>
                       </select>
                     </div>
 
@@ -2404,8 +2500,10 @@ function WorkspacePageInner() {
                       {loggingOut ? "Signing out…" : "Log out"}
                     </button>
                   </div>
-                </>
-              ) : null}
+                </>,
+                document.body
+              )
+                : null}
             </div>
           </div>
         </div>
@@ -2502,71 +2600,9 @@ function WorkspacePageInner() {
               </div>
 
               <div className="grid gap-2 sm:grid-cols-3">
-                {canManageCategories ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (blockIfOffline("Categories")) return;
-                        setSeedOpen(true);
-                      }}
-                      className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={seedBusy}
-                    >
-                      {seedBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                      {seedBusy ? "Creating…" : "Create categories"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (blockIfOffline("Manage categories")) return;
-                        pushTenantRoute(router, tenant.slug, "categories");
-                      }}
-                      className="ws-toolbar-btn"
-                    >
-                      <FolderTree className="h-4 w-4" />
-                      Manage categories
-                    </button>
-                  </>
-                ) : null}
-
-                {canCreateForms ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (blockIfOffline("Create forms")) return;
-                      setAddFormOpen(true);
-                    }}
-                    className="ws-toolbar-btn"
-                  >
-                    <FileText className="h-4 w-4" />
-                    Create forms
-                  </button>
-                ) : null}
-
-                {canAccessSettings ? (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenSettings(tenant.slug)}
-                    disabled={openingSettings}
-                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {openingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings className="h-4 w-4" />}
-                    {openingSettings ? "Opening…" : "Settings"}
-                  </button>
-                ) : null}
-
-                {canStaffManage ? (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenStaffManagement(tenant.slug)}
-                    disabled={openingStaff}
-                    className="ws-toolbar-btn disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {openingStaff ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users2 className="h-4 w-4" />}
-                    {openingStaff ? "Opening…" : "Staff management"}
-                  </button>
-                ) : null}
+                {/* HSE console admin navigation buttons removed for now.
+                    Native Capacitor routing for these deep links was unstable.
+                    Users can still open the forms workspace from above. */}
               </div>
             </div>
 
@@ -2661,22 +2697,6 @@ function WorkspacePageInner() {
                   </div>
                 </button>
               ) : null}
-
-              <button
-                type="button"
-                onClick={handleSwitchBrand}
-                className="group ui-card-muted p-4 text-left transition hover:-translate-y-0.5"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
-                    <LayoutDashboard className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Switch brand</span>
-                    <span className="mt-1 block text-xs text-foreground/65">Choose another brand for this account</span>
-                  </span>
-                </div>
-              </button>
             </div>
           </section>
         ) : null}
@@ -2955,7 +2975,7 @@ function WorkspacePageInner() {
 
                         <div className="flex items-center gap-2">
                           {canStaffManage ? (
-                            <div className="relative z-20">
+                            <div className="relative">
                               <button
                                 type="button"
                                 onClick={(e) => {

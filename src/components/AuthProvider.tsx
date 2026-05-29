@@ -122,6 +122,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         setLoading(false);
         window.clearTimeout(timeoutId);
+        try {
+          const { dispatchAuthReady } = await import("@/lib/capacitor/otaEvents");
+          dispatchAuthReady();
+        } catch {
+          // ignore on web-only builds
+        }
       }
     };
 

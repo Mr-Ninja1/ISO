@@ -125,7 +125,7 @@ function writeCapacitorWebConfig() {
         enabled: true,
       },
       LiveUpdate: {
-        readyTimeout: 10000,
+        readyTimeout: 30000,
       },
     },
     server: {

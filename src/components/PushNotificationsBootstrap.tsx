@@ -1,17 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useOptionalAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
-import { attachPushNotificationListeners, isPushNotificationsEnabled } from "@/lib/push/pushNotificationService";
+import {
+  attachPushNotificationListeners,
+  isPushNotificationsEnabled,
+  registerDeviceForPush,
+} from "@/lib/push/pushNotificationService";
 
 /**
  * Prepares push notification listeners when enabled.
- * Registration is triggered from settings once FCM/APNs is configured (see docs/PUSH_NOTIFICATIONS.md).
+ * Auto-registers native devices once the user session is ready.
  */
 export function PushNotificationsBootstrap() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const auth = useOptionalAuth();
   const accessToken = getWorkspaceAccessToken(auth?.session);
 
@@ -38,8 +44,19 @@ export function PushNotificationsBootstrap() {
 
   useEffect(() => {
     if (!isPushNotificationsEnabled() || !accessToken) return;
-    // Auto-register can be enabled later via settings UI + tenant preference.
-  }, [accessToken]);
+
+    const tenantSlug =
+      searchParams?.get("tenantSlug") ||
+      (pathname?.startsWith("/")
+        ? pathname.split("/").filter(Boolean)[0] || null
+        : null);
+
+    void registerDeviceForPush({
+      accessToken,
+      tenantSlug,
+      categories: ["announcement", "system", "reminder"],
+    });
+  }, [accessToken, pathname, searchParams]);
 
   return null;
 }

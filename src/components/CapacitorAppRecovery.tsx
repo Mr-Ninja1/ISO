@@ -9,6 +9,7 @@ import {
   normalizeAppPathname,
   resolvePostAuthDestination,
 } from "@/lib/client/appEntryNavigation";
+import { isWithinOtaBootGracePeriod } from "@/lib/capacitor/otaBoot";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 const RECOVER_KEY = "iso-blank-recover-at:v1";
@@ -16,7 +17,7 @@ const MIN_RECOVER_GAP_MS = 3000;
 
 const STUCK_LOADING_PHRASES = [
   "taking you to your workspace",
-  "starting iso pro",
+  "starting iso grid",
   "loading workspace",
   "restoring your session",
   "opening workspace",
@@ -41,6 +42,13 @@ function pageLooksStuckOnLoadingShell() {
   return STUCK_LOADING_PHRASES.some((phrase) => text.includes(phrase));
 }
 
+function isEntryShellPath(path: string, search: string) {
+  if (isAppRootPath(path)) return true;
+  if (isWorkspaceEntryWithoutTenant(path, search)) return true;
+  if (path === "/login") return true;
+  return false;
+}
+
 function shouldForceEntryNavigation() {
   const path = normalizeAppPathname(window.location.pathname);
   const search = window.location.search;
@@ -49,6 +57,8 @@ function shouldForceEntryNavigation() {
 }
 
 function tryRecover(reason: string) {
+  if (isWithinOtaBootGracePeriod()) return;
+
   let last = 0;
   try {
     last = Number(sessionStorage.getItem(RECOVER_KEY) || "0");
@@ -65,6 +75,9 @@ function tryRecover(reason: string) {
     // ignore
   }
 
+  const path = normalizeAppPathname(window.location.pathname);
+  const search = window.location.search;
+
   if (shouldForceEntryNavigation()) {
     const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
     console.warn(`[CapacitorAppRecovery] Stuck entry (${reason}); navigating to ${target}`);
@@ -72,16 +85,19 @@ function tryRecover(reason: string) {
     return;
   }
 
+  // Never bounce users off tenant/deep routes during slow hydration or after OTA.
+  if (!isEntryShellPath(path, search)) return;
+
   if (!pageLooksBlank()) return;
 
   const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
-  console.warn(`[CapacitorAppRecovery] Blank screen (${reason}); navigating to ${target}`);
+  console.warn(`[CapacitorAppRecovery] Blank entry shell (${reason}); navigating to ${target}`);
   hardNavigate(target);
 }
 
 /**
- * After a force-close + quick reopen, the WebView can resume before React hydrates.
- * Navigates to workspace/login if the page stayed empty or on the loading shell too long.
+ * Recovery for cold start / resume on entry shells only.
+ * Does not redirect tenant routes (settings, forms, etc.) to avoid navigation bounce.
  */
 export function CapacitorAppRecovery() {
   useEffect(() => {
