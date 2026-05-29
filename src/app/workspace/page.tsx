@@ -2927,7 +2927,7 @@ function WorkspacePageInner() {
                         window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       className={
-                        "relative w-full rounded-lg border p-4 text-left focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
+                        "iso-app-card relative w-full rounded-lg border p-4 text-left focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
                         templateCardClasses(t.settings?.cardColor) +
                         " " +
                         (openingTemplateId === t.id ? "opacity-80" : "")

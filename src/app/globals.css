@@ -211,14 +211,19 @@
   border-color: #30363d;
 }
 
-:root[data-theme="hacker"] .ws-panel {
-  background: var(--surface);
-  border-color: var(--border);
+:root[data-theme="hacker"] .ws-panel,
+:root[data-theme="hacker"] .tenant-shell main.rounded-2xl {
+  background: var(--ws-panel-bg) !important;
+  border-color: var(--border) !important;
   color: var(--foreground);
 }
 
+:root[data-theme="hacker"] .tenant-shell header.rounded-2xl {
+  background: color-mix(in srgb, var(--surface) 96%, transparent) !important;
+  border-color: var(--border) !important;
+}
+
 :root[data-theme="hacker"] .ws-admin-hero {
-  background: linear-gradient(135deg, #161b22 0%, #0d1117 52%, #010409 100%);
   border-bottom-color: var(--border) !important;
 }
 
@@ -227,19 +232,16 @@
   opacity: 0.35;
 }
 
-:root[data-theme="hacker"] .ws-action-card {
-  background: var(--surface);
-  border-color: var(--border);
-  color: #e6edf3;
-}
-
-:root[data-theme="hacker"] .ws-action-card:hover {
+:root[data-theme="hacker"] .ws-action-card:hover,
+:root[data-theme="hacker"] .iso-app-card:hover {
   border-color: #3fb950;
-  background: #1c2128;
+  background: #1c2128 !important;
+  background-image: none !important;
 }
 
-:root[data-theme="hacker"] .ws-action-card .font-medium {
-  color: #f0f6fc;
+:root[data-theme="hacker"] .ws-action-card .font-medium,
+:root[data-theme="hacker"] .iso-app-card .font-semibold {
+  color: var(--ws-card-title);
 }
 
 :root[data-theme="hacker"] .ws-icon-indigo,
@@ -272,8 +274,77 @@
   color: #e6edf3;
 }
 
-:root[data-theme="hacker"] .text-slate-600 {
+:root[data-theme="hacker"] .text-slate-600,
+:root[data-theme="hacker"] .workspace-shell .text-slate-500,
+:root[data-theme="hacker"] .tenant-shell .text-slate-500,
+:root[data-theme="hacker"] .tenant-shell .text-slate-600 {
   color: #8b949e;
+}
+
+:root[data-theme="hacker"] .workspace-shell .iso-app-card,
+:root[data-theme="hacker"] .tenant-shell .iso-app-card,
+:root[data-theme="hacker"] .tenant-shell section.rounded-xl.border,
+:root[data-theme="hacker"] .tenant-shell div.rounded-xl.border.bg-background,
+:root[data-theme="hacker"] .tenant-shell div.rounded-xl.border.p-4:not(.ui-menu) {
+  background: var(--ws-card-bg) !important;
+  background-image: none !important;
+  border-color: var(--ws-card-border) !important;
+  color: var(--foreground);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-theme="hacker"] .tenant-shell [class*="radial-gradient"][class*="rounded-2xl"] {
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 55%, #010409 100%) !important;
+}
+
+:root[data-theme="hacker"] .workspace-shell .iso-app-card [class*="border-foreground/20"],
+:root[data-theme="hacker"] .tenant-shell .rounded-xl [class*="border-foreground/20"] {
+  border-color: var(--ws-card-border) !important;
+  background: #21262d !important;
+  color: #56d364;
+}
+
+:root[data-theme="hacker"] .workspace-shell .bg-amber-50,
+:root[data-theme="hacker"] .tenant-shell .bg-amber-50 {
+  background: #2d2410 !important;
+  color: #d29922 !important;
+  border-color: #9e6a03 !important;
+}
+
+:root[data-theme="hacker"] .workspace-shell .bg-red-50,
+:root[data-theme="hacker"] .tenant-shell .bg-red-50 {
+  background: #3d1418 !important;
+  color: #ff7b72 !important;
+  border-color: #6e3035 !important;
+}
+
+:root[data-theme="hacker"] .workspace-shell [class*="border-foreground/15"],
+:root[data-theme="hacker"] .workspace-shell [class*="bg-foreground/"],
+:root[data-theme="hacker"] .tenant-shell [class*="border-foreground/15"],
+:root[data-theme="hacker"] .tenant-shell [class*="bg-foreground/"] {
+  background: #21262d !important;
+  border-color: #30363d !important;
+  color: #8b949e !important;
+}
+
+:root[data-theme="hacker"] .workspace-shell .bg-white,
+:root[data-theme="hacker"] .tenant-shell .bg-white {
+  background: var(--ws-card-bg) !important;
+  color: var(--foreground);
+}
+
+:root[data-theme="hacker"] .wayfinder-btn {
+  background: #161b22;
+  border-color: #3fb950;
+  color: #3fb950;
+}
+
+:root[data-theme="hacker"] .wayfinder-btn:hover {
+  background: #21262d;
+}
+
+:root[data-theme="hacker"] {
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -338,24 +409,24 @@ body {
 }
 
 .ws-admin-hero {
-  background: linear-gradient(
-    135deg,
-    rgba(209, 233, 246, 0.55) 0%,
-    rgba(245, 239, 230, 0.9) 50%,
-    rgba(255, 255, 255, 0.95) 100%
-  );
+  background: var(--ws-hero-bg);
 }
 
+.iso-app-card,
 .ws-action-card {
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--ws-card-border);
+  background: var(--ws-card-bg);
+  color: var(--foreground);
   border-radius: 1rem;
   box-shadow: var(--shadow-card);
   transition:
     transform 0.2s ease,
-    box-shadow 0.2s ease;
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
+.iso-app-card:hover,
 .ws-action-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-card-hover);
@@ -877,9 +948,10 @@ body {
 
 .ws-panel {
   border: 1px solid color-mix(in srgb, var(--hse-teal) 10%, var(--border));
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--ws-panel-bg);
   border-radius: 1.25rem;
   box-shadow: var(--shadow-card);
+  color: var(--foreground);
 }
 
 .wayfinder-btn {
