@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { CAPACITOR_EXPORT_TENANT_SLUG } from "@/lib/capacitor/staticExport";
 import { readWorkspaceCacheResolved } from "@/lib/client/workspaceCache";
 
@@ -123,14 +123,15 @@ export function readTenantMetaFromWorkspaceCache(userId: string | null, tenantSl
 
 export function useResolvedTenantSlug(routeParam?: string | null): string {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const slug = useMemo(() => {
-    let querySlug: string | null = null;
-    if (typeof window !== "undefined") {
-      querySlug = new URLSearchParams(window.location.search).get("tenantSlug");
-    }
-    return resolveTenantSlug({ routeParam, pathname, querySlug });
-  }, [routeParam, pathname]);
+    return resolveTenantSlug({
+      routeParam,
+      pathname,
+      querySlug: searchParams.get("tenantSlug"),
+    });
+  }, [routeParam, pathname, searchParams]);
 
   useEffect(() => {
     if (slug) rememberActiveTenantSlug(slug);

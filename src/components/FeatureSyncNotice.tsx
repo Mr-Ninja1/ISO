@@ -7,8 +7,8 @@ type Props = {
 export function FeatureSyncNotice({ title, message, tone = "info" }: Props) {
   const toneClass =
     tone === "warning"
-      ? "border-amber-300 bg-amber-50 text-amber-900"
-      : "border-blue-300 bg-blue-50 text-blue-900";
+      ? "border-amber-300/80 bg-amber-50 text-amber-900"
+      : "border-foreground/20 bg-foreground/5 text-foreground";
 
   return (
     <div className={`rounded-md border p-3 text-sm ${toneClass}`}>

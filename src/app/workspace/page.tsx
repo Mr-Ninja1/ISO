@@ -2433,7 +2433,7 @@ function WorkspacePageInner() {
                         <option value="mint-soft">Mint soft</option>
                         <option value="lavender">Lavender</option>
                         <option value="rose">Pink</option>
-                        <option value="hacker">GitHub dark</option>
+                        <option value="hacker">Dark mode</option>
                         <option value="hse-pro">HSE Professional</option>
                         <option value="warm-paper">Warm paper</option>
                       </select>

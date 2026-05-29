@@ -343,6 +343,18 @@
   background: #21262d;
 }
 
+:root[data-theme="hacker"] .tenant-shell details.iso-app-card summary {
+  color: var(--ws-card-title);
+}
+
+:root[data-theme="hacker"] .tenant-shell details.iso-app-card .text-foreground\/60 {
+  color: var(--ws-card-subtitle);
+}
+
+:root[data-theme="hacker"] .tenant-shell a:hover {
+  color: var(--hse-teal-light);
+}
+
 :root[data-theme="hacker"] {
   color-scheme: dark;
 }

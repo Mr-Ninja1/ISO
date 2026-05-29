@@ -1,46 +1,31 @@
 "use client";
 
 import { Suspense, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
 import { RouteLoadingFallback } from "@/components/SuspenseFallback";
-import { WorkspaceLoadingShell } from "@/components/WorkspaceLoadingShell";
 
 type Props = {
   children: ReactNode;
-  /** Full-screen shell for app-level routes (workspace, bootstrap). */
+  /** App shell routes use a light overlay; OfflineBootstrapGate owns full-screen loading. */
   fullScreen?: boolean;
 };
 
-function resolveLoadingFallback(fullScreen: boolean, pathname: string | null) {
-  const path = pathname || "";
-  const isWorkspaceRoute = path === "/workspace" || path.startsWith("/workspace/");
-
-  if (fullScreen && isWorkspaceRoute) {
-    return <WorkspaceLoadingShell />;
-  }
-
-  if (fullScreen && path.startsWith("/_/")) {
-    return (
-      <WorkspaceLoadingShell title="Loading page" subtitle="Opening your form or brand page…" />
-    );
-  }
-
-  if (fullScreen) {
-    return (
-      <WorkspaceLoadingShell title="Loading" subtitle="Preparing the app…" />
-    );
-  }
-
-  return <RouteLoadingFallback />;
-}
-
-export function SearchParamsBoundary({ children, fullScreen = false }: Props) {
+/** Lightweight overlay — avoids stacking two WorkspaceLoadingShell instances (split screen). */
+function AppSuspenseFallback() {
   return (
-    <Suspense fallback={<SearchParamsFallback fullScreen={fullScreen} />}>{children}</Suspense>
+    <div
+      className="fixed inset-0 z-[9997] flex items-center justify-center bg-background"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-2 text-sm text-foreground/70">
+        <div className="iso-loading-spinner h-5 w-5" aria-hidden />
+        Loading…
+      </div>
+    </div>
   );
 }
 
-function SearchParamsFallback({ fullScreen }: { fullScreen: boolean }) {
-  const pathname = usePathname();
-  return resolveLoadingFallback(fullScreen, pathname);
+export function SearchParamsBoundary({ children, fullScreen = false }: Props) {
+  const fallback = fullScreen ? <AppSuspenseFallback /> : <RouteLoadingFallback />;
+  return <Suspense fallback={fallback}>{children}</Suspense>;
 }

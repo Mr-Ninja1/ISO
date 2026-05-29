@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260529.ota-theme-contrast-v1",
-  "version": "20260529.ota-theme-contrast-v1",
+  "bundleId": "20260529.ota-dark-settings-fix-v1",
+  "version": "20260529.ota-dark-settings-fix-v1",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260529.ota-theme-contrast-v1.zip",
-  "publishedAt": "2026-05-29T14:57:54.549Z",
-  "releaseNotes": "GitHub dark card text fix; girly pink theme"
+  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260529.ota-dark-settings-fix-v1.zip",
+  "publishedAt": "2026-05-29T20:49:52.967Z",
+  "releaseNotes": "Dark mode settings fix, single loading screen, saved form report fix"
 }

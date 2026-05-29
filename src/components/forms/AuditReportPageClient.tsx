@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
@@ -13,7 +13,7 @@ import { AuditReportDisplay } from "@/components/forms/AuditReportDisplay";
 import { ReportSnapshotCacheWriter } from "@/components/forms/ReportSnapshotCacheWriter";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
-import { resolveAuditId, useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { resolveAuditId, resolveTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { buildAuditReportHref, buildTenantHref } from "@/lib/client/tenantHref";
 import {
   buildReportFromDeviceStores,
@@ -33,13 +33,24 @@ export function AuditReportPageClient({
   routeAuditId: string;
 }) {
   const pathname = usePathname();
-  const tenantSlug = useResolvedTenantSlug(routeSlug);
+  const searchParams = useSearchParams();
+  const tenantSlug = useMemo(
+    () =>
+      resolveTenantSlug({
+        routeParam: routeSlug,
+        pathname,
+        querySlug: searchParams.get("tenantSlug"),
+      }),
+    [routeSlug, pathname, searchParams]
+  );
   const auditId = useMemo(() => {
-    const resolved = resolveAuditId(pathname);
+    const resolved = resolveAuditId(pathname, searchParams.toString());
     if (resolved) return resolved;
+    const fromQuery = (searchParams.get("auditId") || "").trim();
+    if (fromQuery && fromQuery !== "_") return fromQuery;
     if (routeAuditId && routeAuditId !== "_") return routeAuditId;
     return "";
-  }, [pathname, routeAuditId]);
+  }, [pathname, searchParams, routeAuditId]);
 
   const { session } = useAuth();
   const offline = useAppOffline();
