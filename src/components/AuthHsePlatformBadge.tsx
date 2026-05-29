@@ -7,7 +7,7 @@ export function AuthHsePlatformBadge() {
         <span className="auth-hse-badge__mark" aria-hidden>
           HSE
         </span>
-        <span>ISO Pro</span>
+        <span>ISO Grid</span>
       </div>
       <p className="auth-hse-badge__tagline">Health, Safety &amp; Environment platform</p>
       <p className="text-xs leading-5 text-[var(--accent-soft)]">

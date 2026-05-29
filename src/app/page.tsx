@@ -35,7 +35,7 @@ export default function Home() {
 
   return (
     <WorkspaceLoadingShell
-      title="Starting ISO Pro"
+      title="Starting ISO Grid"
       subtitle="Taking you to your workspace…"
     />
   );

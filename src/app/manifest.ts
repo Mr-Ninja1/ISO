@@ -4,8 +4,8 @@ export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ISO Pro",
-    short_name: "ISO Pro",
+    name: "ISO Grid",
+    short_name: "ISO Grid",
     description: "Offline-capable compliance platform for ISO-led operations.",
     id: "/workspace",
     start_url: "/workspace",

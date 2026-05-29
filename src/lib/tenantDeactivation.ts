@@ -7,7 +7,7 @@ export function tenantDeactivationReasonFromRow(row: Record<string, unknown> | n
 
 export function buildTenantDeactivatedUserMessage(reason?: string | null) {
   const contact =
-    "Contact Isopro or your platform developer to find out why your brand was deactivated and to request reactivation of your account.";
+    "Contact ISO Grid support or your platform developer to find out why your brand was deactivated and to request reactivation of your account.";
   if (reason?.trim()) {
     return `Your brand has been deactivated and is not available right now.\n\nReason for deactivation:\n${reason.trim()}\n\n${contact}`;
   }

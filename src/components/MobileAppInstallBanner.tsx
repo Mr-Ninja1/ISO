@@ -79,7 +79,7 @@ export function MobileAppInstallBanner({ placement = "login" }: Props) {
     <div
       className={`mobile-app-install-banner ${isLogin ? "mobile-app-install-banner--login" : "mobile-app-install-banner--workspace"}`}
       role="region"
-      aria-label="Install ISO Pro app"
+      aria-label="Install ISO Grid app"
     >
       <div className="mobile-app-install-banner__inner">
         <div className="mobile-app-install-banner__logo" aria-hidden>
@@ -87,7 +87,7 @@ export function MobileAppInstallBanner({ placement = "login" }: Props) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="mobile-app-install-banner__title">Get the ISO Pro app</p>
+          <p className="mobile-app-install-banner__title">Get the ISO Grid app</p>
           <p className="mobile-app-install-banner__text">
             Install on Android for offline inspections and field work — faster than the browser.
           </p>

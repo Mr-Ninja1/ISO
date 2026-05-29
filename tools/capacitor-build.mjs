@@ -14,10 +14,11 @@ const apiBackup = path.join(root, "src", "app", "__api_server_only__");
 const outDir = path.join(root, "out");
 const shellSlug = "_";
 
+const azureHost = "iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net";
 const apiBase =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
   process.env.CAPACITOR_API_BASE_URL?.trim() ||
-  "https://isopro.me";
+  `https://${azureHost}`;
 
 /** Embedded in the static bundle; bump per APK when native/plugins change. */
 const nativeBuild =
@@ -115,8 +116,8 @@ function mirrorTenantShellRoutes() {
 
 function writeCapacitorWebConfig() {
   const config = {
-    appId: "com.isopro.app",
-    appName: "ISO Pro",
+    appId: "com.isogrid.app",
+    appName: "ISO Grid",
     webDir: "out",
     bundledWebRuntime: false,
     plugins: {
@@ -130,8 +131,7 @@ function writeCapacitorWebConfig() {
     server: {
       androidScheme: "https",
       cleartext: false,
-      errorPath: "workspace/index.html",
-      allowNavigation: ["isopro.me", "*.isopro.me", "*.supabase.co"],
+      allowNavigation: [azureHost, "*.azurewebsites.net", "*.supabase.co"],
     },
   };
   fs.writeFileSync(path.join(root, "capacitor.config.json"), `${JSON.stringify(config, null, 2)}\n`);

@@ -20,7 +20,7 @@ import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
 
 export const metadata: Metadata = {
-  title: 'ISO Pro',
+  title: 'ISO Grid',
   description: 'Offline-capable compliance platform for ISO-led service brands and compliance workflows',
   manifest: '/manifest.webmanifest',
   icons: {

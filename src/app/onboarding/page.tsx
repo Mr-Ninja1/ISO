@@ -100,7 +100,7 @@ export default function OnboardingPage() {
     <div className="create-brand-page min-h-dvh">
       <header className="create-brand-page__header">
         <div className="create-brand-page__header-inner">
-          <span className="create-brand-page__logo">ISO Pro</span>
+          <span className="create-brand-page__logo">ISO Grid</span>
           <div className="flex items-center gap-3">
             <span className="hidden max-w-[12rem] truncate text-xs text-[var(--accent-soft)] sm:inline">
               {accountLabel}

@@ -65,11 +65,11 @@ export default function SignUpPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
-      title="Create your ISO Pro account"
+      eyebrow="ISO Grid"
+      title="Create your ISO Grid account"
       subtitle="Set up your organisation, brands, and HSE checklists. Your team can inspect offline from day one."
       formTitle="Create account"
-      formSubtitle="Join ISO Pro"
+      formSubtitle="Join ISO Grid"
       footerText="Already have an account?"
       footerHref="/login"
       footerLabel="Sign in"

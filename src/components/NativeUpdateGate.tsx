@@ -92,7 +92,7 @@ export function NativeUpdateGate() {
               Update required
             </p>
             <h2 id="native-update-gate-title" className="text-lg font-bold text-[var(--hse-charcoal)]">
-              Install the latest ISO Pro app
+              Install the latest ISO Grid app
             </h2>
           </div>
         </div>
@@ -107,7 +107,7 @@ export function NativeUpdateGate() {
           <li>Tap <strong className="text-[var(--hse-charcoal)]">Download APK</strong> below.</li>
           <li>Open the downloaded file when prompted.</li>
           <li>Allow install from this source if Android asks.</li>
-          <li>Open ISO Pro again after installation completes.</li>
+          <li>Open ISO Grid again after installation completes.</li>
         </ol>
 
         {apkUrl ? (

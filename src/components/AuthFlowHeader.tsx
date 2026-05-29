@@ -17,7 +17,7 @@ export function AuthFlowHeader({ userEmail, onSignOut, signingOut }: Props) {
           <span className="auth-hse-badge__mark" aria-hidden>
             HSE
           </span>
-          <span className="font-bold tracking-tight text-[var(--hse-charcoal)]">ISO Pro</span>
+          <span className="font-bold tracking-tight text-[var(--hse-charcoal)]">ISO Grid</span>
         </Link>
 
         <nav className="flex items-center gap-2 sm:gap-3" aria-label="Account">

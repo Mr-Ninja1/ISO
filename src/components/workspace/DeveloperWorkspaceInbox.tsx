@@ -137,7 +137,7 @@ export function DeveloperWorkspaceInbox({ tenantSlug, accessToken, onTenantDeact
       <button
         type="button"
         className="relative inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 bg-background px-2.5 text-sm font-medium text-foreground hover:bg-foreground/5"
-        title="Messages from ISO Pro"
+        title="Messages from ISO Grid"
         aria-label="Developer messages inbox"
         onClick={() => {
           setOpen(true);

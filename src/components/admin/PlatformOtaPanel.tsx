@@ -244,7 +244,7 @@ export function PlatformOtaPanel() {
                   value={form.liveUpdateBundleUrl || ""}
                   onChange={(e) => setForm((f) => ({ ...f, liveUpdateBundleUrl: e.target.value.trim() || null }))}
                   className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-                  placeholder="https://isopro.me/ota/production/manifest.json"
+                  placeholder="https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/manifest.json"
                 />
                 <span className="text-xs text-foreground/60">
                   Public JSON with bundleId, bundleUrl, channel, and optional minNativeBuild.

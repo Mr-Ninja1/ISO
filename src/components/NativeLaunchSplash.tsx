@@ -48,10 +48,10 @@ export function NativeLaunchSplash() {
     <div className="fixed inset-0 z-[9999] grid place-items-center bg-[#08111f] px-6 text-slate-50">
       <div className="flex w-full max-w-sm flex-col items-center gap-5 text-center">
         <div className="h-36 w-36 overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 shadow-[0_24px_90px_rgba(2,6,23,0.42)]">
-          <img src="/icon-192.png" alt="ISO Pro logo" className="h-full w-full object-cover" />
+          <img src="/icon-192.png" alt="ISO Grid logo" className="h-full w-full object-cover" />
         </div>
         <div className="space-y-1">
-          <h1 className="text-3xl font-extrabold tracking-tight">ISO Pro</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">ISO Grid</h1>
           <p className="text-sm text-slate-200/75">Launching secure workspace...</p>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">

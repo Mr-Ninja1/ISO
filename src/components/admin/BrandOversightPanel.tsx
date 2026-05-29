@@ -702,7 +702,7 @@ export function BrandOversightPanel() {
                 value={deactivateReasonInput}
                 onChange={(e) => setDeactivateReasonInput(e.target.value)}
                 className="min-h-28 rounded-xl border border-foreground/15 bg-background px-3 py-2"
-                placeholder="e.g. Subscription ended — contact billing@isopro.me to renew."
+                placeholder="e.g. Subscription ended — contact your platform administrator to renew."
                 maxLength={2000}
               />
             </label>

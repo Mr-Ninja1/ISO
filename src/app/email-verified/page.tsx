@@ -58,7 +58,7 @@ export default function EmailVerifiedPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
+      eyebrow="ISO Grid"
       title="Email verification"
       subtitle="Confirm your address to activate your HSE workspace account."
       formTitle="Verification"
@@ -78,7 +78,7 @@ export default function EmailVerifiedPage() {
         <div className="space-y-5">
           <AuthStatusCard variant="success" title="Your email is verified" icon="success">
             <p>
-              Your ISO Pro account is active. Sign in with the email and password you used when you
+              Your ISO Grid account is active. Sign in with the email and password you used when you
               registered.
             </p>
           </AuthStatusCard>
@@ -96,7 +96,7 @@ export default function EmailVerifiedPage() {
           <AuthStatusCard variant="warning" title="We could not confirm this link" icon="shield">
             <p>
               The link may have expired or already been used. Request a new verification email, then
-              open the latest message from ISO Pro.
+              open the latest message from ISO Grid.
             </p>
           </AuthStatusCard>
           <Link

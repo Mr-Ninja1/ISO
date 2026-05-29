@@ -7,8 +7,8 @@ const androidResRoot = path.join(projectRoot, 'android', 'app', 'src', 'main', '
 
 const splashSvg = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
-  <title id="title">ISO Pro splash screen</title>
-  <desc id="desc">Dark blue splash screen with the ISO Pro shield and checkmark logo, app name, and loading text.</desc>
+  <title id="title">ISO Grid splash screen</title>
+  <desc id="desc">Dark blue splash screen with the ISO Grid shield and checkmark logo, app name, and loading text.</desc>
   <defs>
     <linearGradient id="bg" x1="96" y1="56" x2="928" y2="960" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#07101d" />
@@ -35,7 +35,7 @@ const splashSvg = `
     <path d="M512 258c-63 42-128 58-184 66v128c0 96 60 162 184 192 124-30 184-96 184-192V324c-56-8-121-24-184-66Z" fill="#0f172a" opacity="0.07" />
     <path d="M440 492l58 58 116-140" fill="none" stroke="url(#check)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" />
   </g>
-  <text x="512" y="824" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="58" font-weight="800" fill="#f8fafc">ISO Pro</text>
+  <text x="512" y="824" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="58" font-weight="800" fill="#f8fafc">ISO Grid</text>
   <text x="512" y="876" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="500" fill="#cbd5e1">Loading secure workspace...</text>
 </svg>`;
 

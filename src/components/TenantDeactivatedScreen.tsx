@@ -38,13 +38,13 @@ export function TenantDeactivatedScreen({ tenantSlug, reason: reasonProp }: Prop
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
             <p className="text-sm font-semibold text-slate-800">No reason was provided</p>
             <p className="mt-1 text-sm text-slate-600">
-              Contact Isopro or your platform developer to learn why access was removed.
+              Contact ISO Grid support or your platform developer to learn why access was removed.
             </p>
           </div>
         )}
 
         <p className="mt-6 text-sm leading-relaxed text-slate-600">
-          To request reactivation, contact <span className="font-semibold text-slate-800">Isopro</span> or your
+          To request reactivation, contact <span className="font-semibold text-slate-800">ISO Grid</span> or your
           platform developer with your brand name and account email.
         </p>
       </div>

@@ -70,7 +70,7 @@ export default function LoginPage() {
 
   return (
     <AuthPageShell
-      eyebrow="ISO Pro"
+      eyebrow="ISO Grid"
       onEyebrowClick={handleSecureAccessClick}
       eyebrowTitle={secureAccessClicks > 0 ? `${6 - secureAccessClicks} clicks left` : "Developer access"}
       title="HSE management for your organisation"
@@ -78,7 +78,7 @@ export default function LoginPage() {
       brandBadge={<AuthHsePlatformBadge />}
       formTitle="Sign in"
       formSubtitle="Access your HSE workspace"
-      footerText="New to ISO Pro?"
+      footerText="New to ISO Grid?"
       footerHref="/signup"
       footerLabel="Create an account"
     >

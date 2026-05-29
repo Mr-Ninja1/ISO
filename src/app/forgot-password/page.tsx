@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
           <AuthStatusCard variant="info" title="Check your email" icon="mail">
             <p>{inboxHint}</p>
             <p className="mt-2">
-              Open the message from ISO Pro and tap <strong className="font-semibold">Reset password</strong>.
+              Open the message from ISO Grid and tap <strong className="font-semibold">Reset password</strong>.
               The link opens a secure page where you can set a new password.
             </p>
           </AuthStatusCard>

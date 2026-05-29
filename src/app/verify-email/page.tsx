@@ -73,7 +73,7 @@ export default function VerifyEmailPage() {
         <AuthStatusCard variant="info" title="We sent you a verification link" icon="mail">
           <p>{inboxHint}</p>
           <p className="mt-2">
-            The message is from ISO Pro. If it does not arrive within a few minutes, check spam or
+            The message is from ISO Grid. If it does not arrive within a few minutes, check spam or
             resend below.
           </p>
         </AuthStatusCard>
