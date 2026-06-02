@@ -16,6 +16,45 @@ export default function EmailVerifiedPage() {
     (async () => {
       try {
         const supabase = createClient();
+        const search = typeof window !== "undefined" ? window.location.search : "";
+        const hash = typeof window !== "undefined" ? window.location.hash : "";
+        const params = new URLSearchParams(search);
+        const tokenHash = (params.get("token_hash") || "").trim();
+        const typeParam = (params.get("type") || "").trim();
+        const authCode = (params.get("code") || "").trim();
+
+        const markVerified = async () => {
+          if (cancelled) return;
+          setStatus("verified");
+          await supabase.auth.signOut();
+        };
+
+        if (params.get("verified") === "1") {
+          await markVerified();
+          return;
+        }
+
+        // Supabase confirmation links frequently arrive as ?token_hash=...&type=signup
+        if (tokenHash && typeParam === "signup") {
+          const verify = await supabase.auth.verifyOtp({
+            type: "signup",
+            token_hash: tokenHash,
+          });
+          if (!verify.error) {
+            await markVerified();
+            return;
+          }
+        }
+
+        // PKCE auth flow can provide a one-time code in query params.
+        if (authCode) {
+          const exchanged = await supabase.auth.exchangeCodeForSession(authCode);
+          if (!exchanged.error && exchanged.data.session?.user) {
+            await markVerified();
+            return;
+          }
+        }
+
         const { data } = await supabase.auth.getSession();
         if (cancelled) return;
 
@@ -25,19 +64,16 @@ export default function EmailVerifiedPage() {
           user?.user_metadata?.email_verified === true;
 
         if (confirmed || data.session) {
-          setStatus("verified");
-          await supabase.auth.signOut();
+          await markVerified();
           return;
         }
 
-        const hash = typeof window !== "undefined" ? window.location.hash : "";
         if (hash.includes("access_token") || hash.includes("type=signup")) {
           window.setTimeout(async () => {
             if (cancelled) return;
             const retry = await supabase.auth.getSession();
             if (retry.data.session?.user) {
-              setStatus("verified");
-              await supabase.auth.signOut();
+              await markVerified();
             } else {
               setStatus("invalid");
             }
@@ -83,7 +119,7 @@ export default function EmailVerifiedPage() {
             </p>
           </AuthStatusCard>
           <Link
-            href="/login"
+            href="/login?verified=1"
             className="ws-btn-primary inline-flex h-11 w-full items-center justify-center px-4 text-sm"
           >
             Continue to sign in
