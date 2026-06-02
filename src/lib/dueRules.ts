@@ -4,17 +4,39 @@
  * The app reminds users to work on the form when that time is reached.
  */
 
-export type DueRuleMode = "days" | "duration" | "fixed";
+export type DueRuleMode = "days" | "duration" | "fixed" | "daily" | "weekly" | "monthly";
 
 export type TemplateDueRule = {
   mode: DueRuleMode;
   days?: number;
   durationMinutes?: number;
   at?: string;
+  time?: string;
+  weekday?: number;
+  dayOfMonth?: number;
+  lastDay?: boolean;
 };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MS_PER_MINUTE = 60 * 1000;
+
+function parseTimeParts(value: unknown): { hours: number; minutes: number } | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  const match = trimmed.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return { hours: Number(match[1]), minutes: Number(match[2]) };
+}
+
+function cloneDateAtTime(base: Date, hours: number, minutes: number) {
+  const next = new Date(base);
+  next.setHours(hours, minutes, 0, 0);
+  return next;
+}
+
+function daysInMonth(year: number, monthIndex: number) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
 
 export function parseTemplateDueRule(meta: Record<string, unknown> | null | undefined): TemplateDueRule | null {
   if (!meta || typeof meta !== "object") return null;
@@ -23,14 +45,33 @@ export function parseTemplateDueRule(meta: Record<string, unknown> | null | unde
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const r = raw as Record<string, unknown>;
     const mode = r.mode;
-    if (mode === "days" || mode === "duration" || mode === "fixed") {
+    if (
+      mode === "days" ||
+      mode === "duration" ||
+      mode === "fixed" ||
+      mode === "daily" ||
+      mode === "weekly" ||
+      mode === "monthly"
+    ) {
       const days = typeof r.days === "number" && r.days > 0 ? r.days : undefined;
       const durationMinutes =
         typeof r.durationMinutes === "number" && r.durationMinutes > 0 ? Math.round(r.durationMinutes) : undefined;
       const at = typeof r.at === "string" && r.at.trim() ? r.at.trim() : undefined;
+      const time = parseTimeParts(r.time) ? String(r.time).trim() : undefined;
+      const weekday = typeof r.weekday === "number" && r.weekday >= 0 && r.weekday <= 6 ? Math.floor(r.weekday) : undefined;
+      const dayOfMonth =
+        typeof r.dayOfMonth === "number" && r.dayOfMonth >= 1 && r.dayOfMonth <= 31
+          ? Math.floor(r.dayOfMonth)
+          : undefined;
+      const lastDay = r.lastDay === true;
       if (mode === "days" && days) return { mode, days };
       if (mode === "duration" && durationMinutes) return { mode, durationMinutes };
       if (mode === "fixed" && at) return { mode, at };
+      if (mode === "daily" && time) return { mode, time };
+      if (mode === "weekly" && time && weekday !== undefined) return { mode, time, weekday };
+      if (mode === "monthly" && time && (lastDay || dayOfMonth !== undefined)) {
+        return { mode, time, dayOfMonth, lastDay };
+      }
       return null;
     }
   }
@@ -62,7 +103,97 @@ export function computeDueReminderAt(rule: TemplateDueRule | null, ruleSetAt: Da
     return new Date(anchorMs + rule.durationMinutes * MS_PER_MINUTE);
   }
 
+  const time = parseTimeParts(rule.time);
+  if (rule.mode === "daily" && time) {
+    const first = cloneDateAtTime(ruleSetAt, time.hours, time.minutes);
+    if (first.getTime() <= anchorMs) first.setDate(first.getDate() + 1);
+    return first;
+  }
+
+  if (rule.mode === "weekly" && time && typeof rule.weekday === "number") {
+    const first = cloneDateAtTime(ruleSetAt, time.hours, time.minutes);
+    const dayDelta = (rule.weekday - first.getDay() + 7) % 7;
+    first.setDate(first.getDate() + dayDelta);
+    if (first.getTime() <= anchorMs) first.setDate(first.getDate() + 7);
+    return first;
+  }
+
+  if (rule.mode === "monthly" && time) {
+    const cursor = cloneDateAtTime(ruleSetAt, time.hours, time.minutes);
+    const calcFor = (year: number, month: number) => {
+      const maxDay = daysInMonth(year, month);
+      const day = rule.lastDay ? maxDay : Math.min(rule.dayOfMonth || 1, maxDay);
+      return new Date(year, month, day, time.hours, time.minutes, 0, 0);
+    };
+    let first = calcFor(cursor.getFullYear(), cursor.getMonth());
+    if (first.getTime() <= anchorMs) {
+      const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      first = calcFor(nextMonth.getFullYear(), nextMonth.getMonth());
+    }
+    return first;
+  }
+
   return null;
+}
+
+export function resolveReminderDueInstants(item: TemplateReminderTarget, now: Date): Date[] {
+  const baseDue = new Date(item.dueReminderAt);
+  if (!Number.isFinite(baseDue.getTime())) return [];
+  const rule = item.dueRule;
+  if (!rule) return [baseDue];
+
+  const setAt = item.dueRuleSetAt ? new Date(item.dueRuleSetAt) : null;
+  const anchor = setAt && Number.isFinite(setAt.getTime()) ? setAt : baseDue;
+
+  if (rule.mode === "days" && typeof rule.days === "number" && rule.days > 0) {
+    const intervalMs = rule.days * MS_PER_DAY;
+    if (now.getTime() < baseDue.getTime()) return [baseDue];
+    const elapsed = now.getTime() - baseDue.getTime();
+    const cyclesPast = Math.floor(elapsed / intervalMs);
+    return [new Date(baseDue.getTime() + cyclesPast * intervalMs)];
+  }
+
+  if (rule.mode === "duration" && typeof rule.durationMinutes === "number" && rule.durationMinutes > 0) {
+    const intervalMs = Math.round(rule.durationMinutes) * MS_PER_MINUTE;
+    if (now.getTime() < baseDue.getTime()) return [baseDue];
+    const elapsed = now.getTime() - baseDue.getTime();
+    const cyclesPast = Math.floor(elapsed / intervalMs);
+    return [new Date(baseDue.getTime() + cyclesPast * intervalMs)];
+  }
+
+  const time = parseTimeParts(rule.time);
+  if (rule.mode === "daily" && time) {
+    const candidate = cloneDateAtTime(now, time.hours, time.minutes);
+    if (candidate.getTime() < anchor.getTime()) return [baseDue];
+    if (candidate.getTime() > now.getTime()) candidate.setDate(candidate.getDate() - 1);
+    return [candidate];
+  }
+
+  if (rule.mode === "weekly" && time && typeof rule.weekday === "number") {
+    const candidate = cloneDateAtTime(now, time.hours, time.minutes);
+    const deltaBack = (candidate.getDay() - rule.weekday + 7) % 7;
+    candidate.setDate(candidate.getDate() - deltaBack);
+    if (candidate.getTime() > now.getTime()) candidate.setDate(candidate.getDate() - 7);
+    if (candidate.getTime() < anchor.getTime()) return [baseDue];
+    return [candidate];
+  }
+
+  if (rule.mode === "monthly" && time) {
+    const makeFor = (year: number, month: number) => {
+      const maxDay = daysInMonth(year, month);
+      const day = rule.lastDay ? maxDay : Math.min(rule.dayOfMonth || 1, maxDay);
+      return new Date(year, month, day, time.hours, time.minutes, 0, 0);
+    };
+    let candidate = makeFor(now.getFullYear(), now.getMonth());
+    if (candidate.getTime() > now.getTime()) {
+      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      candidate = makeFor(prevMonth.getFullYear(), prevMonth.getMonth());
+    }
+    if (candidate.getTime() < anchor.getTime()) return [baseDue];
+    return [candidate];
+  }
+
+  return [baseDue];
 }
 
 /** Canonical reminder instant stored on template.meta (or derived from rule + ruleSetAt). */
@@ -136,6 +267,17 @@ export function formatDueRuleSummary(
       return `Reminder ${d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
     }
   }
+  if (rule.mode === "daily" && rule.time) {
+    return `Daily at ${rule.time}`;
+  }
+  if (rule.mode === "weekly" && rule.time && typeof rule.weekday === "number") {
+    const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return `Weekly ${labels[rule.weekday]} at ${rule.time}`;
+  }
+  if (rule.mode === "monthly" && rule.time) {
+    if (rule.lastDay) return `Monthly (last day) at ${rule.time}`;
+    if (typeof rule.dayOfMonth === "number") return `Monthly (day ${rule.dayOfMonth}) at ${rule.time}`;
+  }
   return "Reminder: Not set";
 }
 
@@ -151,6 +293,10 @@ export function buildDueRuleForMeta(input: {
   days: string;
   durationMinutes: string;
   fixedLocal: string;
+  time: string;
+  weekday: string;
+  dayOfMonth: string;
+  monthlyMode: "day" | "last";
 }): { dueRule?: TemplateDueRule; dueDays?: number } {
   if (input.mode === "none") return {};
 
@@ -172,6 +318,28 @@ export function buildDueRuleForMeta(input: {
     return { dueRule: { mode: "fixed", at } };
   }
 
+  if (input.mode === "daily") {
+    const time = input.time.trim();
+    if (!parseTimeParts(time)) return {};
+    return { dueRule: { mode: "daily", time } };
+  }
+
+  if (input.mode === "weekly") {
+    const time = input.time.trim();
+    const weekday = Number(input.weekday);
+    if (!parseTimeParts(time) || !Number.isFinite(weekday) || weekday < 0 || weekday > 6) return {};
+    return { dueRule: { mode: "weekly", time, weekday: Math.floor(weekday) } };
+  }
+
+  if (input.mode === "monthly") {
+    const time = input.time.trim();
+    if (!parseTimeParts(time)) return {};
+    if (input.monthlyMode === "last") return { dueRule: { mode: "monthly", time, lastDay: true } };
+    const dayOfMonth = Number(input.dayOfMonth);
+    if (!Number.isFinite(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) return {};
+    return { dueRule: { mode: "monthly", time, dayOfMonth: Math.floor(dayOfMonth), lastDay: false } };
+  }
+
   return {};
 }
 
@@ -183,6 +351,10 @@ export function applyDueRuleToMeta(
     days: string;
     durationMinutes: string;
     fixedLocal: string;
+    time: string;
+    weekday: string;
+    dayOfMonth: string;
+    monthlyMode: "day" | "last";
   },
   setAt: Date = new Date()
 ): Record<string, unknown> {
@@ -219,12 +391,16 @@ export function dueRuleToFormState(rule: TemplateDueRule | null): {
   days: string;
   durationMinutes: string;
   fixedLocal: string;
+  time: string;
+  weekday: string;
+  dayOfMonth: string;
+  monthlyMode: "day" | "last";
 } {
   if (!rule) {
-    return { mode: "none", days: "", durationMinutes: "", fixedLocal: "" };
+    return { mode: "none", days: "", durationMinutes: "", fixedLocal: "", time: "09:00", weekday: "1", dayOfMonth: "1", monthlyMode: "day" };
   }
   if (rule.mode === "days") {
-    return { mode: "days", days: String(rule.days ?? ""), durationMinutes: "", fixedLocal: "" };
+    return { mode: "days", days: String(rule.days ?? ""), durationMinutes: "", fixedLocal: "", time: "09:00", weekday: "1", dayOfMonth: "1", monthlyMode: "day" };
   }
   if (rule.mode === "duration") {
     return {
@@ -232,6 +408,10 @@ export function dueRuleToFormState(rule: TemplateDueRule | null): {
       days: "",
       durationMinutes: String(rule.durationMinutes ?? ""),
       fixedLocal: "",
+      time: "09:00",
+      weekday: "1",
+      dayOfMonth: "1",
+      monthlyMode: "day",
     };
   }
   if (rule.mode === "fixed" && rule.at) {
@@ -240,15 +420,44 @@ export function dueRuleToFormState(rule: TemplateDueRule | null): {
     const local = Number.isFinite(d.getTime())
       ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
       : "";
-    return { mode: "fixed", days: "", durationMinutes: "", fixedLocal: local };
+    return { mode: "fixed", days: "", durationMinutes: "", fixedLocal: local, time: "09:00", weekday: "1", dayOfMonth: "1", monthlyMode: "day" };
   }
-  return { mode: "none", days: "", durationMinutes: "", fixedLocal: "" };
+  if (rule.mode === "daily") {
+    return { mode: "daily", days: "", durationMinutes: "", fixedLocal: "", time: rule.time || "09:00", weekday: "1", dayOfMonth: "1", monthlyMode: "day" };
+  }
+  if (rule.mode === "weekly") {
+    return {
+      mode: "weekly",
+      days: "",
+      durationMinutes: "",
+      fixedLocal: "",
+      time: rule.time || "09:00",
+      weekday: String(rule.weekday ?? 1),
+      dayOfMonth: "1",
+      monthlyMode: "day",
+    };
+  }
+  if (rule.mode === "monthly") {
+    return {
+      mode: "monthly",
+      days: "",
+      durationMinutes: "",
+      fixedLocal: "",
+      time: rule.time || "09:00",
+      weekday: "1",
+      dayOfMonth: String(rule.dayOfMonth ?? 1),
+      monthlyMode: rule.lastDay ? "last" : "day",
+    };
+  }
+  return { mode: "none", days: "", durationMinutes: "", fixedLocal: "", time: "09:00", weekday: "1", dayOfMonth: "1", monthlyMode: "day" };
 }
 
 export type TemplateReminderTarget = {
   templateId: string;
   title: string;
   dueReminderAt: string;
+  dueRule?: TemplateDueRule | null;
+  dueRuleSetAt?: string;
 };
 
 export function templateToReminderTarget(
@@ -258,5 +467,11 @@ export function templateToReminderTarget(
 ): TemplateReminderTarget | null {
   const dueAt = resolveTemplateDueReminderAt(meta);
   if (!dueAt) return null;
-  return { templateId, title, dueReminderAt: dueAt.toISOString() };
+  return {
+    templateId,
+    title,
+    dueReminderAt: dueAt.toISOString(),
+    dueRule: parseTemplateDueRule(meta),
+    dueRuleSetAt: typeof meta?.dueRuleSetAt === "string" ? meta.dueRuleSetAt : undefined,
+  };
 }

@@ -8,7 +8,7 @@ import {
   showDueReminderNotification,
   wasReminderShown,
 } from "@/lib/client/dueReminderNotify";
-import { isPastDue, type TemplateReminderTarget } from "@/lib/dueRules";
+import { isPastDue, resolveReminderDueInstants, type TemplateReminderTarget } from "@/lib/dueRules";
 
 const POLL_MS = 10_000;
 
@@ -33,21 +33,23 @@ export function DueReminderPoller({ tenantSlug, reminders }: Props) {
       const now = new Date();
 
       for (const item of reminders) {
-        const dueAt = new Date(item.dueReminderAt);
-        if (!Number.isFinite(dueAt.getTime()) || !isPastDue(dueAt, now)) continue;
+        const dueInstants = resolveReminderDueInstants(item, now);
+        for (const dueAt of dueInstants) {
+          if (!isPastDue(dueAt, now)) continue;
+          const dueIso = dueAt.toISOString();
+          const key = reminderKey(tenantSlug, item.templateId, dueIso);
+          if (wasReminderShown(key)) continue;
 
-        const key = reminderKey(tenantSlug, item.templateId, item.dueReminderAt);
-        if (wasReminderShown(key)) continue;
-
-        const body = buildReminderBody(item.dueReminderAt);
-        await showDueReminderNotification({
-          tenantSlug,
-          templateId: item.templateId,
-          title: item.title,
-          body,
-          dueReminderAt: item.dueReminderAt,
-        });
-        markReminderShown(key);
+          const body = buildReminderBody(dueIso);
+          await showDueReminderNotification({
+            tenantSlug,
+            templateId: item.templateId,
+            title: item.title,
+            body,
+            dueReminderAt: dueIso,
+          });
+          markReminderShown(key);
+        }
       }
     };
 

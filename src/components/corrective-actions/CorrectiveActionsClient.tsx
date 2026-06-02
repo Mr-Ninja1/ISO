@@ -327,7 +327,7 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
               Active
             </button>
             <button type="button" onClick={() => setView("archive")} className={tabButtonClass(view === "archive")}>
-              Archive
+              Closed
             </button>
             <button type="button" onClick={() => setView("all")} className={tabButtonClass(view === "all")}>
               All
@@ -395,7 +395,7 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Actions</h2>
-            <p className="text-xs text-foreground/60">Archive is the closed state. Nothing is deleted when the action is completed.</p>
+            <p className="text-xs text-foreground/60">Workflow: Open → In progress → Closed. Closed keeps history; nothing is deleted.</p>
           </div>
           <Link href={`/${tenantSlug}/dashboard`} className="inline-flex items-center gap-1 text-xs font-medium text-foreground/70 hover:text-foreground">
             Open dashboard
@@ -434,18 +434,24 @@ export function CorrectiveActionsClient({ tenantSlug }: { tenantSlug: string }) 
                     {action.status === "OPEN" ? (
                       <button type="button" disabled={editId === action.id} onClick={() => updateStatus(action.id, "IN_PROGRESS")} className="inline-flex h-10 items-center gap-2 rounded-full border border-sky-300 bg-sky-50 px-4 text-sm font-medium text-sky-900 disabled:opacity-60">
                         {editId === action.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                        Start
+                        Start work
+                      </button>
+                    ) : null}
+                    {action.status === "IN_PROGRESS" ? (
+                      <button type="button" disabled={editId === action.id} onClick={() => updateStatus(action.id, "OPEN")} className="inline-flex h-10 items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 text-sm font-medium text-amber-900 disabled:opacity-60">
+                        {editId === action.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                        Mark open
                       </button>
                     ) : null}
                     {action.status !== "CLOSED" ? (
                       <button type="button" disabled={editId === action.id} onClick={() => updateStatus(action.id, "CLOSED")} className="inline-flex h-10 items-center gap-2 rounded-full border border-foreground/15 bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60">
                         {editId === action.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-                        Archive
+                        Mark closed
                       </button>
                     ) : (
-                      <button type="button" disabled={editId === action.id} onClick={() => updateStatus(action.id, "IN_PROGRESS")} className="inline-flex h-10 items-center gap-2 rounded-full border border-foreground/15 px-4 text-sm font-medium disabled:opacity-60">
+                      <button type="button" disabled={editId === action.id} onClick={() => updateStatus(action.id, "OPEN")} className="inline-flex h-10 items-center gap-2 rounded-full border border-foreground/15 px-4 text-sm font-medium disabled:opacity-60">
                         {editId === action.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                        Restore
+                        Reopen
                       </button>
                     )}
                   </div>

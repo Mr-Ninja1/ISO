@@ -137,6 +137,74 @@ function percent(value: number) {
   return `${Math.round(value)}%`;
 }
 
+function TemperatureTrendChart({
+  daily,
+}: {
+  daily: Array<{ day: string; readings: number; alerts: number; average: number | null }>;
+}) {
+  const hasSeries = daily.some((entry) => entry.average != null);
+  if (!daily.length || !hasSeries) {
+    return (
+      <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/60">
+        Not enough temperature points yet for a trend line.
+      </div>
+    );
+  }
+
+  const values = daily
+    .map((entry) => entry.average)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(1, max - min);
+  const width = 100;
+  const height = 34;
+
+  const points = daily
+    .map((entry, index) => {
+      if (entry.average == null) return null;
+      const x = daily.length === 1 ? width / 2 : (index / (daily.length - 1)) * width;
+      const y = height - ((entry.average - min) / span) * height;
+      return `${x},${y}`;
+    })
+    .filter((point): point is string => Boolean(point));
+
+  return (
+    <div className="rounded-lg border border-foreground/15 bg-foreground/[0.02] p-3">
+      <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-foreground/55">
+        <span>Average temperature trend</span>
+        <span>
+          {min.toFixed(1)}° to {max.toFixed(1)}°
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-24 w-full">
+        <line x1="0" y1={height} x2={width} y2={height} className="stroke-foreground/20" strokeWidth="0.5" />
+        <polyline
+          points={points.join(" ")}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-sky-500"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {daily.map((entry, index) => {
+          if (entry.average == null) return null;
+          const x = daily.length === 1 ? width / 2 : (index / (daily.length - 1)) * width;
+          const y = height - ((entry.average - min) / span) * height;
+          return <circle key={entry.day} cx={x} cy={y} r="1.9" className="fill-sky-500" />;
+        })}
+      </svg>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-foreground/60">
+        <span className="inline-flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
+          Alerts shown below per day
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
@@ -588,6 +656,10 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
             <MiniStat label="Alerts" value={String(metrics.realTempAlerts || metrics.tempAlerts)} />
             <MiniStat label="Average" value={metrics.avgTemp == null ? "-" : `${metrics.avgTemp.toFixed(1)}°`} />
             <MiniStat label="Range" value={metrics.minTemp != null && metrics.maxTemp != null ? `${metrics.minTemp.toFixed(1)}° - ${metrics.maxTemp.toFixed(1)}°` : "-"} />
+          </div>
+
+          <div className="mt-4">
+            <TemperatureTrendChart daily={dashboardMetrics?.temperature.daily || []} />
           </div>
 
           <div className="mt-4 grid gap-2">

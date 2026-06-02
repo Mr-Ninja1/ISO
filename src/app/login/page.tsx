@@ -60,6 +60,9 @@ export default function LoginPage() {
       const message = err instanceof Error ? err.message : "Sign in failed";
       if (/failed to fetch|networkerror|network request failed/i.test(message)) {
         setError("Cannot reach the server. Check your internet connection and try again.");
+      } else if (/email.*confirm|confirm.*email|email not confirmed|not verified/i.test(message)) {
+        router.push(`/verify-email?email=${encodeURIComponent(email.trim())}`);
+        return;
       } else {
         setError(message);
       }

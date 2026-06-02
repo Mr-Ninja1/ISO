@@ -3,6 +3,7 @@ import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { requirePlatformDeveloper } from "@/lib/platformDevelopers";
 import { normalizeAnnouncementAudience } from "@/lib/platformAudience";
 import { sendPushNotificationToDevices } from "@/lib/push/firebaseAdmin";
+import { sendGlobalAnnouncementEmails } from "@/lib/notifications/emailAlerts";
 
 function getBearerToken(req: Request) {
   const header =
@@ -106,7 +107,13 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ announcement: row, push });
+    const email = await sendGlobalAnnouncementEmails({
+      title,
+      message,
+      audience,
+    });
+
+    return NextResponse.json({ announcement: row, push, email });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";
     const status =

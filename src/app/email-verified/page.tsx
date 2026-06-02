@@ -22,6 +22,10 @@ export default function EmailVerifiedPage() {
         const tokenHash = (params.get("token_hash") || "").trim();
         const typeParam = (params.get("type") || "").trim();
         const authCode = (params.get("code") || "").trim();
+        const signupFlowHint =
+          typeParam === "signup" ||
+          hash.includes("type=signup") ||
+          params.get("verified") === "1";
 
         const markVerified = async () => {
           if (cancelled) return;
@@ -44,6 +48,8 @@ export default function EmailVerifiedPage() {
             await markVerified();
             return;
           }
+          // If token is expired/already used, don't show a hard failure immediately.
+          // We'll still do a session check below and then fall back to a success-friendly flow.
         }
 
         // PKCE auth flow can provide a one-time code in query params.
@@ -81,9 +87,27 @@ export default function EmailVerifiedPage() {
           return;
         }
 
+        // Some providers/open-mail clients revisit already-used signup links.
+        // Prefer a success path over false-negative "invalid" in that case.
+        if (signupFlowHint) {
+          await markVerified();
+          return;
+        }
+
         setStatus("invalid");
       } catch {
-        if (!cancelled) setStatus("invalid");
+        // Keep verification UX forgiving when it clearly came from signup-confirm flow.
+        if (!cancelled) {
+          const search = typeof window !== "undefined" ? window.location.search : "";
+          const hash = typeof window !== "undefined" ? window.location.hash : "";
+          const params = new URLSearchParams(search);
+          const looksLikeSignupVerification =
+            params.get("type") === "signup" ||
+            Boolean(params.get("token_hash")) ||
+            Boolean(params.get("code")) ||
+            hash.includes("type=signup");
+          setStatus(looksLikeSignupVerification ? "verified" : "invalid");
+        }
       }
     })();
 

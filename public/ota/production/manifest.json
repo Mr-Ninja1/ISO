@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260529.ota-dark-settings-fix-v1",
-  "version": "20260529.ota-dark-settings-fix-v1",
+  "bundleId": "20260602.ota-assignment-recurring-v1",
+  "version": "20260602.ota-assignment-recurring-v1",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260529.ota-dark-settings-fix-v1.zip",
-  "publishedAt": "2026-05-29T20:49:52.967Z",
-  "releaseNotes": "Dark mode settings fix, single loading screen, saved form report fix"
+  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260602.ota-assignment-recurring-v1.zip",
+  "publishedAt": "2026-06-02T10:57:40.730Z",
+  "releaseNotes": "Optional form assignment, recurring due reminders, non-blocking scheduling"
 }

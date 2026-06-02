@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useOptionalAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
@@ -20,11 +20,13 @@ export function PushNotificationsBootstrap() {
   const searchParams = useSearchParams();
   const auth = useOptionalAuth();
   const accessToken = getWorkspaceAccessToken(auth?.session);
+  const [listenersReady, setListenersReady] = useState(false);
 
   useEffect(() => {
     if (!isPushNotificationsEnabled()) return;
 
     let removeListeners: (() => void) | undefined;
+    setListenersReady(false);
 
     void attachPushNotificationListeners((deepLink) => {
       if (!deepLink) return;
@@ -35,15 +37,17 @@ export function PushNotificationsBootstrap() {
       router.push(deepLink.startsWith("/") ? deepLink : `/${deepLink}`);
     }).then((remove) => {
       removeListeners = remove;
+      setListenersReady(true);
     });
 
     return () => {
+      setListenersReady(false);
       removeListeners?.();
     };
   }, [router]);
 
   useEffect(() => {
-    if (!isPushNotificationsEnabled() || !accessToken) return;
+    if (!isPushNotificationsEnabled() || !accessToken || !listenersReady) return;
 
     const tenantSlug =
       searchParams?.get("tenantSlug") ||
@@ -56,7 +60,7 @@ export function PushNotificationsBootstrap() {
       tenantSlug,
       categories: ["announcement", "system", "reminder"],
     });
-  }, [accessToken, pathname, searchParams]);
+  }, [accessToken, pathname, searchParams, listenersReady]);
 
   return null;
 }

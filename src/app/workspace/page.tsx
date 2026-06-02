@@ -111,7 +111,18 @@ type TemplateSummary = {
     temperatureUnit?: "C" | "F";
     cardIcon?: string;
     cardColor?: string;
+    assigneeUserId?: string;
+    assigneeName?: string;
+    assigneeEmail?: string;
+    assigneeRole?: string;
   };
+};
+
+type AssignableStaffOption = {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: string;
 };
 
 type WorkspaceData = {
@@ -173,6 +184,51 @@ function templateIconGlyph(icon: string | undefined) {
     default:
       return "📋";
   }
+}
+
+function templateAssigneeLabel(template: TemplateSummary): string | null {
+  const assignedName = template.settings?.assigneeName?.trim();
+  if (assignedName) return `Assigned: ${assignedName}`;
+  const assignedEmail = template.settings?.assigneeEmail?.trim();
+  if (assignedEmail) return `Assigned: ${assignedEmail}`;
+  const assignedRole = template.settings?.assigneeRole?.trim();
+  if (assignedRole) return `Assigned role: ${assignedRole}`;
+  return null;
+}
+
+function templateDueStatusLabel(template: TemplateSummary): string {
+  const dueIso = template.settings?.dueReminderAt;
+  if (!dueIso) return formatDueRuleSummary(template.settings?.dueRule ?? null, null);
+  const dueAt = new Date(dueIso);
+  if (!Number.isFinite(dueAt.getTime())) {
+    return formatDueRuleSummary(template.settings?.dueRule ?? null, null);
+  }
+  if (isPastDue(dueAt)) return "Due now";
+  return formatDueRuleSummary(template.settings?.dueRule ?? null, dueAt);
+}
+
+function isTemplateVisibleForUser(
+  template: TemplateSummary,
+  currentUserId: string | null,
+  currentRole: string | null
+) {
+  const role = (currentRole || "").toUpperCase();
+  // Admin/manager can always see and manage all templates.
+  if (role === "ADMIN" || role === "MANAGER") return true;
+
+  const assignedUserId = template.settings?.assigneeUserId?.trim();
+  if (assignedUserId) {
+    if (!currentUserId) return false;
+    return assignedUserId === currentUserId;
+  }
+
+  const assignedRole = template.settings?.assigneeRole?.trim().toUpperCase();
+  if (assignedRole) {
+    return Boolean(role) && role === assignedRole;
+  }
+
+  // Unassigned templates stay visible to keep workflow non-blocking.
+  return true;
 }
 
 function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
@@ -365,6 +421,9 @@ type QuickTemplateSettings = DueRuleFormState & {
   temperatureUnit: "C" | "F";
   cardIcon: string;
   cardColor: string;
+  assignmentMode: "none" | "staff" | "role";
+  assigneeUserId: string;
+  assigneeRole: string;
 };
 
 function TemplateQuickSettingsModal({
@@ -373,6 +432,10 @@ function TemplateQuickSettingsModal({
   saving,
   error,
   showTemperatureSettings,
+  staffOptions,
+  assignableRoles,
+  staffLoading,
+  staffError,
   onClose,
   onSave,
 }: {
@@ -381,6 +444,10 @@ function TemplateQuickSettingsModal({
   saving: boolean;
   error: string;
   showTemperatureSettings: boolean;
+  staffOptions: AssignableStaffOption[];
+  assignableRoles: string[];
+  staffLoading: boolean;
+  staffError: string;
   onClose: () => void;
   onSave: (settings: QuickTemplateSettings) => Promise<void>;
 }) {
@@ -389,11 +456,18 @@ function TemplateQuickSettingsModal({
     days: "",
     durationMinutes: "",
     fixedLocal: "",
+    time: "09:00",
+    weekday: "1",
+    dayOfMonth: "1",
+    monthlyMode: "day",
     temperatureAlertBelow: "",
     temperatureAlertAbove: "",
     temperatureUnit: "C",
     cardIcon: "clipboard",
     cardColor: "default",
+    assignmentMode: "none",
+    assigneeUserId: "",
+    assigneeRole: "",
   });
 
   useEffect(() => {
@@ -408,6 +482,13 @@ function TemplateQuickSettingsModal({
       temperatureUnit: template.settings?.temperatureUnit === "F" ? "F" : "C",
       cardIcon: template.settings?.cardIcon || "clipboard",
       cardColor: template.settings?.cardColor || "default",
+      assignmentMode: template.settings?.assigneeUserId
+        ? "staff"
+        : template.settings?.assigneeRole
+          ? "role"
+          : "none",
+      assigneeUserId: template.settings?.assigneeUserId || "",
+      assigneeRole: template.settings?.assigneeRole || "",
     });
   }, [open, template]);
 
@@ -469,10 +550,76 @@ function TemplateQuickSettingsModal({
               days: draft.days,
               durationMinutes: draft.durationMinutes,
               fixedLocal: draft.fixedLocal,
+              time: draft.time,
+              weekday: draft.weekday,
+              dayOfMonth: draft.dayOfMonth,
+              monthlyMode: draft.monthlyMode,
             }}
             disabled={saving}
             onChange={(due) => setDraft((prev) => ({ ...prev, ...due }))}
           />
+          <label className="grid gap-1 text-sm">
+            <span className="text-foreground/70">Assign form to</span>
+            <select
+              className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+              value={draft.assignmentMode}
+              disabled={saving}
+              onChange={(e) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  assignmentMode: e.target.value as "none" | "staff" | "role",
+                  assigneeUserId: e.target.value === "staff" ? prev.assigneeUserId : "",
+                  assigneeRole: e.target.value === "role" ? prev.assigneeRole : "",
+                }))
+              }
+            >
+              <option value="none">Unassigned (any permitted staff)</option>
+              <option value="staff">Specific staff member</option>
+              <option value="role">Role (manager/auditor/viewer/member)</option>
+            </select>
+          </label>
+          {draft.assignmentMode === "staff" ? (
+            <label className="grid gap-1 text-sm">
+              <span className="text-foreground/70">Staff member</span>
+              <select
+                className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+                value={draft.assigneeUserId}
+                disabled={saving || staffLoading || staffOptions.length === 0}
+                onChange={(e) => setDraft((prev) => ({ ...prev, assigneeUserId: e.target.value }))}
+              >
+                <option value="">
+                  {staffLoading
+                    ? "Loading staff..."
+                    : staffOptions.length
+                      ? "Select staff member"
+                      : "No staff list available"}
+                </option>
+                {staffOptions.map((staff) => (
+                  <option key={staff.userId} value={staff.userId}>
+                    {staff.fullName || staff.email} ({staff.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {draft.assignmentMode === "role" ? (
+            <label className="grid gap-1 text-sm">
+              <span className="text-foreground/70">Role assignment</span>
+              <select
+                className="h-11 rounded-xl border border-foreground/15 bg-background px-3 text-sm"
+                value={draft.assigneeRole}
+                disabled={saving}
+                onChange={(e) => setDraft((prev) => ({ ...prev, assigneeRole: e.target.value }))}
+              >
+                <option value="">Select role</option>
+                {assignableRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {showTemperatureSettings ? (
             <>
               <label className="grid gap-1 text-sm">
@@ -513,6 +660,11 @@ function TemplateQuickSettingsModal({
         </div>
 
         {error ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {staffError ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {staffError}
+          </div>
+        ) : null}
 
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" className="h-11 rounded-full border border-foreground/15 px-4 text-sm" onClick={onClose} disabled={saving}>
@@ -574,6 +726,15 @@ function WorkspacePageInner() {
   const [quickSettingsLoading, setQuickSettingsLoading] = useState(false);
   const [quickSettingsSaving, setQuickSettingsSaving] = useState(false);
   const [quickSettingsError, setQuickSettingsError] = useState("");
+  const [quickSettingsStaffOptions, setQuickSettingsStaffOptions] = useState<AssignableStaffOption[]>([]);
+  const [quickSettingsStaffLoading, setQuickSettingsStaffLoading] = useState(false);
+  const [quickSettingsStaffError, setQuickSettingsStaffError] = useState("");
+  const [quickSettingsAssignableRoles, setQuickSettingsAssignableRoles] = useState<string[]>([
+    "MANAGER",
+    "AUDITOR",
+    "VIEWER",
+    "MEMBER",
+  ]);
   const [movingTemplateId, setMovingTemplateId] = useState<string | null>(null);
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [nativeWarmupRunning, setNativeWarmupRunning] = useState(false);
@@ -1003,11 +1164,51 @@ function WorkspacePageInner() {
     );
   }
 
+  async function loadAssignableStaffOptions() {
+    if (!accessToken || !tenantSlug) return;
+    setQuickSettingsStaffLoading(true);
+    setQuickSettingsStaffError("");
+    try {
+      const url = new URL(apiUrl("/api/staff"));
+      url.searchParams.set("tenantSlug", tenantSlug);
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setQuickSettingsStaffOptions([]);
+        setQuickSettingsStaffError("Staff assignment is optional — unable to load staff list for this account.");
+        return;
+      }
+
+      const options = Array.isArray(data?.staff)
+        ? data.staff
+            .filter((item: any) => typeof item?.userId === "string")
+            .map((item: any) => ({
+              userId: item.userId as string,
+              fullName: typeof item.fullName === "string" ? item.fullName : "",
+              email: typeof item.email === "string" ? item.email : "",
+              role: typeof item.role === "string" ? item.role : "",
+            }))
+        : [];
+      setQuickSettingsStaffOptions(options);
+      if (Array.isArray(data?.assignableRoles) && data.assignableRoles.length) {
+        setQuickSettingsAssignableRoles(data.assignableRoles.filter((role: unknown) => typeof role === "string"));
+      }
+    } catch {
+      setQuickSettingsStaffOptions([]);
+      setQuickSettingsStaffError("Staff assignment is optional — unable to load staff list right now.");
+    } finally {
+      setQuickSettingsStaffLoading(false);
+    }
+  }
+
   async function openQuickSettings(template: TemplateSummary) {
     if (!accessToken || !tenantSlug) return;
     setQuickSettingsError("");
     setQuickSettingsLoading(true);
     setCardMenuTemplateId(null);
+    void loadAssignableStaffOptions();
 
     try {
       const url = new URL(apiUrl("/api/templates/edit-info"));
@@ -1060,6 +1261,14 @@ function WorkspacePageInner() {
               : template.settings?.temperatureUnit,
           cardIcon: typeof meta.cardIcon === "string" ? meta.cardIcon : template.settings?.cardIcon,
           cardColor: typeof meta.cardColor === "string" ? meta.cardColor : template.settings?.cardColor,
+          assigneeUserId:
+            typeof meta.assigneeUserId === "string" ? meta.assigneeUserId : template.settings?.assigneeUserId,
+          assigneeName:
+            typeof meta.assigneeName === "string" ? meta.assigneeName : template.settings?.assigneeName,
+          assigneeEmail:
+            typeof meta.assigneeEmail === "string" ? meta.assigneeEmail : template.settings?.assigneeEmail,
+          assigneeRole:
+            typeof meta.assigneeRole === "string" ? meta.assigneeRole : template.settings?.assigneeRole,
         },
       });
     } catch (err: any) {
@@ -1153,7 +1362,16 @@ function WorkspacePageInner() {
         days: settings.days,
         durationMinutes: settings.durationMinutes,
         fixedLocal: settings.fixedLocal,
+        time: settings.time,
+        weekday: settings.weekday,
+        dayOfMonth: settings.dayOfMonth,
+        monthlyMode: settings.monthlyMode,
       });
+
+      const selectedAssignee =
+        settings.assignmentMode === "staff"
+          ? quickSettingsStaffOptions.find((staff) => staff.userId === settings.assigneeUserId)
+          : undefined;
 
       Object.assign(nextMeta, {
         temperatureAlertBelow: settings.temperatureAlertBelow.trim() === "" ? undefined : Number(settings.temperatureAlertBelow),
@@ -1161,6 +1379,10 @@ function WorkspacePageInner() {
         temperatureUnit: settings.temperatureUnit,
         cardIcon: settings.cardIcon || undefined,
         cardColor: settings.cardColor || undefined,
+        assigneeUserId: settings.assignmentMode === "staff" && selectedAssignee ? selectedAssignee.userId : undefined,
+        assigneeName: settings.assignmentMode === "staff" && selectedAssignee ? selectedAssignee.fullName || undefined : undefined,
+        assigneeEmail: settings.assignmentMode === "staff" && selectedAssignee ? selectedAssignee.email || undefined : undefined,
+        assigneeRole: settings.assignmentMode === "role" ? settings.assigneeRole || undefined : undefined,
       });
 
       const nextSchema = {
@@ -1181,6 +1403,10 @@ function WorkspacePageInner() {
         temperatureUnit: settings.temperatureUnit,
         cardIcon: typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : undefined,
         cardColor: typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : undefined,
+        assigneeUserId: typeof nextMeta.assigneeUserId === "string" ? nextMeta.assigneeUserId : undefined,
+        assigneeName: typeof nextMeta.assigneeName === "string" ? nextMeta.assigneeName : undefined,
+        assigneeEmail: typeof nextMeta.assigneeEmail === "string" ? nextMeta.assigneeEmail : undefined,
+        assigneeRole: typeof nextMeta.assigneeRole === "string" ? nextMeta.assigneeRole : undefined,
       };
 
       const saveRes = await fetch(apiUrl("/api/templates/save-changes"), {
@@ -1303,24 +1529,31 @@ function WorkspacePageInner() {
       (nativeWarmupRunning || offlinePreparing)
   );
 
-  const filteredTemplates = useMemo(() => {
+  const visibleTemplates = useMemo(() => {
     if (!workspace) return [];
+    return workspace.templates.filter((t) =>
+      isTemplateVisibleForUser(t, user?.id || null, workspaceRole)
+    );
+  }, [workspace, user?.id, workspaceRole]);
+
+  const filteredTemplates = useMemo(() => {
+    if (!visibleTemplates.length) return [];
     const q = templateQuery.trim().toLowerCase();
-    if (!q) return workspace.templates;
-    return workspace.templates.filter((t) => t.title.toLowerCase().includes(q));
-  }, [workspace, templateQuery]);
+    if (!q) return visibleTemplates;
+    return visibleTemplates.filter((t) => t.title.toLowerCase().includes(q));
+  }, [visibleTemplates, templateQuery]);
 
   const recentTemplates = useMemo(() => {
-    if (!workspace || recentTemplateIds.length === 0) return [];
-    const byId = new Map(workspace.templates.map((t) => [t.id, t]));
+    if (!visibleTemplates.length || recentTemplateIds.length === 0) return [];
+    const byId = new Map(visibleTemplates.map((t) => [t.id, t]));
     return recentTemplateIds
       .map((id) => byId.get(id))
       .filter((t): t is TemplateSummary => Boolean(t));
-  }, [workspace, recentTemplateIds]);
+  }, [visibleTemplates, recentTemplateIds]);
 
   const reminderTargets = useMemo((): TemplateReminderTarget[] => {
-    if (!workspace?.templates?.length) return [];
-    return workspace.templates
+    if (!visibleTemplates.length) return [];
+    return visibleTemplates
       .map((t) =>
         templateToReminderTarget(t.id, t.title, {
           dueRule: t.settings?.dueRule,
@@ -1330,7 +1563,7 @@ function WorkspacePageInner() {
         })
       )
       .filter((x): x is TemplateReminderTarget => Boolean(x));
-  }, [workspace?.templates]);
+  }, [visibleTemplates]);
 
   useEffect(() => {
     if (!workspace?.templates?.length) {
@@ -2959,14 +3192,16 @@ function WorkspacePageInner() {
                                   : "border-foreground/15 bg-foreground/[0.03] text-foreground/60")
                               }
                             >
-                              {formatDueRuleSummary(
-                                t.settings?.dueRule ?? null,
-                                t.settings?.dueReminderAt ? new Date(t.settings.dueReminderAt) : null
-                              )}
+                              {templateDueStatusLabel(t)}
                             </div>
                             {draftTemplateIds.has(t.id) ? (
                               <div className="inline-flex rounded-full border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                                 Saved draft
+                              </div>
+                            ) : null}
+                            {templateAssigneeLabel(t) ? (
+                              <div className="inline-flex rounded-full border border-sky-300/70 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-800">
+                                {templateAssigneeLabel(t)}
                               </div>
                             ) : null}
                           </div>
@@ -3149,6 +3384,10 @@ function WorkspacePageInner() {
         saving={quickSettingsSaving || quickSettingsLoading}
         error={quickSettingsError}
         showTemperatureSettings={Boolean(quickSettingsTemplate?.hasTemperatureInputs)}
+        staffOptions={quickSettingsStaffOptions}
+        assignableRoles={quickSettingsAssignableRoles}
+        staffLoading={quickSettingsStaffLoading}
+        staffError={quickSettingsStaffError}
         onClose={() => {
           if (quickSettingsSaving || quickSettingsLoading) return;
           setQuickSettingsTemplate(null);

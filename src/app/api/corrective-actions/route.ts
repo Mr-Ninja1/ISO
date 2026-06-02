@@ -5,6 +5,7 @@ import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { persistPhotoEvidenceToBucket } from "@/lib/photoEvidenceStorage";
 import { recordActivity } from "@/lib/activityTracker";
+import { sendCorrectiveActionEmail } from "@/lib/notifications/emailAlerts";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -241,7 +242,15 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, actionId: id });
+  const createdEmail = await sendCorrectiveActionEmail({
+    to: safeString(ownerEmail),
+    tenantSlug,
+    actionId: id,
+    subject: `Corrective action assigned: ${title}`,
+    message: `A corrective action has been assigned to you.\n\nStatus: Open\nOwner: ${ownerName}`,
+  });
+
+  return NextResponse.json({ ok: true, actionId: id, email: createdEmail });
 }
 
 export async function PATCH(req: Request) {
@@ -362,5 +371,13 @@ export async function PATCH(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, actionId });
+  const updatedEmail = await sendCorrectiveActionEmail({
+    to: ownerEmail === undefined ? (existing.owner_email as string | null) : safeString(ownerEmail),
+    tenantSlug,
+    actionId,
+    subject: `Corrective action updated: ${updatedTitle}`,
+    message: `Status is now ${nextStatus.replace("_", " ")}.\nOwner: ${updatedOwner}`,
+  });
+
+  return NextResponse.json({ ok: true, actionId, email: updatedEmail });
 }

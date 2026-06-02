@@ -31,6 +31,10 @@ export type WorkspaceTemplatePayload = {
     temperatureUnit?: "C" | "F";
     cardIcon?: string;
     cardColor?: string;
+    assigneeUserId?: string;
+    assigneeName?: string;
+    assigneeEmail?: string;
+    assigneeRole?: string;
   };
 };
 
@@ -111,6 +115,10 @@ function templateMetaSettings(schema: unknown): WorkspaceTemplatePayload["settin
     temperatureUnit: m.temperatureUnit === "F" || m.temperatureUnit === "C" ? m.temperatureUnit : undefined,
     cardIcon: typeof m.cardIcon === "string" ? m.cardIcon : undefined,
     cardColor: typeof m.cardColor === "string" ? m.cardColor : undefined,
+    assigneeUserId: typeof m.assigneeUserId === "string" ? m.assigneeUserId : undefined,
+    assigneeName: typeof m.assigneeName === "string" ? m.assigneeName : undefined,
+    assigneeEmail: typeof m.assigneeEmail === "string" ? m.assigneeEmail : undefined,
+    assigneeRole: typeof m.assigneeRole === "string" ? m.assigneeRole : undefined,
   };
 }
 
