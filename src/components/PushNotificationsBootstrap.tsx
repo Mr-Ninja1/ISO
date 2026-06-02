@@ -8,6 +8,7 @@ import {
   attachPushNotificationListeners,
   isPushNotificationsEnabled,
   registerDeviceForPush,
+  hasSavedPushRegistration,
 } from "@/lib/push/pushNotificationService";
 
 /**
@@ -60,6 +61,27 @@ export function PushNotificationsBootstrap() {
       tenantSlug,
       categories: ["announcement", "system", "reminder"],
     });
+  }, [accessToken, pathname, searchParams, listenersReady]);
+
+  useEffect(() => {
+    if (!isPushNotificationsEnabled() || !accessToken || !listenersReady) return;
+    if (hasSavedPushRegistration()) return;
+
+    const retry = () => {
+      const tenantSlug =
+        searchParams?.get("tenantSlug") ||
+        (pathname?.startsWith("/")
+          ? pathname.split("/").filter(Boolean)[0] || null
+          : null);
+      void registerDeviceForPush({
+        accessToken,
+        tenantSlug,
+        categories: ["announcement", "system", "reminder"],
+      });
+    };
+
+    document.addEventListener("visibilitychange", retry);
+    return () => document.removeEventListener("visibilitychange", retry);
   }, [accessToken, pathname, searchParams, listenersReady]);
 
   return null;

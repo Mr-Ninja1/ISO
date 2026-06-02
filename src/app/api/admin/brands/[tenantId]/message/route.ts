@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { requirePlatformDeveloper } from "@/lib/platformDevelopers";
 import { sendPushNotificationToDevices } from "@/lib/push/firebaseAdmin";
+import { sendTenantAnnouncementEmails } from "@/lib/notifications/emailAlerts";
 
 function getBearerToken(req: Request) {
   const header =
@@ -109,7 +110,13 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ alert, push });
+    const email = await sendTenantAnnouncementEmails({
+      tenantId,
+      title,
+      message,
+    });
+
+    return NextResponse.json({ alert, push, email });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";
     const status =

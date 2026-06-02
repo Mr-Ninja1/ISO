@@ -8,6 +8,7 @@ import {
   showDueReminderNotification,
   wasReminderShown,
 } from "@/lib/client/dueReminderNotify";
+import { apiUrl } from "@/lib/client/apiBase";
 import { isPastDue, resolveReminderDueInstants, type TemplateReminderTarget } from "@/lib/dueRules";
 
 const POLL_MS = 10_000;
@@ -15,13 +16,44 @@ const POLL_MS = 10_000;
 type Props = {
   tenantSlug?: string | null;
   reminders: TemplateReminderTarget[];
+  accessToken?: string | null;
 };
+
+async function dispatchServerReminder(input: {
+  accessToken: string;
+  tenantSlug: string;
+  templateId: string;
+  title: string;
+  body: string;
+  dueReminderAt: string;
+  dispatchKey: string;
+}) {
+  try {
+    await fetch(apiUrl("/api/reminders/dispatch"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        tenantSlug: input.tenantSlug,
+        templateId: input.templateId,
+        title: input.title,
+        body: input.body,
+        dueReminderAt: input.dueReminderAt,
+        dispatchKey: input.dispatchKey,
+      }),
+    });
+  } catch {
+    // Local in-app reminder still shown even if server dispatch fails.
+  }
+}
 
 /**
  * Watches template-level dueReminderAt (set when admin saves the period).
  * Shows system + in-app reminders when the time is reached.
  */
-export function DueReminderPoller({ tenantSlug, reminders }: Props) {
+export function DueReminderPoller({ tenantSlug, reminders, accessToken }: Props) {
   useEffect(() => {
     if (!tenantSlug || reminders.length === 0) return;
     if (typeof window === "undefined") return;
@@ -48,6 +80,17 @@ export function DueReminderPoller({ tenantSlug, reminders }: Props) {
             body,
             dueReminderAt: dueIso,
           });
+          if (accessToken) {
+            await dispatchServerReminder({
+              accessToken,
+              tenantSlug,
+              templateId: item.templateId,
+              title: item.title,
+              body,
+              dueReminderAt: dueIso,
+              dispatchKey: key,
+            });
+          }
           markReminderShown(key);
         }
       }
@@ -66,7 +109,7 @@ export function DueReminderPoller({ tenantSlug, reminders }: Props) {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [tenantSlug, reminders]);
+  }, [tenantSlug, reminders, accessToken]);
 
   return null;
 }

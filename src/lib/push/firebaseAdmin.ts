@@ -6,6 +6,14 @@ type SendPushOptions = {
   payload: PushPayload;
   tenantId?: string | null;
   audience?: "all" | "native" | "web" | null;
+  userIds?: string[];
+};
+
+type TokenRow = {
+  token: string;
+  platform: string;
+  tenant_id: string | null;
+  user_id: string;
 };
 
 type FirebaseMessage = {
@@ -104,30 +112,57 @@ async function getGoogleAccessToken(serviceAccount: NonNullable<ReturnType<typeo
   return json.access_token;
 }
 
-async function listTargetTokens(options: SendPushOptions) {
+async function listTenantMemberUserIds(tenantId: string) {
   const svc = createServiceRoleSupabase();
-  if (!svc) throw new Error("Service role is not configured");
+  if (!svc) return new Set<string>();
 
-  let query = svc.from("device_push_tokens").select("token, platform, tenant_id").eq("platform", "android");
-  if (options.tenantId) {
-    query = query.eq("tenant_id", options.tenantId);
-  }
+  const { data, error } = await svc.from("tenant_members").select("user_id").eq("tenant_id", tenantId);
+  if (error) return new Set<string>();
+  return new Set(
+    (data || [])
+      .map((row) => (row as { user_id?: string }).user_id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0),
+  );
+}
 
-  const audience = normalizeAnnouncementAudience(options.audience);
-  if (audience === "web") return [];
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message || "Failed to load device tokens");
-
+function collectUniqueTokens(rows: TokenRow[]) {
   const seen = new Set<string>();
   const tokens: string[] = [];
-  for (const row of data || []) {
+  for (const row of rows) {
     const token = typeof row.token === "string" ? row.token.trim() : "";
     if (!token || seen.has(token)) continue;
     seen.add(token);
     tokens.push(token);
   }
   return tokens;
+}
+
+async function listTargetTokens(options: SendPushOptions) {
+  const svc = createServiceRoleSupabase();
+  if (!svc) throw new Error("Service role is not configured");
+
+  const audience = normalizeAnnouncementAudience(options.audience);
+  if (audience === "web") return [];
+
+  const { data, error } = await svc
+    .from("device_push_tokens")
+    .select("token, platform, tenant_id, user_id")
+    .eq("platform", "android");
+  if (error) throw new Error(error.message || "Failed to load device tokens");
+
+  let rows = (data || []) as TokenRow[];
+
+  if (options.userIds?.length) {
+    const allowed = new Set(options.userIds);
+    rows = rows.filter((row) => allowed.has(row.user_id));
+  } else if (options.tenantId) {
+    const memberIds = await listTenantMemberUserIds(options.tenantId);
+    rows = rows.filter(
+      (row) => row.tenant_id === options.tenantId || memberIds.has(row.user_id),
+    );
+  }
+
+  return collectUniqueTokens(rows);
 }
 
 function toFirebaseMessage(token: string, payload: PushPayload): FirebaseMessage {
@@ -172,6 +207,21 @@ async function sendFirebaseMessage(projectId: string, accessToken: string, messa
 
   const text = await res.text();
   return { ok: false, error: text || `FCM send failed (${res.status})` };
+}
+
+export async function sendPushNotificationToUsers(options: {
+  userIds: string[];
+  payload: PushPayload;
+  tenantId?: string | null;
+}) {
+  if (!options.userIds.length) {
+    return { attempted: true, sent: 0, failed: 0, skipped: "No target users" };
+  }
+  return sendPushNotificationToDevices({
+    payload: options.payload,
+    tenantId: options.tenantId,
+    userIds: options.userIds,
+  });
 }
 
 export async function sendPushNotificationToDevices(options: SendPushOptions) {

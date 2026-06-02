@@ -131,6 +131,7 @@ export function BrandOversightPanel() {
   );
   const [testPushDeepLink, setTestPushDeepLink] = useState("/workspace");
   const [sendingTestPush, setSendingTestPush] = useState(false);
+  const [runningPushDiagnostics, setRunningPushDiagnostics] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<BrandRow | null>(
     null,
   );
@@ -368,6 +369,7 @@ export function BrandOversightPanel() {
     try {
       const result = await adminFetch<{
         push?: { sent?: number; failed?: number; skipped?: string };
+        email?: { sent?: number; failed?: number; skipped?: string };
       }>("/api/admin/broadcast", {
         method: "POST",
         headers: {
@@ -387,13 +389,19 @@ export function BrandOversightPanel() {
         return;
       }
       const pushSummary = result.data?.push;
+      const emailSummary = result.data?.email;
       const pushText = pushSummary?.skipped
         ? ` Push skipped: ${pushSummary.skipped}.`
         : typeof pushSummary?.sent === "number"
           ? ` Push sent: ${pushSummary.sent}${pushSummary.failed ? `, failed: ${pushSummary.failed}` : ""}.`
           : "";
+      const emailText = emailSummary?.skipped
+        ? ` Email skipped: ${emailSummary.skipped}.`
+        : typeof emailSummary?.sent === "number"
+          ? ` Email sent: ${emailSummary.sent}${emailSummary.failed ? `, failed: ${emailSummary.failed}` : ""}.`
+          : "";
       setBusyMessage(
-        `Broadcast sent to all brand workspace inboxes.${pushText}`,
+        `Broadcast sent to all brand workspace inboxes.${pushText}${emailText}`,
       );
       setBroadcastOpen(false);
       setBroadcastTitle("");
@@ -401,6 +409,39 @@ export function BrandOversightPanel() {
       await refreshBrands();
     } finally {
       setSavingBroadcast(false);
+      setRequestPending(false);
+    }
+  }
+
+  async function runPushDiagnostics() {
+    const token = session?.access_token || "";
+    if (!token || !guardOnlineAction()) return;
+    setRunningPushDiagnostics(true);
+    setRequestPending(true);
+    setBusyMessage("");
+    setError("");
+    try {
+      const result = await adminFetch<{
+        ok?: boolean;
+        tokenCount?: number;
+        checks?: Array<{ label: string; ok: boolean; detail: string }>;
+      }>("/api/admin/push/diagnostics", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!result.ok) {
+        if (result.status === 403) setAccessDenied(true);
+        setError(result.error);
+        return;
+      }
+      const checks = result.data?.checks || [];
+      const failed = checks.filter((check) => !check.ok);
+      const summary =
+        failed.length === 0
+          ? `Push diagnostics passed. ${result.data?.tokenCount ?? 0} Android token(s) registered.`
+          : `Push diagnostics found ${failed.length} issue(s): ${failed.map((check) => `${check.label} (${check.detail})`).join("; ")}.`;
+      setBusyMessage(summary);
+    } finally {
+      setRunningPushDiagnostics(false);
       setRequestPending(false);
     }
   }
@@ -647,22 +688,35 @@ export function BrandOversightPanel() {
                 placeholder="/workspace"
               />
             </label>
-            <button
-              type="button"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
-              disabled={
-                offline ||
-                sendingTestPush ||
-                !testPushTitle.trim() ||
-                !testPushMessage.trim()
-              }
-              onClick={() => void sendTestPush()}
-            >
-              {sendingTestPush ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Send test push
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
+                disabled={
+                  offline ||
+                  sendingTestPush ||
+                  !testPushTitle.trim() ||
+                  !testPushMessage.trim()
+                }
+                onClick={() => void sendTestPush()}
+              >
+                {sendingTestPush ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Send test push
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/15 bg-background px-4 text-sm font-medium disabled:opacity-60"
+                disabled={offline || runningPushDiagnostics}
+                onClick={() => void runPushDiagnostics()}
+              >
+                {runningPushDiagnostics ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Run push diagnostics
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -41,6 +41,46 @@ async function getPushPlugin(): Promise<PushPlugin | null> {
 
 const ENABLED = process.env.NEXT_PUBLIC_PUSH_NOTIFICATIONS_ENABLED === "1";
 const REGISTRATION_STORAGE_KEY = "iso-push-registration:v1";
+const SESSION_STORAGE_KEY = `${REGISTRATION_STORAGE_KEY}:session`;
+
+function readStoredSession() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || "null") as {
+      accessToken?: string;
+      tenantSlug?: string | null;
+      categories?: PushNotificationCategory[];
+    } | null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(input: {
+  accessToken: string;
+  tenantSlug?: string | null;
+  categories?: PushNotificationCategory[];
+}) {
+  try {
+    localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        accessToken: input.accessToken,
+        tenantSlug: input.tenantSlug ?? null,
+        categories: input.categories ?? ["announcement", "system", "reminder"],
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export function hasSavedPushRegistration() {
+  try {
+    return Boolean(localStorage.getItem(REGISTRATION_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
 
 export function isPushNotificationsEnabled() {
   return ENABLED && isCapacitorNativeApp();
@@ -106,6 +146,11 @@ export async function registerDeviceForPush(input: {
   }
 
   try {
+    writeStoredSession({
+      accessToken: input.accessToken,
+      tenantSlug: input.tenantSlug,
+      categories: input.categories,
+    });
     localStorage.setItem(
       `${REGISTRATION_STORAGE_KEY}:pending`,
       JSON.stringify({
@@ -152,20 +197,18 @@ export async function attachPushNotificationListeners(
           pending = null;
         }
 
-        const accessToken = pending?.accessToken || "";
+        const storedSession = readStoredSession();
+        const accessToken = pending?.accessToken || storedSession?.accessToken || "";
         if (!accessToken) return;
 
         await savePushTokenOnServer({
           accessToken,
           registration: {
-            tenantSlug: pending?.tenantSlug ?? null,
+            tenantSlug: pending?.tenantSlug ?? storedSession?.tenantSlug ?? null,
             platform: "android",
             token,
-            categories: pending?.categories ?? [
-              "announcement",
-              "system",
-              "reminder",
-            ],
+            categories: pending?.categories ??
+              storedSession?.categories ?? ["announcement", "system", "reminder"],
           },
         });
       },

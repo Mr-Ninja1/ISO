@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DueReminderPoller } from "@/components/DueReminderPoller";
 import { NotificationModal } from "@/components/NotificationModal";
 import { useAuth } from "@/components/AuthProvider";
+import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import {
   DUE_REMINDER_EVENT,
   ensureNotificationPermission,
@@ -29,6 +30,7 @@ function templateMetaFromSettings(settings: Record<string, unknown> | undefined)
 export function TenantDueReminderWatcher({ tenantSlug }: { tenantSlug: string }) {
   const { user, session } = useAuth();
   const userId = user?.id || session?.user?.id || null;
+  const accessToken = getWorkspaceAccessToken(session);
   const [cacheTick, setCacheTick] = useState(0);
   const [notification, setNotification] = useState<{
     title: string;
@@ -80,7 +82,7 @@ export function TenantDueReminderWatcher({ tenantSlug }: { tenantSlug: string })
 
   return (
     <>
-      <DueReminderPoller tenantSlug={tenantSlug} reminders={reminderTargets} />
+      <DueReminderPoller tenantSlug={tenantSlug} reminders={reminderTargets} accessToken={accessToken} />
       <NotificationModal
         open={Boolean(notification)}
         title={notification?.title || ""}

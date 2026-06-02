@@ -2497,7 +2497,7 @@ function WorkspacePageInner() {
 
   return (
     <div className="workspace-shell min-h-dvh">
-      <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} />
+      <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} accessToken={accessToken} />
       <div className="ws-header-accent" />
       <MobileAppInstallBanner placement="workspace" />
       <div className="ws-header sticky top-0 isolate backdrop-blur-xl" style={{ zIndex: Z_STICKY_HEADER }}>
