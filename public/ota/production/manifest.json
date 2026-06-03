@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260602.ota-assignment-recurring-v1",
-  "version": "20260602.ota-assignment-recurring-v1",
+  "bundleId": "20260602.1415",
+  "version": "20260602.1415",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://YOUR-HOST/ota/production/bundle-20260602.ota-assignment-recurring-v1.zip",
-  "publishedAt": "2026-06-02T10:57:40.730Z",
-  "releaseNotes": "Optional form assignment, recurring due reminders, non-blocking scheduling"
+  "bundleUrl": "https://github.com/Mr-Ninja1/ISO/releases/download/v1.2.0/bundle-20260602.1415.zip",
+  "publishedAt": "2026-06-03T11:09:20.480Z",
+  "releaseNotes": "Calendar form scheduling, email alerts, push registration fixes, HSE UX improvements"
 }
