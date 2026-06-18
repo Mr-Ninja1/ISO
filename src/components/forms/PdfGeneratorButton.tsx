@@ -34,7 +34,6 @@ export function PdfGeneratorButton({
     }
 
     await generateAuditReportPdf(element, filename, {
-      scale: 3,
       orientation: orient,
       includeEvidencePages,
       evidencePhotos: includeEvidencePages ? evidencePhotos : [],

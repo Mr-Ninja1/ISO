@@ -1,3 +1,4 @@
+import { compressImageForPdf, PDF_JPEG_QUALITY } from "@/lib/pdfImageCompression";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 const MARGIN_MM = 14;
@@ -9,21 +10,12 @@ function getPageSizeMm(orientation: "portrait" | "landscape") {
   };
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Could not load evidence image"));
-    img.src = src;
-  });
-}
-
 /** Append full-page evidence attachment sheets after the main report PDF. */
 export async function appendEvidencePagesToPdf(
   pdf: import("jspdf").jsPDF,
   photos: ReportEvidencePhoto[],
-  orientation: "portrait" | "landscape"
+  orientation: "portrait" | "landscape",
+  jpegQuality = PDF_JPEG_QUALITY
 ) {
   if (!photos.length) return;
 
@@ -48,17 +40,14 @@ export async function appendEvidencePagesToPdf(
     pdf.text(captionLines, MARGIN_MM, MARGIN_MM + 14);
 
     try {
-      const img = await loadImage(item.src);
-      const ratio = Math.min(contentW / img.naturalWidth, contentH / img.naturalHeight);
-      const drawW = img.naturalWidth * ratio;
-      const drawH = img.naturalHeight * ratio;
+      const compressed = await compressImageForPdf(item.src, undefined, jpegQuality);
+      const ratio = Math.min(contentW / compressed.width, contentH / compressed.height);
+      const drawW = compressed.width * ratio;
+      const drawH = compressed.height * ratio;
       const x = MARGIN_MM + (contentW - drawW) / 2;
       const y = headerBottom + (contentH - drawH) / 2;
 
-      const format = item.src.startsWith("data:image/jpeg") || item.src.startsWith("data:image/jpg")
-        ? "JPEG"
-        : "PNG";
-      pdf.addImage(item.src, format, x, y, drawW, drawH);
+      pdf.addImage(compressed.dataUrl, "JPEG", x, y, drawW, drawH);
     } catch {
       pdf.setFontSize(10);
       pdf.setTextColor(120, 120, 120);

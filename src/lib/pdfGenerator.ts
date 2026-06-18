@@ -1,12 +1,16 @@
 import { appendEvidencePagesToPdf } from "@/lib/pdfEvidencePages";
+import { canvasToJpegDataUrl, PDF_JPEG_QUALITY } from "@/lib/pdfImageCompression";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
+/** html2canvas multiplier; 2 keeps text sharp on A4 without bloating file size. */
+const DEFAULT_PDF_SCALE = 2;
 
 type PdfOptions = {
   scale?: number;
   orientation?: "portrait" | "landscape";
+  jpegQuality?: number;
 };
 
 export type AuditPdfExportOptions = PdfOptions & {
@@ -115,7 +119,8 @@ function applyPdfDocumentTitle(pdf: import('jspdf').jsPDF, title?: string) {
 async function canvasToA4Pdf(
   canvas: HTMLCanvasElement,
   orientation: 'portrait' | 'landscape',
-  documentTitle?: string
+  documentTitle?: string,
+  jpegQuality = PDF_JPEG_QUALITY
 ) {
   const { default: jsPDF } = await import('jspdf');
   const page = getPageSizeMm(orientation);
@@ -167,8 +172,8 @@ async function canvasToA4Pdf(
 
     const sliceHeightMm = (sliceHeightPx * contentWidthMm) / canvas.width;
     pdf.addImage(
-      sliceCanvas.toDataURL('image/png'),
-      'PNG',
+      canvasToJpegDataUrl(sliceCanvas, jpegQuality),
+      'JPEG',
       DEFAULT_MARGIN_MM,
       DEFAULT_MARGIN_MM,
       contentWidthMm,
@@ -188,11 +193,12 @@ export async function generateAuditReportPdf(
   options?: AuditPdfExportOptions
 ): Promise<void> {
   const {
-    scale = 3,
+    scale = DEFAULT_PDF_SCALE,
     orientation = "landscape",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
+    jpegQuality = PDF_JPEG_QUALITY,
   } = options || {};
 
   try {
@@ -202,10 +208,10 @@ export async function generateAuditReportPdf(
       scale,
       includeEvidencePages && evidencePhotos.length > 0
     );
-    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle);
+    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle, jpegQuality);
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
-      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);
+      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation, jpegQuality);
     }
 
     pdf.save(filename);
@@ -228,11 +234,12 @@ export async function generatePdfBlobFromElement(
   options?: AuditPdfExportOptions
 ): Promise<Blob> {
   const {
-    scale = 3,
+    scale = DEFAULT_PDF_SCALE,
     orientation = "landscape",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
+    jpegQuality = PDF_JPEG_QUALITY,
   } = options || {};
 
   try {
@@ -242,10 +249,10 @@ export async function generatePdfBlobFromElement(
       scale,
       includeEvidencePages && evidencePhotos.length > 0
     );
-    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle);
+    const pdf = await canvasToA4Pdf(canvas, orientation, documentTitle, jpegQuality);
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
-      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation);
+      await appendEvidencePagesToPdf(pdf, evidencePhotos, orientation, jpegQuality);
     }
 
     return pdf.output("blob") as Blob;
