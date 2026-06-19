@@ -1,6 +1,11 @@
 import type { CachedAuditRow } from "@/lib/client/auditsListCache";
 
-export type SharedFormsMode = "selected" | "all" | "today";
+export type SharedFormsMode =
+  | "selected"
+  | "all"
+  | "today"
+  | "live_today"
+  | "live_all";
 
 export type SharedFormsLinkPayload = {
   version: 1;
@@ -22,14 +27,25 @@ function toBase64Url(input: string) {
 
 function fromBase64Url(input: string) {
   if (typeof window === "undefined") return "";
-  const padded = input.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(input.length / 4) * 4, "=");
+  const padded = input
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(input.length / 4) * 4, "=");
   return decodeURIComponent(escape(window.atob(padded)));
 }
 
-export function buildShareTitle(mode: SharedFormsMode, tenantNameOrSlug: string, count: number) {
-  if (mode === "today") return `Today's forms • ${tenantNameOrSlug}`;
-  if (mode === "all") return `Shared forms • ${tenantNameOrSlug}`;
-  return count === 1 ? `Shared form • ${tenantNameOrSlug}` : `Selected forms • ${tenantNameOrSlug}`;
+export function buildShareTitle(
+  mode: SharedFormsMode,
+  tenantNameOrSlug: string,
+  count: number,
+) {
+  if (mode === "today") return `Today's forms snapshot • ${tenantNameOrSlug}`;
+  if (mode === "all") return `Shared forms snapshot • ${tenantNameOrSlug}`;
+  if (mode === "live_today") return `Live today's forms • ${tenantNameOrSlug}`;
+  if (mode === "live_all") return `Live saved forms • ${tenantNameOrSlug}`;
+  return count === 1
+    ? `Shared form • ${tenantNameOrSlug}`
+    : `Selected forms • ${tenantNameOrSlug}`;
 }
 
 export function createSharedFormsLinkPayload(input: {
@@ -54,21 +70,30 @@ export function encodeSharedFormsPayload(payload: SharedFormsLinkPayload) {
   return toBase64Url(JSON.stringify(payload));
 }
 
-export function decodeSharedFormsPayload(encoded: string): SharedFormsLinkPayload | null {
+export function decodeSharedFormsPayload(
+  encoded: string,
+): SharedFormsLinkPayload | null {
   try {
     const raw = fromBase64Url(encoded);
     const parsed = JSON.parse(raw) as SharedFormsLinkPayload;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.auditIds)) return null;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.auditIds))
+      return null;
     return parsed;
   } catch {
     return null;
   }
 }
 
-export function saveSharedFormsRows(tenantSlug: string, rows: CachedAuditRow[]) {
+export function saveSharedFormsRows(
+  tenantSlug: string,
+  rows: CachedAuditRow[],
+) {
   if (typeof window === "undefined" || !tenantSlug) return;
   try {
-    localStorage.setItem(`${SHARED_FORMS_KEY}:${tenantSlug}`, JSON.stringify(rows));
+    localStorage.setItem(
+      `${SHARED_FORMS_KEY}:${tenantSlug}`,
+      JSON.stringify(rows),
+    );
   } catch {
     // ignore
   }
