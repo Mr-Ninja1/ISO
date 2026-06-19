@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, MoreVertical, Loader2 } from "lucide-react";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
 import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
+import { StoredFormsShareMenu } from "@/components/forms/StoredFormsShareMenu";
 import { useAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import {
@@ -17,7 +18,10 @@ import {
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
-import { isDevicePendingAuditId, loadDeviceAuditsRows } from "@/lib/client/deviceAuditsRows";
+import {
+  isDevicePendingAuditId,
+  loadDeviceAuditsRows,
+} from "@/lib/client/deviceAuditsRows";
 import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 
@@ -40,18 +44,11 @@ function SavedFormRowActions({
   layout: "row" | "menu";
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const reportPath = auditReportHref(tenantSlug, auditId);
-
-  useEffect(() => {
-    if (busy && pathname?.includes(auditId)) {
-      setBusy(false);
-    }
-  }, [busy, pathname, auditId]);
 
   useEffect(() => {
     if (!busy) return;
@@ -79,16 +76,29 @@ function SavedFormRowActions({
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-60"
           aria-label="More options"
         >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MoreVertical className="h-4 w-4" />
+          )}
         </button>
-        <FloatingActionMenu open={open} anchorRef={menuBtnRef} onClose={() => setOpen(false)} menuWidthPx={192}>
+        <FloatingActionMenu
+          open={open}
+          anchorRef={menuBtnRef}
+          onClose={() => setOpen(false)}
+          menuWidthPx={192}
+        >
           <button
             type="button"
             disabled={busy}
             onClick={openReport}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
             {viewLabel}
           </button>
         </FloatingActionMenu>
@@ -104,7 +114,11 @@ function SavedFormRowActions({
         onClick={openReport}
         className={actionButtonClass(busy)}
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <FileText className="h-4 w-4" />
+        )}
         {viewLabel}
       </button>
     </div>
@@ -116,7 +130,15 @@ function onlySubmittedRows(rows: CachedAuditRow[]) {
 }
 
 function rowSignature(row: CachedAuditRow) {
-  return [row.id, row.status, row.templateId, row.createdAt, row.updatedAt, row.submittedAt || "", row.template.title].join("|");
+  return [
+    row.id,
+    row.status,
+    row.templateId,
+    row.createdAt,
+    row.updatedAt,
+    row.submittedAt || "",
+    row.template.title,
+  ].join("|");
 }
 
 function rowsAreEqual(left: CachedAuditRow[], right: CachedAuditRow[]) {
@@ -149,20 +171,24 @@ export function AuditsListClient({
   const [nextServerOffset, setNextServerOffset] = useState(0);
   const [serverHasMore, setServerHasMore] = useState(false);
   const [deviceReady, setDeviceReady] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!activeTenantSlug) return;
     let cancelled = false;
 
-    void loadDeviceAuditsRows(user?.id || null, activeTenantSlug).then((deviceRows) => {
-      if (cancelled) return;
-      setDeviceReady(true);
-      if (!deviceRows.length) return;
-      setAllRows((current) => {
-        const merged = mergeAuditsRows(current, deviceRows);
-        return rowsAreEqual(current, merged) ? current : merged;
-      });
-    });
+    void loadDeviceAuditsRows(user?.id || null, activeTenantSlug).then(
+      (deviceRows) => {
+        if (cancelled) return;
+        setDeviceReady(true);
+        if (!deviceRows.length) return;
+        setAllRows((current) => {
+          const merged = mergeAuditsRows(current, deviceRows);
+          return rowsAreEqual(current, merged) ? current : merged;
+        });
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -174,7 +200,13 @@ export function AuditsListClient({
     if (!activeTenantSlug) return;
     const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
     if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
-    writeAuditsListCache(user?.id || null, activeTenantSlug, onlySubmittedRows(allRows), undefined, { broadcast: false });
+    writeAuditsListCache(
+      user?.id || null,
+      activeTenantSlug,
+      onlySubmittedRows(allRows),
+      undefined,
+      { broadcast: false },
+    );
   }, [allRows, activeTenantSlug, user?.id]);
 
   useEffect(() => {
@@ -189,9 +221,15 @@ export function AuditsListClient({
       });
     };
 
-    window.addEventListener("audits-cache-updated", onCacheUpdate as EventListener);
+    window.addEventListener(
+      "audits-cache-updated",
+      onCacheUpdate as EventListener,
+    );
     return () => {
-      window.removeEventListener("audits-cache-updated", onCacheUpdate as EventListener);
+      window.removeEventListener(
+        "audits-cache-updated",
+        onCacheUpdate as EventListener,
+      );
     };
   }, [activeTenantSlug, user?.id]);
 
@@ -205,11 +243,16 @@ export function AuditsListClient({
 
     void (async () => {
       try {
-        const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
-          limit: 50,
-          offset: 0,
-          merge: true,
-        });
+        const result = await fetchAndCacheAuditsList(
+          accessToken,
+          user?.id || null,
+          activeTenantSlug,
+          {
+            limit: 50,
+            offset: 0,
+            merge: true,
+          },
+        );
         if (cancelled) return;
         setAllRows(onlySubmittedRows(result.rows));
         setNextServerOffset(result.nextOffset ?? 0);
@@ -217,10 +260,16 @@ export function AuditsListClient({
         setHasLoadedFromServer(true);
       } catch (err: unknown) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : "Could not load saved forms";
-        const localCount = onlySubmittedRows(readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? allRows).length;
+        const message =
+          err instanceof Error ? err.message : "Could not load saved forms";
+        const localCount = onlySubmittedRows(
+          readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ??
+            allRows,
+        ).length;
         if (localCount > 0) {
-          setSyncError(`${message} Showing ${localCount} form(s) saved on this device.`);
+          setSyncError(
+            `${message} Showing ${localCount} form(s) saved on this device.`,
+          );
         } else {
           setSyncError(message);
         }
@@ -241,20 +290,31 @@ export function AuditsListClient({
     setSyncing(true);
     setSyncError("");
     try {
-      const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
-        limit: 200,
-        offset: 0,
-        merge: true,
-      });
+      const result = await fetchAndCacheAuditsList(
+        accessToken,
+        user?.id || null,
+        activeTenantSlug,
+        {
+          limit: 200,
+          offset: 0,
+          merge: true,
+        },
+      );
       setAllRows(onlySubmittedRows(result.rows));
       setNextServerOffset(result.nextOffset ?? 0);
       setServerHasMore(result.hasMore);
       setHasLoadedFromServer(true);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Could not load saved forms";
-      const localCount = onlySubmittedRows(readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? allRows).length;
+      const message =
+        err instanceof Error ? err.message : "Could not load saved forms";
+      const localCount = onlySubmittedRows(
+        readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ??
+          allRows,
+      ).length;
       if (localCount > 0) {
-        setSyncError(`${message} Showing ${localCount} form(s) saved on this device.`);
+        setSyncError(
+          `${message} Showing ${localCount} form(s) saved on this device.`,
+        );
       } else {
         setSyncError(message);
       }
@@ -264,21 +324,34 @@ export function AuditsListClient({
   }
 
   async function loadMoreFromServer() {
-    if (!accessToken || !activeTenantSlug || offline || !serverHasMore || loadingMore) return;
+    if (
+      !accessToken ||
+      !activeTenantSlug ||
+      offline ||
+      !serverHasMore ||
+      loadingMore
+    )
+      return;
 
     setLoadingMore(true);
     setSyncError("");
     try {
-      const result = await fetchAndCacheAuditsList(accessToken, user?.id || null, activeTenantSlug, {
-        limit: 100,
-        offset: nextServerOffset,
-        merge: true,
-      });
+      const result = await fetchAndCacheAuditsList(
+        accessToken,
+        user?.id || null,
+        activeTenantSlug,
+        {
+          limit: 100,
+          offset: nextServerOffset,
+          merge: true,
+        },
+      );
       setAllRows(onlySubmittedRows(result.rows));
       setNextServerOffset(result.nextOffset ?? nextServerOffset);
       setServerHasMore(result.hasMore);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Could not load more";
+      const message =
+        err instanceof Error ? err.message : "Could not load more";
       setSyncError(message);
     } finally {
       setLoadingMore(false);
@@ -289,10 +362,32 @@ export function AuditsListClient({
     const normalizedQuery = query.trim().toLowerCase();
     const base = onlySubmittedRows(allRows);
     if (!normalizedQuery) return base;
-    return base.filter((row) => row.template.title.toLowerCase().includes(normalizedQuery));
+    return base.filter((row) =>
+      row.template.title.toLowerCase().includes(normalizedQuery),
+    );
   }, [allRows, query]);
 
   const exportQuery = query.trim();
+
+  function toggleSelected(auditId: string) {
+    setSelectedIds((current) =>
+      current.includes(auditId)
+        ? current.filter((id) => id !== auditId)
+        : [...current, auditId],
+    );
+  }
+
+  function toggleSelectAllVisible() {
+    const visibleIds = submittedRows.map((row) => row.id);
+    const allSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds(
+      allSelected
+        ? selectedIds.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...selectedIds, ...visibleIds])),
+    );
+  }
 
   return (
     <>
@@ -308,12 +403,24 @@ export function AuditsListClient({
         </div>
       ) : hasLoadedFromServer ? (
         <div className="rounded-md border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-          Showing recent server forms plus anything saved on this device. Use Load more for older history.
+          Showing recent server forms plus anything saved on this device. Use
+          Load more for older history.
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-5 sm:items-center">
         <AuditsExportButton tenantSlug={activeTenantSlug} query={exportQuery} />
+        <StoredFormsShareMenu
+          tenantSlug={activeTenantSlug}
+          rows={submittedRows}
+          selectedIds={selectedIds}
+          selectionMode={selectionMode}
+          onToggleSelectionMode={() => setSelectionMode((value) => !value)}
+          onClearSelection={() => {
+            setSelectedIds([]);
+            setSelectionMode(false);
+          }}
+        />
         {!offline ? (
           <>
             <button
@@ -351,6 +458,30 @@ export function AuditsListClient({
         >
           Run new form
         </Link>
+        {selectionMode ? (
+          <>
+            <button
+              type="button"
+              onClick={toggleSelectAllVisible}
+              className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
+            >
+              {submittedRows.length > 0 &&
+              submittedRows.every((row) => selectedIds.includes(row.id))
+                ? "Clear visible"
+                : "Select visible"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectionMode(false);
+                setSelectedIds([]);
+              }}
+              className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
+            >
+              Cancel selection
+            </button>
+          </>
+        ) : null}
       </div>
 
       <div className="rounded-md border border-foreground/20 bg-background p-3">
@@ -384,38 +515,58 @@ export function AuditsListClient({
         </div>
       ) : (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground/90">Submitted forms ({submittedRows.length})</h3>
+          <h3 className="text-sm font-semibold text-foreground/90">
+            Submitted forms ({submittedRows.length})
+          </h3>
           <div className="space-y-2">
             {submittedRows.map((row) => (
-                  <div key={row.id} className="rounded-md border border-foreground/20 bg-background p-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="line-clamp-2 font-medium">{row.template.title}</div>
-                        <div className="mt-0.5 text-xs text-foreground/70 break-words">
-                          Submitted {new Date(row.submittedAt || row.updatedAt).toLocaleString()}
-                          {row.devicePending || isDevicePendingAuditId(row.id) ? (
-                            <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
-                              Pending sync
-                            </span>
-                          ) : null}
-                        </div>
+              <div
+                key={row.id}
+                className="rounded-md border border-foreground/20 bg-background p-3"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    {selectionMode ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(row.id)}
+                        onChange={() => toggleSelected(row.id)}
+                        className="mt-1 h-4 w-4"
+                      />
+                    ) : null}
+                    <div>
+                      <div className="line-clamp-2 font-medium">
+                        {row.template.title}
                       </div>
-                      <div className="flex w-full items-center gap-2 sm:w-auto">
-                        <SavedFormRowActions
-                          tenantSlug={activeTenantSlug}
-                          auditId={row.id}
-                          layout="row"
-                        />
-                        <div className="flex sm:hidden">
-                          <SavedFormRowActions
-                            tenantSlug={activeTenantSlug}
-                            auditId={row.id}
-                            layout="menu"
-                          />
-                        </div>
+                      <div className="mt-0.5 text-xs text-foreground/70 break-words">
+                        Submitted{" "}
+                        {new Date(
+                          row.submittedAt || row.updatedAt,
+                        ).toLocaleString()}
+                        {row.devicePending || isDevicePendingAuditId(row.id) ? (
+                          <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
+                            Pending sync
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <SavedFormRowActions
+                      tenantSlug={activeTenantSlug}
+                      auditId={row.id}
+                      layout="row"
+                    />
+                    <div className="flex sm:hidden">
+                      <SavedFormRowActions
+                        tenantSlug={activeTenantSlug}
+                        auditId={row.id}
+                        layout="menu"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         </div>

@@ -1,10 +1,13 @@
 /** Max pixel width/height for images embedded in PDF exports (screen/print quality). */
-export const PDF_EVIDENCE_MAX_PX = 1600;
+export const PDF_EVIDENCE_MAX_PX = 1280;
 
 /** JPEG quality for rasterized report pages and recompressed evidence photos. */
-export const PDF_JPEG_QUALITY = 0.82;
+export const PDF_JPEG_QUALITY = 0.68;
 
-export function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = PDF_JPEG_QUALITY): string {
+export function canvasToJpegDataUrl(
+  canvas: HTMLCanvasElement,
+  quality = PDF_JPEG_QUALITY,
+): string {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
@@ -12,10 +15,13 @@ export function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = PDF_JPE
 export async function compressImageForPdf(
   src: string,
   maxPx = PDF_EVIDENCE_MAX_PX,
-  quality = PDF_JPEG_QUALITY
+  quality = PDF_JPEG_QUALITY,
 ): Promise<{ dataUrl: string; width: number; height: number }> {
   const img = await loadImage(src);
-  const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight));
+  const scale = Math.min(
+    1,
+    maxPx / Math.max(img.naturalWidth, img.naturalHeight),
+  );
   const width = Math.max(1, Math.round(img.naturalWidth * scale));
   const height = Math.max(1, Math.round(img.naturalHeight * scale));
 
@@ -44,7 +50,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Could not load image for PDF compression"));
+    img.onerror = () =>
+      reject(new Error("Could not load image for PDF compression"));
     img.src = src;
   });
 }
