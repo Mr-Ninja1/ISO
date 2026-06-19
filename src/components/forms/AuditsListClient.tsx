@@ -282,45 +282,6 @@ export function AuditsListClient({
     };
   }, [activeTenantSlug, offline, accessToken, user?.id]);
 
-  async function refreshFromServer() {
-    if (!accessToken || !activeTenantSlug || offline) return;
-
-    setSyncing(true);
-    setSyncError("");
-    try {
-      const result = await fetchAndCacheAuditsList(
-        accessToken,
-        user?.id || null,
-        activeTenantSlug,
-        {
-          limit: 200,
-          offset: 0,
-          merge: true,
-        },
-      );
-      setAllRows(onlySubmittedRows(result.rows));
-      setNextServerOffset(result.nextOffset ?? 0);
-      setServerHasMore(result.hasMore);
-      setHasLoadedFromServer(true);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Could not load saved forms";
-      const localCount = onlySubmittedRows(
-        readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ??
-          allRows,
-      ).length;
-      if (localCount > 0) {
-        setSyncError(
-          `${message} Showing ${localCount} form(s) saved on this device.`,
-        );
-      } else {
-        setSyncError(message);
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   async function loadMoreFromServer() {
     if (
       !accessToken ||
@@ -387,75 +348,67 @@ export function AuditsListClient({
 
   return (
     <>
-      {offline ? (
-        <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {deviceReady
-            ? "Offline — showing forms saved on this device. Connect to load more from the server."
-            : "Loading forms saved on this device…"}
-        </div>
-      ) : syncing && !hasLoadedFromServer ? (
-        <div className="rounded-md border border-foreground/20 bg-foreground/5 px-3 py-2 text-sm text-foreground/70">
-          Loading recent forms from the server…
-        </div>
-      ) : hasLoadedFromServer ? (
-        <div className="rounded-md border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
-          Showing recent server forms plus anything saved on this device. Use
-          Load more for older history.
-        </div>
-      ) : null}
+      <div className="rounded-xl border border-foreground/10 bg-background p-3 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-medium text-foreground/90">
+              Saved forms
+            </div>
+            <div className="text-xs text-foreground/60">
+              {offline
+                ? deviceReady
+                  ? "Offline mode — showing forms saved on this device."
+                  : "Loading forms saved on this device…"
+                : syncing && !hasLoadedFromServer
+                  ? "Loading recent forms…"
+                  : hasLoadedFromServer
+                    ? "Recent forms are ready. Load more when you need older history."
+                    : "Browse and share submitted forms."}
+            </div>
+          </div>
 
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-        <div className="flex flex-wrap items-center gap-2">
-          <StoredFormsShareMenu
-            tenantSlug={activeTenantSlug}
-            rows={submittedRows}
-            selectedIds={selectedIds}
-            selectionMode={selectionMode}
-            onToggleSelectionMode={() => setSelectionMode((value) => !value)}
-            onClearSelection={() => {
-              setSelectedIds([]);
-              setSelectionMode(false);
-            }}
-          />
-          {selectionMode ? (
-            <>
+          <div className="flex flex-wrap items-center gap-2">
+            <StoredFormsShareMenu
+              tenantSlug={activeTenantSlug}
+              rows={submittedRows}
+              selectedIds={selectedIds}
+              selectionMode={selectionMode}
+              onToggleSelectionMode={() => setSelectionMode((value) => !value)}
+              onClearSelection={() => {
+                setSelectedIds([]);
+                setSelectionMode(false);
+              }}
+            />
+            {selectionMode ? (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleSelectAllVisible}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                >
+                  <CheckSquare className="h-4 w-4" />
+                  {submittedRows.length > 0 &&
+                  submittedRows.every((row) => selectedIds.includes(row.id))
+                    ? "Clear visible"
+                    : "Select visible"}
+                </button>
+                <div className="inline-flex h-9 items-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm text-emerald-900">
+                  {selectedIds.length} selected
+                </div>
+              </>
+            ) : null}
+            {!offline && serverHasMore ? (
               <button
                 type="button"
-                onClick={toggleSelectAllVisible}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                disabled={loadingMore || syncing}
+                onClick={() => void loadMoreFromServer()}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
               >
-                <CheckSquare className="h-4 w-4" />
-                {submittedRows.length > 0 &&
-                submittedRows.every((row) => selectedIds.includes(row.id))
-                  ? "Clear visible"
-                  : "Select visible"}
+                {loadingMore ? "Loading more…" : "Load more"}
               </button>
-              <div className="inline-flex h-9 items-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm text-emerald-900">
-                {selectedIds.length} selected
-              </div>
-            </>
-          ) : null}
+            ) : null}
+          </div>
         </div>
-        {!offline ? (
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={() => void refreshFromServer()}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
-          >
-            {syncing ? "Refreshing…" : "Refresh from server"}
-          </button>
-        ) : null}
-        {!offline && serverHasMore ? (
-          <button
-            type="button"
-            disabled={loadingMore || syncing}
-            onClick={() => void loadMoreFromServer()}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
-          >
-            {loadingMore ? "Loading more…" : "Load more"}
-          </button>
-        ) : null}
       </div>
 
       {syncError ? (
@@ -507,21 +460,24 @@ export function AuditsListClient({
           {query.trim()
             ? "No forms match your search."
             : offline
-              ? "No forms on this device yet. Connect and open a form to cache it."
+              ? "No forms on this device yet. Connect once to pull submitted forms."
               : syncing
                 ? "Loading forms…"
-                : "No forms yet. Run a form from workspace or load more from the server."}
+                : "No submitted forms yet."}
         </div>
       ) : (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground/90">
-            Submitted forms ({submittedRows.length})
-          </h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground/90">
+              Submitted forms ({submittedRows.length})
+            </h3>
+            {!offline && serverHasMore ? null : null}
+          </div>
           <div className="space-y-2">
             {submittedRows.map((row) => (
               <div
                 key={row.id}
-                className="rounded-md border border-foreground/20 bg-background p-3"
+                className="rounded-xl border border-foreground/15 bg-background p-3 shadow-sm"
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-3">

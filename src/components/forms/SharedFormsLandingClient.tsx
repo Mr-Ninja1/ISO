@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import type { CachedAuditRow } from "@/lib/client/auditsListCache";
-import { auditReportHref } from "@/lib/client/tenantNavigation";
 import type { SharedFormsLinkPayload } from "@/lib/sharedForms";
 
 function groupRowsByDate(rows: CachedAuditRow[]) {
@@ -29,6 +29,8 @@ export function SharedFormsLandingClient({
   rows: CachedAuditRow[];
 }) {
   const grouped = useMemo(() => groupRowsByDate(rows), [rows]);
+  const searchParams = useSearchParams();
+  const token = (searchParams.get("token") || "").trim();
   const brandLabel = payload.tenantName || payload.tenantSlug;
 
   return (
@@ -91,7 +93,7 @@ export function SharedFormsLandingClient({
             {items.map((row) => (
               <Link
                 key={row.id}
-                href={auditReportHref(payload.tenantSlug, row.id)}
+                href={`/shared/forms/form?token=${encodeURIComponent(token)}&auditId=${encodeURIComponent(row.id)}`}
                 className="rounded-xl border border-foreground/15 p-4 transition hover:bg-foreground/5"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

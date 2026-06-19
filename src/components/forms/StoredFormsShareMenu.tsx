@@ -132,8 +132,12 @@ export function StoredFormsShareMenu({
             : "Review link created. You can copy it below.",
       );
       if (mode === "selected") onClearSelection();
-    } catch {
-      setMessage("Could not create the review link right now.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create the review link right now.",
+      );
     } finally {
       setSharing(null);
     }
@@ -151,181 +155,190 @@ export function StoredFormsShareMenu({
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-foreground/15 bg-background p-3 shadow-xl">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">Share forms</h3>
-              <p className="mt-1 text-xs text-foreground/60">
-                Create a clean browser review link instead of exporting bulky
-                PDFs.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md p-1 hover:bg-foreground/5"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="mt-3 grid gap-3">
-            <div className="rounded-lg border border-foreground/15 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground/55">
-                Snapshot links
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/35"
+            aria-label="Close share forms dialog"
+            onClick={() => setOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md rounded-xl border border-foreground/15 bg-background p-3 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">Share forms</h3>
+                <p className="mt-1 text-xs text-foreground/60">
+                  Create a clean browser review link instead of exporting bulky
+                  PDFs.
+                </p>
               </div>
-              <p className="mt-1 text-xs text-foreground/60">
-                Snapshot links freeze the chosen forms at the moment you share
-                them.
-              </p>
-
-              <div className="mt-3 grid gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onToggleSelectionMode();
-                    setOpen(false);
-                  }}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5"
-                >
-                  <CheckSquare className="mt-0.5 h-4 w-4" />
-                  <span>
-                    <span className="block text-sm font-medium">
-                      {selectionMode
-                        ? "Selection mode is active"
-                        : "Select forms to share"}
-                    </span>
-                    <span className="block text-xs text-foreground/60">
-                      Pick exactly which reports go into one review link from
-                      the list below.
-                    </span>
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={sharing === "today" || todayRows.length === 0}
-                  onClick={() => void handleShare("today")}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {sharing === "today" ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ListChecks className="mt-0.5 h-4 w-4" />
-                  )}
-                  <span>
-                    <span className="block text-sm font-medium">
-                      Share today’s forms
-                    </span>
-                    <span className="block text-xs text-foreground/60">
-                      {todayRows.length} form{todayRows.length === 1 ? "" : "s"}{" "}
-                      from today in one browser link.
-                    </span>
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={sharing === "all" || rows.length === 0}
-                  onClick={() => void handleShare("all")}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {sharing === "all" ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Link2 className="mt-0.5 h-4 w-4" />
-                  )}
-                  <span>
-                    <span className="block text-sm font-medium">
-                      Share all visible forms
-                    </span>
-                    <span className="block text-xs text-foreground/60">
-                      Send the current saved-forms list as a grouped read-only
-                      portal.
-                    </span>
-                  </span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md p-1 hover:bg-foreground/5"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            <div className="rounded-lg border border-foreground/15 p-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground/55">
-                Live links
+            <div className="mt-3 grid gap-3">
+              <div className="rounded-lg border border-foreground/15 p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground/55">
+                  Snapshot links
+                </div>
+                <p className="mt-1 text-xs text-foreground/60">
+                  Snapshot links freeze the chosen forms at the moment you share
+                  them.
+                </p>
+
+                <div className="mt-3 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleSelectionMode();
+                      setOpen(false);
+                    }}
+                    className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5"
+                  >
+                    <CheckSquare className="mt-0.5 h-4 w-4" />
+                    <span>
+                      <span className="block text-sm font-medium">
+                        {selectionMode
+                          ? "Selection mode is active"
+                          : "Select forms to share"}
+                      </span>
+                      <span className="block text-xs text-foreground/60">
+                        Pick exactly which reports go into one review link from
+                        the list below.
+                      </span>
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sharing === "today" || todayRows.length === 0}
+                    onClick={() => void handleShare("today")}
+                    className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
+                  >
+                    {sharing === "today" ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <ListChecks className="mt-0.5 h-4 w-4" />
+                    )}
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Share today’s forms
+                      </span>
+                      <span className="block text-xs text-foreground/60">
+                        {todayRows.length} form
+                        {todayRows.length === 1 ? "" : "s"} from today in one
+                        browser link.
+                      </span>
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sharing === "all" || rows.length === 0}
+                    onClick={() => void handleShare("all")}
+                    className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
+                  >
+                    {sharing === "all" ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="mt-0.5 h-4 w-4" />
+                    )}
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Share all visible forms
+                      </span>
+                      <span className="block text-xs text-foreground/60">
+                        Send the current saved-forms list as a grouped read-only
+                        portal.
+                      </span>
+                    </span>
+                  </button>
+                </div>
               </div>
-              <p className="mt-1 text-xs text-foreground/60">
-                Live links refresh from the database whenever the receiver opens
-                them.
-              </p>
 
-              <div className="mt-3 grid gap-2">
-                <button
-                  type="button"
-                  disabled={sharing === "live_today"}
-                  onClick={() => void handleShare("live_today")}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {sharing === "live_today" ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Radio className="mt-0.5 h-4 w-4" />
-                  )}
-                  <span>
-                    <span className="block text-sm font-medium">
-                      Live today’s forms
-                    </span>
-                    <span className="block text-xs text-foreground/60">
-                      Receiver can open the same link daily and always see
-                      today’s submitted forms.
-                    </span>
-                  </span>
-                </button>
+              <div className="rounded-lg border border-foreground/15 p-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground/55">
+                  Live links
+                </div>
+                <p className="mt-1 text-xs text-foreground/60">
+                  Live links refresh from the database whenever the receiver
+                  opens them.
+                </p>
 
-                <button
-                  type="button"
-                  disabled={sharing === "live_all"}
-                  onClick={() => void handleShare("live_all")}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {sharing === "live_all" ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Radio className="mt-0.5 h-4 w-4" />
-                  )}
-                  <span>
-                    <span className="block text-sm font-medium">
-                      Live saved forms
+                <div className="mt-3 grid gap-2">
+                  <button
+                    type="button"
+                    disabled={sharing === "live_today"}
+                    onClick={() => void handleShare("live_today")}
+                    className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
+                  >
+                    {sharing === "live_today" ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Radio className="mt-0.5 h-4 w-4" />
+                    )}
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Live today’s forms
+                      </span>
+                      <span className="block text-xs text-foreground/60">
+                        Receiver can open the same link daily and always see
+                        today’s submitted forms.
+                      </span>
                     </span>
-                    <span className="block text-xs text-foreground/60">
-                      Receiver always sees the latest submitted forms from this
-                      brand.
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sharing === "live_all"}
+                    onClick={() => void handleShare("live_all")}
+                    className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
+                  >
+                    {sharing === "live_all" ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Radio className="mt-0.5 h-4 w-4" />
+                    )}
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Live saved forms
+                      </span>
+                      <span className="block text-xs text-foreground/60">
+                        Receiver always sees the latest submitted forms from
+                        this brand.
+                      </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-lg border border-dashed border-foreground/15 p-3">
-              <label className="grid gap-1 text-xs">
-                <span className="font-semibold uppercase tracking-[0.16em] text-foreground/55">
-                  Link expiry
-                </span>
-                <select
-                  value={expiresInDays}
-                  onChange={(e) =>
-                    setExpiresInDays(Number(e.target.value) || 7)
-                  }
-                  className="h-9 rounded-md border border-foreground/20 bg-background px-3 text-sm"
-                >
-                  <option value={1}>1 day</option>
-                  <option value={7}>7 days</option>
-                  <option value={30}>30 days</option>
-                </select>
-              </label>
-            </div>
+              <div className="rounded-lg border border-dashed border-foreground/15 p-3">
+                <label className="grid gap-1 text-xs">
+                  <span className="font-semibold uppercase tracking-[0.16em] text-foreground/55">
+                    Link expiry
+                  </span>
+                  <select
+                    value={expiresInDays}
+                    onChange={(e) =>
+                      setExpiresInDays(Number(e.target.value) || 7)
+                    }
+                    className="h-9 rounded-md border border-foreground/20 bg-background px-3 text-sm"
+                  >
+                    <option value={1}>1 day</option>
+                    <option value={7}>7 days</option>
+                    <option value={30}>30 days</option>
+                  </select>
+                </label>
+              </div>
 
-            <div className="rounded-lg border border-dashed border-foreground/15 p-3 text-xs text-foreground/60">
-              Recipients open a read-only review page in the browser. No
-              editing, no admin controls, just organised forms.
+              <div className="rounded-lg border border-dashed border-foreground/15 p-3 text-xs text-foreground/60">
+                Recipients open a read-only review page in the browser. No
+                editing, no admin controls, just organised forms.
+              </div>
             </div>
           </div>
         </div>
