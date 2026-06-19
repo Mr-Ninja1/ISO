@@ -1355,11 +1355,26 @@ body {
 }
 
 .pdf-generation-mode .report-table-wrap {
-    overflow: hidden !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
 }
 
-.pdf-generation-mode[data-pdf-orientation="landscape"] .report-table-wrap {
-    overflow: visible !important;
+.pdf-generation-mode table.report-data-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+}
+
+.pdf-generation-mode table.report-data-table th,
+.pdf-generation-mode table.report-data-table td {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
 }
 
 /* Browser print — orientation set via #report-print-page-style from report page */

@@ -84,7 +84,7 @@ function createPdfCloneHost(orientation: "portrait" | "landscape") {
   return { host, targetWidthPx };
 }
 
-function fitWideTablesForPdf(clone: HTMLElement, targetWidthPx: number) {
+function fitWideTablesForPdf(clone: HTMLElement) {
   clone.querySelectorAll(".report-table-wrap").forEach((node) => {
     const wrap = node as HTMLElement;
     const table = wrap.querySelector(
@@ -92,24 +92,40 @@ function fitWideTablesForPdf(clone: HTMLElement, targetWidthPx: number) {
     ) as HTMLElement | null;
     if (!table) return;
 
-    const naturalWidth = Math.max(table.scrollWidth, wrap.scrollWidth);
-    const availableWidth = Math.max(320, targetWidthPx - 24);
-    const scale =
-      naturalWidth > availableWidth ? availableWidth / naturalWidth : 1;
+    const colCount = table.querySelectorAll("thead th").length;
+    let fontSize = "12px";
+    if (colCount >= 8) fontSize = "8.5px";
+    else if (colCount >= 7) fontSize = "9px";
+    else if (colCount >= 6) fontSize = "9.5px";
+    else if (colCount >= 5) fontSize = "10.5px";
 
     wrap.style.overflow = "visible";
     wrap.style.width = "100%";
+    wrap.style.maxWidth = "100%";
+    wrap.style.setProperty("font-size", fontSize, "important");
 
-    table.style.transformOrigin = "top left";
-    table.style.transform = scale < 1 ? `scale(${scale})` : "none";
-    table.style.width = scale < 1 ? `${naturalWidth}px` : "100%";
-    table.style.minWidth = scale < 1 ? `${naturalWidth}px` : "0";
+    table.classList.remove("min-w-max", "w-full");
+    table.style.transform = "none";
+    table.style.transformOrigin = "";
+    table.style.width = "100%";
+    table.style.minWidth = "0";
+    table.style.maxWidth = "100%";
     table.style.tableLayout = "fixed";
+    table.style.setProperty("font-size", fontSize, "important");
 
-    if (scale < 1) {
-      const scaledHeight = Math.ceil(table.scrollHeight * scale);
-      wrap.style.minHeight = `${scaledHeight + 4}px`;
-    }
+    table.querySelectorAll("th, td").forEach((cell) => {
+      const el = cell as HTMLElement;
+      el.style.width = "";
+      el.style.minWidth = "0";
+      el.style.maxWidth = "";
+      el.style.wordBreak = "break-word";
+      el.style.overflowWrap = "anywhere";
+      el.style.whiteSpace = "normal";
+      el.style.padding = colCount >= 6 ? "3px 4px" : "4px 6px";
+      el.style.setProperty("font-size", fontSize, "important");
+    });
+
+    wrap.style.minHeight = "";
   });
 }
 
@@ -126,31 +142,11 @@ function preparePdfClone(
   clone.style.margin = "0";
   clone.style.transform = "none";
   clone.style.fontSize = orientation === "landscape" ? "13px" : "14px";
-  clone.style.overflow = "hidden";
+  clone.style.overflow = "visible";
 
   clone.setAttribute("data-pdf-orientation", orientation);
 
-  clone.querySelectorAll(".report-table-wrap").forEach((node) => {
-    const el = node as HTMLElement;
-    el.style.overflowX = "visible";
-  });
-
-  clone.querySelectorAll("table.report-data-table").forEach((node) => {
-    const table = node as HTMLElement;
-    table.style.width = "100%";
-    table.style.minWidth = "0";
-    table.style.tableLayout = "fixed";
-  });
-
-  clone
-    .querySelectorAll("table.report-data-table th, table.report-data-table td")
-    .forEach((node) => {
-      const cell = node as HTMLElement;
-      cell.style.wordBreak = "break-word";
-      cell.style.whiteSpace = "normal";
-    });
-
-  fitWideTablesForPdf(clone, targetWidthPx);
+  fitWideTablesForPdf(clone);
 
   if (stripEvidenceThumbs) {
     stripEvidenceThumbsForPdf(clone);
@@ -213,23 +209,48 @@ function addCanvasPageToPdf(
     pdf.addPage("a4", orientation);
   }
 
-  const ratio = Math.min(
-    contentWidthMm / canvas.width,
-    contentHeightMm / canvas.height,
-  );
-  const drawWidthMm = canvas.width * ratio;
-  const drawHeightMm = canvas.height * ratio;
+  const pxPerMm = canvas.width / contentWidthMm;
+  const pageSliceHeightPx = Math.max(1, Math.floor(contentHeightMm * pxPerMm));
+  const totalSlices = Math.max(1, Math.ceil(canvas.height / pageSliceHeightPx));
 
-  pdf.addImage(
-    canvasToJpegDataUrl(canvas, jpegQuality),
-    "JPEG",
-    marginMm,
-    marginMm,
-    drawWidthMm,
-    drawHeightMm,
-    undefined,
-    "FAST",
-  );
+  for (let slice = 0; slice < totalSlices; slice += 1) {
+    if (slice > 0) {
+      pdf.addPage("a4", orientation);
+    }
+
+    const sourceY = slice * pageSliceHeightPx;
+    const sourceHeight = Math.min(pageSliceHeightPx, canvas.height - sourceY);
+    const sliceCanvas = document.createElement("canvas");
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sourceHeight;
+    const ctx = sliceCanvas.getContext("2d");
+    if (!ctx) continue;
+
+    ctx.drawImage(
+      canvas,
+      0,
+      sourceY,
+      canvas.width,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      sourceHeight,
+    );
+
+    const drawHeightMm = sourceHeight / pxPerMm;
+
+    pdf.addImage(
+      canvasToJpegDataUrl(sliceCanvas, jpegQuality),
+      "JPEG",
+      marginMm,
+      marginMm,
+      contentWidthMm,
+      drawHeightMm,
+      undefined,
+      "FAST",
+    );
+  }
 }
 
 function estimateRowsPerChunk(section: HTMLElement, rowCount: number) {
@@ -326,20 +347,21 @@ function collectPageBlocks(root: HTMLElement): HTMLElement[] {
 function detectBestPdfOrientation(
   element: HTMLElement,
 ): "portrait" | "landscape" {
-  const tableWidths = Array.from(
+  const tables = Array.from(
     element.querySelectorAll(".report-table-wrap table.report-data-table"),
-  ).map((node) => (node as HTMLElement).scrollWidth);
+  ) as HTMLElement[];
 
+  const tableWidths = tables.map((node) => node.scrollWidth);
   const widestTable = tableWidths.length ? Math.max(...tableWidths) : 0;
-  if (widestTable >= 1100) return "landscape";
 
-  const wideColumnCount = Array.from(
-    element.querySelectorAll(
-      ".report-table-wrap table.report-data-table thead tr",
-    ),
-  ).some((row) => row.querySelectorAll("th").length >= 7);
+  const maxColumnCount = tables.reduce((max, table) => {
+    const count = table.querySelectorAll("thead th").length;
+    return Math.max(max, count);
+  }, 0);
 
-  return wideColumnCount ? "landscape" : "portrait";
+  if (widestTable >= 820 || maxColumnCount >= 5) return "landscape";
+
+  return "portrait";
 }
 
 async function generatePdfFromBlocks(
@@ -373,8 +395,11 @@ async function generatePdfFromBlocks(
       pageRoot.style.margin = "0";
       pageRoot.style.padding = orientation === "landscape" ? "10px" : "16px";
       pageRoot.style.background = "#ffffff";
+      pageRoot.style.overflow = "visible";
       pageRoot.appendChild(block.cloneNode(true));
       host.appendChild(pageRoot);
+
+      fitWideTablesForPdf(pageRoot);
 
       const canvas = await renderNodeToCanvas(pageRoot, scale);
       addCanvasPageToPdf(pdf, canvas, orientation, jpegQuality, !first);
