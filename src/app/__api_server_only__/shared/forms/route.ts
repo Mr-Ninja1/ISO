@@ -205,7 +205,7 @@ export async function POST(req: Request) {
       expiresAt: link.expires_at,
       createdAt: link.created_at,
       auditCount: validAuditIds.length,
-      href: `/shared/forms/${link.token}`,
+      href: `/shared/forms?token=${encodeURIComponent(link.token)}`,
     },
   });
 }

@@ -1,6 +1,9 @@
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import type { DisplayField, FieldDef } from "@/types/forms";
-import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
+import {
+  displayFieldText,
+  displayVariantClass,
+} from "@/lib/displayFieldStyles";
 
 export const REPORT_SIGNATURE_IMG_CLASS =
   "report-signature-img mx-auto block max-h-28 w-full max-w-lg object-contain";
@@ -41,16 +44,26 @@ function isImageSource(value: unknown) {
 }
 
 function photoList(value: unknown) {
-  if (Array.isArray(value)) return value.filter((x): x is string => isImageSource(x));
+  if (Array.isArray(value))
+    return value.filter((x): x is string => isImageSource(x));
   if (isImageSource(value)) return [value as string];
   return [] as string[];
 }
 
-export function renderAuditReportFieldValue(field: FieldDef, payload: Record<string, unknown>, inTable = false) {
+export function renderAuditReportFieldValue(
+  field: FieldDef,
+  payload: Record<string, unknown>,
+  inTable = false,
+) {
   if (field.type === "display") {
     const displayField = field as DisplayField;
     return (
-      <span className={"whitespace-pre-wrap " + displayVariantClass(displayField.variant || "body")}>
+      <span
+        className={
+          "whitespace-pre-wrap " +
+          displayVariantClass(displayField.variant || "body")
+        }
+      >
         {displayFieldText(displayField)}
       </span>
     );
@@ -61,12 +74,22 @@ export function renderAuditReportFieldValue(field: FieldDef, payload: Record<str
   if (field.type === "signature") {
     if (isDataUrl(value)) {
       return (
-        <div className={inTable ? "report-cell-signature report-cell-signature--table" : "report-cell-signature"}>
+        <div
+          className={
+            inTable
+              ? "report-cell-signature report-cell-signature--table"
+              : "report-cell-signature"
+          }
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={value as string}
             alt={`${field.label} signature`}
-            className={inTable ? REPORT_TABLE_SIGNATURE_IMG_CLASS : REPORT_SIGNATURE_IMG_CLASS}
+            className={
+              inTable
+                ? REPORT_TABLE_SIGNATURE_IMG_CLASS
+                : REPORT_SIGNATURE_IMG_CLASS
+            }
           />
         </div>
       );
@@ -76,8 +99,28 @@ export function renderAuditReportFieldValue(field: FieldDef, payload: Record<str
 
   if (field.type === "photo") {
     const items = photoList(value);
-    if (items.length > 0) return <ReportPhotoGallery photos={items} label={field.label} />;
-    return <span className="text-foreground/50">No photo</span>;
+    if (items.length > 0) {
+      const fieldLabel = field.label?.trim() || "Photo evidence";
+      return (
+        <div className="grid gap-2">
+          <p className="text-sm text-foreground/70">
+            {items.length} photo evidence{" "}
+            {items.length === 1 ? "item is" : "items are"} attached for this
+            document.
+          </p>
+          <ReportPhotoGallery
+            photos={items}
+            label={fieldLabel}
+            pdfSummary={`${items.length} photo evidence ${items.length === 1 ? "item is" : "items are"} attached for this document. Full-size photo evidence is included below in the Evidence attachments section.`}
+          />
+        </div>
+      );
+    }
+    return (
+      <span className="text-foreground/50">
+        No photo evidence was attached for this document.
+      </span>
+    );
   }
 
   if (field.type === "checkbox") {
@@ -87,15 +130,16 @@ export function renderAuditReportFieldValue(field: FieldDef, payload: Record<str
   return <span className="report-field-value">{asText(value) || "-"}</span>;
 }
 
-export function renderAuditReportTableCellValue(
-  col: FieldDef,
-  value: unknown
-) {
+export function renderAuditReportTableCellValue(col: FieldDef, value: unknown) {
   if (isDataUrl(value)) {
     return (
       <div className="report-cell-signature report-cell-signature--table">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={value as string} alt="" className={REPORT_TABLE_SIGNATURE_IMG_CLASS} />
+        <img
+          src={value as string}
+          alt=""
+          className={REPORT_TABLE_SIGNATURE_IMG_CLASS}
+        />
       </div>
     );
   }

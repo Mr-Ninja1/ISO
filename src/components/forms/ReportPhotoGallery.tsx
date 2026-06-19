@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-export function ReportPhotoGallery({ photos, label }: { photos: string[]; label: string }) {
+export function ReportPhotoGallery({
+  photos,
+  label,
+  pdfSummary,
+}: {
+  photos: string[];
+  label: string;
+  pdfSummary?: string;
+}) {
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -19,7 +27,8 @@ export function ReportPhotoGallery({ photos, label }: { photos: string[]; label:
   return (
     <div className="report-evidence-block">
       <p className="report-evidence-pdf-note mb-2 hidden text-sm text-foreground/60">
-        {photos.length} photo{photos.length === 1 ? "" : "s"} — see Evidence attachments section in this PDF.
+        {pdfSummary ||
+          `${photos.length} photo${photos.length === 1 ? "" : "s"} attached for this document. Full-size photo evidence is included below in the Evidence attachments section.`}
       </p>
       <div className="report-evidence-thumb-grid flex flex-wrap gap-2">
         {photos.map((photo, index) => (
@@ -39,7 +48,9 @@ export function ReportPhotoGallery({ photos, label }: { photos: string[]; label:
           </button>
         ))}
       </div>
-      <p className="mt-1 text-xs text-foreground/55 print:hidden">Tap a thumbnail to open full size.</p>
+      <p className="mt-1 text-xs text-foreground/55 print:hidden">
+        Tap a thumbnail to open full size.
+      </p>
 
       {previewSrc ? (
         <div
@@ -49,7 +60,10 @@ export function ReportPhotoGallery({ photos, label }: { photos: string[]; label:
           aria-modal="true"
           aria-label={`${label} full size`}
         >
-          <div className="relative max-h-[92vh] w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="relative max-h-[92vh] w-full max-w-5xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               className="absolute right-2 top-2 z-10 rounded-md bg-black/80 px-3 py-1.5 text-sm text-white"
@@ -57,7 +71,9 @@ export function ReportPhotoGallery({ photos, label }: { photos: string[]; label:
             >
               Close
             </button>
-            <p className="mb-2 text-center text-sm font-medium text-white/90">{label}</p>
+            <p className="mb-2 text-center text-sm font-medium text-white/90">
+              {label}
+            </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewSrc}
