@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260602.1415",
-  "version": "20260602.1415",
+  "bundleId": "20260619.1",
+  "version": "20260619.1",
   "channel": "production",
   "minNativeBuild": 1,
-  "bundleUrl": "https://github.com/Mr-Ninja1/ISO/releases/download/v1.2.0/bundle-20260602.1415.zip",
-  "publishedAt": "2026-06-03T11:09:20.480Z",
-  "releaseNotes": "Calendar form scheduling, email alerts, push registration fixes, HSE UX improvements"
+  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260619.1.zip",
+  "publishedAt": "2026-06-19T15:26:31.672Z",
+  "releaseNotes": "Fix shared form links, PDF evidence labels, and native PDF download behavior"
 }

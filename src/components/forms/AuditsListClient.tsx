@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, MoreVertical, Loader2 } from "lucide-react";
+import { FileText, MoreVertical, Loader2, CheckSquare } from "lucide-react";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
-import { AuditsExportButton } from "@/components/forms/AuditsExportButton";
+
 import { StoredFormsShareMenu } from "@/components/forms/StoredFormsShareMenu";
 import { useAuth } from "@/components/AuthProvider";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
@@ -23,7 +22,6 @@ import {
   loadDeviceAuditsRows,
 } from "@/lib/client/deviceAuditsRows";
 import { auditReportHref } from "@/lib/client/tenantNavigation";
-import { buildTenantHref } from "@/lib/client/tenantHref";
 
 function actionButtonClass(busy: boolean) {
   return (
@@ -367,8 +365,6 @@ export function AuditsListClient({
     );
   }, [allRows, query]);
 
-  const exportQuery = query.trim();
-
   function toggleSelected(auditId: string) {
     setSelectedIds((current) =>
       current.includes(auditId)
@@ -408,40 +404,57 @@ export function AuditsListClient({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-5 sm:items-center">
-        <AuditsExportButton tenantSlug={activeTenantSlug} query={exportQuery} />
-        <StoredFormsShareMenu
-          tenantSlug={activeTenantSlug}
-          rows={submittedRows}
-          selectedIds={selectedIds}
-          selectionMode={selectionMode}
-          onToggleSelectionMode={() => setSelectionMode((value) => !value)}
-          onClearSelection={() => {
-            setSelectedIds([]);
-            setSelectionMode(false);
-          }}
-        />
-        {!offline ? (
-          <>
-            <button
-              type="button"
-              disabled={syncing}
-              onClick={() => void refreshFromServer()}
-              className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
-            >
-              {syncing ? "Refreshing…" : "Refresh from server"}
-            </button>
-            {serverHasMore ? (
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+        <div className="flex flex-wrap items-center gap-2">
+          <StoredFormsShareMenu
+            tenantSlug={activeTenantSlug}
+            rows={submittedRows}
+            selectedIds={selectedIds}
+            selectionMode={selectionMode}
+            onToggleSelectionMode={() => setSelectionMode((value) => !value)}
+            onClearSelection={() => {
+              setSelectedIds([]);
+              setSelectionMode(false);
+            }}
+          />
+          {selectionMode ? (
+            <>
               <button
                 type="button"
-                disabled={loadingMore || syncing}
-                onClick={() => void loadMoreFromServer()}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+                onClick={toggleSelectAllVisible}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
               >
-                {loadingMore ? "Loading more…" : "Load more"}
+                <CheckSquare className="h-4 w-4" />
+                {submittedRows.length > 0 &&
+                submittedRows.every((row) => selectedIds.includes(row.id))
+                  ? "Clear visible"
+                  : "Select visible"}
               </button>
-            ) : null}
-          </>
+              <div className="inline-flex h-9 items-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm text-emerald-900">
+                {selectedIds.length} selected
+              </div>
+            </>
+          ) : null}
+        </div>
+        {!offline ? (
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={() => void refreshFromServer()}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+          >
+            {syncing ? "Refreshing…" : "Refresh from server"}
+          </button>
+        ) : null}
+        {!offline && serverHasMore ? (
+          <button
+            type="button"
+            disabled={loadingMore || syncing}
+            onClick={() => void loadMoreFromServer()}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+          >
+            {loadingMore ? "Loading more…" : "Load more"}
+          </button>
         ) : null}
       </div>
 
@@ -451,38 +464,24 @@ export function AuditsListClient({
         </div>
       ) : null}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        <Link
-          href={buildTenantHref(activeTenantSlug, "templates")}
-          className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
-        >
-          Run new form
-        </Link>
-        {selectionMode ? (
-          <>
-            <button
-              type="button"
-              onClick={toggleSelectAllVisible}
-              className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
-            >
-              {submittedRows.length > 0 &&
-              submittedRows.every((row) => selectedIds.includes(row.id))
-                ? "Clear visible"
-                : "Select visible"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectionMode(false);
-                setSelectedIds([]);
-              }}
-              className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
-            >
-              Cancel selection
-            </button>
-          </>
-        ) : null}
-      </div>
+      {selectionMode ? (
+        <div className="flex flex-wrap gap-2 overflow-x-auto pb-1">
+          <div className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Select the forms you want to share, then use the share controls
+            above.
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectionMode(false);
+              setSelectedIds([]);
+            }}
+            className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
+          >
+            Cancel selection
+          </button>
+        </div>
+      ) : null}
 
       <div className="rounded-md border border-foreground/20 bg-background p-3">
         <div className="flex flex-col gap-2 sm:flex-row">

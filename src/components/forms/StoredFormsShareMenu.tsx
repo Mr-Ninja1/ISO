@@ -29,6 +29,7 @@ type Props = {
   selectionMode: boolean;
   onToggleSelectionMode: () => void;
   onClearSelection: () => void;
+  onSelectionModeChange?: (value: boolean) => void;
 };
 
 async function shareOrCopy(url: string, title: string) {
@@ -63,6 +64,7 @@ export function StoredFormsShareMenu({
   const [open, setOpen] = useState(false);
   const [sharing, setSharing] = useState<SharedFormsMode | null>(null);
   const [message, setMessage] = useState("");
+  const [shareUrl, setShareUrl] = useState("");
   const [expiresInDays, setExpiresInDays] = useState<number>(7);
 
   const todayRows = useMemo(() => todayAuditRows(rows), [rows]);
@@ -88,6 +90,7 @@ export function StoredFormsShareMenu({
 
     setSharing(mode);
     setMessage("");
+    setShareUrl("");
     try {
       const title = buildShareTitle(
         mode,
@@ -119,13 +122,15 @@ export function StoredFormsShareMenu({
         throw new Error("Could not create share link");
       }
       const url = `${window.location.origin}${resultRes.data.share.href}`;
+      setShareUrl(url);
       const result = await shareOrCopy(url, title);
       setMessage(
         result === "shared"
           ? "Shared review link ready."
-          : "Review link copied. Send it to view forms in the browser.",
+          : result === "copied"
+            ? "Review link copied. Send it to view forms in the browser."
+            : "Review link created. You can copy it below.",
       );
-      setOpen(false);
       if (mode === "selected") onClearSelection();
     } catch {
       setMessage("Could not create the review link right now.");
@@ -177,41 +182,22 @@ export function StoredFormsShareMenu({
               <div className="mt-3 grid gap-2">
                 <button
                   type="button"
-                  onClick={() => onToggleSelectionMode()}
+                  onClick={() => {
+                    onToggleSelectionMode();
+                    setOpen(false);
+                  }}
                   className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5"
                 >
                   <CheckSquare className="mt-0.5 h-4 w-4" />
                   <span>
                     <span className="block text-sm font-medium">
                       {selectionMode
-                        ? "Selection mode on"
+                        ? "Selection mode is active"
                         : "Select forms to share"}
                     </span>
                     <span className="block text-xs text-foreground/60">
-                      Pick exactly which reports go into one review link.
-                    </span>
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={sharing === "selected" || selectedIds.length === 0}
-                  onClick={() => void handleShare("selected")}
-                  className="flex items-start gap-3 rounded-lg border border-foreground/15 p-3 text-left hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {sharing === "selected" ? (
-                    <Loader2 className="mt-0.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="mt-0.5 h-4 w-4" />
-                  )}
-                  <span>
-                    <span className="block text-sm font-medium">
-                      Share selected
-                    </span>
-                    <span className="block text-xs text-foreground/60">
-                      {selectedIds.length > 0
-                        ? `${selectedIds.length} selected form${selectedIds.length === 1 ? "" : "s"}`
-                        : "Choose one or more forms first."}
+                      Pick exactly which reports go into one review link from
+                      the list below.
                     </span>
                   </span>
                 </button>
@@ -341,6 +327,70 @@ export function StoredFormsShareMenu({
               Recipients open a read-only review page in the browser. No
               editing, no admin controls, just organised forms.
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectionMode ? (
+        <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Selection mode is active. Choose forms from the list, then return here
+          to create a selected share link.
+        </div>
+      ) : null}
+
+      {selectedIds.length > 0 ? (
+        <div className="mt-2 rounded-md border border-foreground/15 bg-background p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Share selected forms</div>
+              <div className="text-xs text-foreground/60">
+                {selectedIds.length} selected form
+                {selectedIds.length === 1 ? "" : "s"} ready to share.
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={sharing === "selected"}
+              onClick={() => void handleShare("selected")}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-foreground px-3 text-sm font-medium text-background disabled:opacity-60"
+            >
+              {sharing === "selected" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Share selected
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {shareUrl ? (
+        <div className="mt-2 grid gap-2 rounded-md border border-sky-300 bg-sky-50 p-3 text-xs text-sky-950">
+          <div className="font-medium">Share link ready</div>
+          <div className="break-all rounded border border-sky-200 bg-white px-2 py-2 text-[11px]">
+            {shareUrl}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(shareUrl);
+                setMessage("Review link copied.");
+              }}
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-sky-300 bg-white px-3 text-xs hover:bg-sky-100"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy link
+            </button>
+            <button
+              type="button"
+              onClick={() => setShareUrl("")}
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-sky-300 bg-white px-3 text-xs hover:bg-sky-100"
+            >
+              <X className="h-3.5 w-3.5" />
+              Dismiss
+            </button>
           </div>
         </div>
       ) : null}

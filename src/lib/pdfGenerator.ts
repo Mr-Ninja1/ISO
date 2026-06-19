@@ -7,12 +7,15 @@ import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
+const LANDSCAPE_MARGIN_MM = 6;
 /** Smaller scale avoids massive rasterized PDFs while keeping text readable. */
 const DEFAULT_PDF_SCALE = 1;
 
+export type PdfOrientation = "portrait" | "landscape" | "auto";
+
 type PdfOptions = {
   scale?: number;
-  orientation?: "portrait" | "landscape";
+  orientation?: PdfOrientation;
   jpegQuality?: number;
 };
 
@@ -47,9 +50,14 @@ function getPageSizeMm(orientation: "portrait" | "landscape") {
   };
 }
 
+function getMarginMm(orientation: "portrait" | "landscape") {
+  return orientation === "landscape" ? LANDSCAPE_MARGIN_MM : DEFAULT_MARGIN_MM;
+}
+
 function getTargetRenderWidthPx(orientation: "portrait" | "landscape") {
   const page = getPageSizeMm(orientation);
-  return Math.round(page.width * PX_PER_MM);
+  const margin = getMarginMm(orientation);
+  return Math.round((page.width - margin * 2) * PX_PER_MM);
 }
 
 function stripEvidenceThumbsForPdf(clone: HTMLElement) {
@@ -76,9 +84,39 @@ function createPdfCloneHost(orientation: "portrait" | "landscape") {
   return { host, targetWidthPx };
 }
 
+function fitWideTablesForPdf(clone: HTMLElement, targetWidthPx: number) {
+  clone.querySelectorAll(".report-table-wrap").forEach((node) => {
+    const wrap = node as HTMLElement;
+    const table = wrap.querySelector(
+      "table.report-data-table",
+    ) as HTMLElement | null;
+    if (!table) return;
+
+    const naturalWidth = Math.max(table.scrollWidth, wrap.scrollWidth);
+    const availableWidth = Math.max(320, targetWidthPx - 24);
+    const scale =
+      naturalWidth > availableWidth ? availableWidth / naturalWidth : 1;
+
+    wrap.style.overflow = "visible";
+    wrap.style.width = "100%";
+
+    table.style.transformOrigin = "top left";
+    table.style.transform = scale < 1 ? `scale(${scale})` : "none";
+    table.style.width = scale < 1 ? `${naturalWidth}px` : "100%";
+    table.style.minWidth = scale < 1 ? `${naturalWidth}px` : "0";
+    table.style.tableLayout = "fixed";
+
+    if (scale < 1) {
+      const scaledHeight = Math.ceil(table.scrollHeight * scale);
+      wrap.style.minHeight = `${scaledHeight + 4}px`;
+    }
+  });
+}
+
 function preparePdfClone(
   element: HTMLElement,
   targetWidthPx: number,
+  orientation: "portrait" | "landscape",
   stripEvidenceThumbs = false,
 ) {
   const clone = element.cloneNode(true) as HTMLElement;
@@ -87,7 +125,32 @@ function preparePdfClone(
   clone.style.maxWidth = `${targetWidthPx}px`;
   clone.style.margin = "0";
   clone.style.transform = "none";
-  clone.style.fontSize = "14px";
+  clone.style.fontSize = orientation === "landscape" ? "13px" : "14px";
+  clone.style.overflow = "hidden";
+
+  clone.setAttribute("data-pdf-orientation", orientation);
+
+  clone.querySelectorAll(".report-table-wrap").forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.overflowX = "visible";
+  });
+
+  clone.querySelectorAll("table.report-data-table").forEach((node) => {
+    const table = node as HTMLElement;
+    table.style.width = "100%";
+    table.style.minWidth = "0";
+    table.style.tableLayout = "fixed";
+  });
+
+  clone
+    .querySelectorAll("table.report-data-table th, table.report-data-table td")
+    .forEach((node) => {
+      const cell = node as HTMLElement;
+      cell.style.wordBreak = "break-word";
+      cell.style.whiteSpace = "normal";
+    });
+
+  fitWideTablesForPdf(clone, targetWidthPx);
 
   if (stripEvidenceThumbs) {
     stripEvidenceThumbsForPdf(clone);
@@ -142,8 +205,9 @@ function addCanvasPageToPdf(
   addPage: boolean,
 ) {
   const page = getPageSizeMm(orientation);
-  const contentWidthMm = page.width - DEFAULT_MARGIN_MM * 2;
-  const contentHeightMm = page.height - DEFAULT_MARGIN_MM * 2;
+  const marginMm = getMarginMm(orientation);
+  const contentWidthMm = page.width - marginMm * 2;
+  const contentHeightMm = page.height - marginMm * 2;
 
   if (addPage) {
     pdf.addPage("a4", orientation);
@@ -159,8 +223,8 @@ function addCanvasPageToPdf(
   pdf.addImage(
     canvasToJpegDataUrl(canvas, jpegQuality),
     "JPEG",
-    DEFAULT_MARGIN_MM,
-    DEFAULT_MARGIN_MM,
+    marginMm,
+    marginMm,
     drawWidthMm,
     drawHeightMm,
     undefined,
@@ -259,6 +323,25 @@ function collectPageBlocks(root: HTMLElement): HTMLElement[] {
   return blocks;
 }
 
+function detectBestPdfOrientation(
+  element: HTMLElement,
+): "portrait" | "landscape" {
+  const tableWidths = Array.from(
+    element.querySelectorAll(".report-table-wrap table.report-data-table"),
+  ).map((node) => (node as HTMLElement).scrollWidth);
+
+  const widestTable = tableWidths.length ? Math.max(...tableWidths) : 0;
+  if (widestTable >= 1100) return "landscape";
+
+  const wideColumnCount = Array.from(
+    element.querySelectorAll(
+      ".report-table-wrap table.report-data-table thead tr",
+    ),
+  ).some((row) => row.querySelectorAll("th").length >= 7);
+
+  return wideColumnCount ? "landscape" : "portrait";
+}
+
 async function generatePdfFromBlocks(
   element: HTMLElement,
   orientation: "portrait" | "landscape",
@@ -271,7 +354,12 @@ async function generatePdfFromBlocks(
   const { host, targetWidthPx } = createPdfCloneHost(orientation);
 
   try {
-    const clone = preparePdfClone(element, targetWidthPx, stripEvidenceThumbs);
+    const clone = preparePdfClone(
+      element,
+      targetWidthPx,
+      orientation,
+      stripEvidenceThumbs,
+    );
     host.appendChild(clone);
 
     const blocks = collectPageBlocks(clone);
@@ -283,7 +371,7 @@ async function generatePdfFromBlocks(
       pageRoot.style.width = `${targetWidthPx}px`;
       pageRoot.style.maxWidth = `${targetWidthPx}px`;
       pageRoot.style.margin = "0";
-      pageRoot.style.padding = "16px";
+      pageRoot.style.padding = orientation === "landscape" ? "10px" : "16px";
       pageRoot.style.background = "#ffffff";
       pageRoot.appendChild(block.cloneNode(true));
       host.appendChild(pageRoot);
@@ -319,7 +407,7 @@ export async function generateAuditReportPdf(
 ): Promise<void> {
   const {
     scale = DEFAULT_PDF_SCALE,
-    orientation = "landscape",
+    orientation = "auto",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
@@ -327,9 +415,12 @@ export async function generateAuditReportPdf(
   } = options || {};
 
   try {
+    const resolvedOrientation =
+      orientation === "auto" ? detectBestPdfOrientation(element) : orientation;
+
     const pdf = await generatePdfFromBlocks(
       element,
-      orientation,
+      resolvedOrientation,
       scale,
       documentTitle,
       jpegQuality,
@@ -340,7 +431,7 @@ export async function generateAuditReportPdf(
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
-        orientation,
+        resolvedOrientation,
         jpegQuality,
       );
     }
@@ -367,7 +458,7 @@ export async function generatePdfBlobFromElement(
 ): Promise<Blob> {
   const {
     scale = DEFAULT_PDF_SCALE,
-    orientation = "landscape",
+    orientation = "auto",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
@@ -375,9 +466,12 @@ export async function generatePdfBlobFromElement(
   } = options || {};
 
   try {
+    const resolvedOrientation =
+      orientation === "auto" ? detectBestPdfOrientation(element) : orientation;
+
     const pdf = await generatePdfFromBlocks(
       element,
-      orientation,
+      resolvedOrientation,
       scale,
       documentTitle,
       jpegQuality,
@@ -388,7 +482,7 @@ export async function generatePdfBlobFromElement(
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
-        orientation,
+        resolvedOrientation,
         jpegQuality,
       );
     }

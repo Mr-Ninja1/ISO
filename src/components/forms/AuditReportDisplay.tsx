@@ -11,7 +11,10 @@ import {
 } from "@/components/forms/auditReportFieldRender";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { buildGridLayout } from "@/lib/gridLayout";
-import { clampColumnWidthPx } from "@/lib/formFieldConstants";
+import {
+  clampColumnWidthPx,
+  COLUMN_DEFAULT_WIDTH_PX,
+} from "@/lib/formFieldConstants";
 import {
   normalizeFormSchema,
   splitReportSections,
@@ -45,6 +48,140 @@ function sectionColumnsClass(columns?: number) {
   if (columns === 3) return "report-field-grid report-field-grid--3";
   if (columns === 4) return "report-field-grid report-field-grid--4";
   return "report-field-grid report-field-grid--auto";
+}
+
+function summarizeColumnContent(values: string[]) {
+  const nonEmpty = values.filter((value) => value.trim().length > 0);
+  const lengths = nonEmpty
+    .map((value) => value.trim().length)
+    .sort((a, b) => a - b);
+  const max = lengths[lengths.length - 1] || 0;
+  const median = lengths.length
+    ? lengths[Math.floor((lengths.length - 1) / 2)]
+    : 0;
+  return { max, median, hasValues: nonEmpty.length > 0 };
+}
+
+function inferColumnWidthHint(
+  column: { type?: string; widthPx?: number; label?: string; id?: string },
+  rows: Array<Record<string, unknown>>,
+) {
+  const label = (column.label || "").trim();
+  const headerLength = label.length;
+  const samples = rows
+    .slice(0, 24)
+    .map((row) => asText(row[column.id || ""]))
+    .filter((value) => value.trim().length > 0);
+  const content = summarizeColumnContent(samples);
+
+  if (column.type === "checkbox") {
+    return { min: 72, preferred: 72, max: 72 };
+  }
+  if (column.type === "signature") {
+    return { min: 130, preferred: 150, max: 180 };
+  }
+  if (column.type === "photo") {
+    return { min: 110, preferred: 130, max: 160 };
+  }
+  if (column.type === "yesno") {
+    return { min: 86, preferred: 96, max: 110 };
+  }
+  if (column.type === "date" || column.type === "time") {
+    return { min: 96, preferred: Math.max(100, headerLength * 7), max: 132 };
+  }
+  if (column.type === "temp") {
+    return { min: 88, preferred: 104, max: 120 };
+  }
+  if (column.type === "number") {
+    return { min: 88, preferred: Math.max(96, content.max * 7), max: 128 };
+  }
+
+  const explicitWidth = clampColumnWidthPx(
+    column.widthPx ?? COLUMN_DEFAULT_WIDTH_PX,
+  );
+  const contentWidth = Math.max(
+    96,
+    Math.min(
+      360,
+      Math.max(headerLength * 7.5, content.median * 8.5, content.max * 6.5),
+    ),
+  );
+  const preferred = Math.min(
+    320,
+    Math.round(contentWidth * 0.72 + explicitWidth * 0.28),
+  );
+
+  return {
+    min: Math.max(
+      88,
+      Math.min(
+        140,
+        Math.round(Math.max(headerLength * 6, content.median * 6.5, 88)),
+      ),
+    ),
+    preferred,
+    max: Math.max(
+      preferred,
+      Math.min(360, Math.max(160, headerLength * 10, content.max * 9)),
+    ),
+  };
+}
+
+function compactGridColumnWidths(
+  columns: Array<{
+    type?: string;
+    widthPx?: number;
+    label?: string;
+    id?: string;
+  }>,
+  rows: Array<Record<string, unknown>>,
+) {
+  const maxTableWidth = 1500;
+  const hints = columns.map((column) => inferColumnWidthHint(column, rows));
+  const widths = hints.map((hint) => hint.preferred);
+  const total = widths.reduce((sum, width) => sum + width, 0);
+
+  if (total > maxTableWidth) {
+    let overflow = total - maxTableWidth;
+    while (overflow > 0) {
+      let changed = false;
+      for (let index = 0; index < widths.length; index += 1) {
+        if (overflow <= 0) break;
+        const available = widths[index] - hints[index].min;
+        if (available <= 0) continue;
+        const reduction = Math.min(
+          available,
+          Math.max(4, Math.ceil(overflow / 6)),
+        );
+        widths[index] -= reduction;
+        overflow -= reduction;
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  } else if (total < maxTableWidth) {
+    let spare = Math.min(
+      maxTableWidth - total,
+      Math.max(0, columns.length * 40),
+    );
+    while (spare > 0) {
+      let changed = false;
+      for (let index = 0; index < widths.length; index += 1) {
+        if (spare <= 0) break;
+        const room = hints[index].max - widths[index];
+        if (room <= 0) continue;
+        const addition = Math.min(room, Math.max(4, Math.ceil(spare / 8)));
+        widths[index] += addition;
+        spare -= addition;
+        changed = true;
+      }
+      if (!changed) break;
+    }
+  }
+
+  return widths.map((width, index) =>
+    Math.max(hints[index].min, Math.min(hints[index].max, Math.round(width))),
+  );
 }
 
 export function AuditReportDisplay({
@@ -218,6 +355,7 @@ export function AuditReportDisplay({
             typeof section.rows === "number" ? section.rows : rows.length;
           const rowCount = Math.max(rows.length, fixedRows || 0, 1);
           const layout = buildGridLayout(section, rowCount);
+          const columnWidths = compactGridColumnWidths(layout.columns, rows);
 
           return (
             <section key={`grid-${key}-${idx}`} className="report-section">
@@ -235,29 +373,11 @@ export function AuditReportDisplay({
                             "border border-foreground/25 bg-foreground/[0.04] px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-wide " +
                             (col.type === "checkbox" ? "w-16 text-center" : "")
                           }
-                          style={
-                            col.type === "checkbox"
-                              ? { width: 72, minWidth: 72, maxWidth: 72 }
-                              : col.type === "signature"
-                                ? { width: 168, minWidth: 140, maxWidth: 200 }
-                                : typeof (col as { widthPx?: number })
-                                      .widthPx === "number" &&
-                                    Number.isFinite(
-                                      (col as { widthPx?: number }).widthPx,
-                                    )
-                                  ? {
-                                      width: clampColumnWidthPx(
-                                        (col as { widthPx: number }).widthPx,
-                                      ),
-                                      minWidth: clampColumnWidthPx(
-                                        (col as { widthPx: number }).widthPx,
-                                      ),
-                                      maxWidth: clampColumnWidthPx(
-                                        (col as { widthPx: number }).widthPx,
-                                      ),
-                                    }
-                                  : undefined
-                          }
+                          style={{
+                            width: columnWidths[layout.columns.indexOf(col)],
+                            minWidth: columnWidths[layout.columns.indexOf(col)],
+                            maxWidth: columnWidths[layout.columns.indexOf(col)],
+                          }}
                         >
                           {col.label || "Column"}
                         </th>
@@ -285,37 +405,14 @@ export function AuditReportDisplay({
                                   "border border-foreground/15 px-2.5 py-2 align-top " +
                                   (col.type === "checkbox" ? "text-center" : "")
                                 }
-                                style={
-                                  col.type === "checkbox"
-                                    ? { width: 72, minWidth: 72, maxWidth: 72 }
-                                    : col.type === "signature"
-                                      ? {
-                                          width: 168,
-                                          minWidth: 140,
-                                          maxWidth: 200,
-                                        }
-                                      : typeof (col as { widthPx?: number })
-                                            .widthPx === "number" &&
-                                          Number.isFinite(
-                                            (col as { widthPx?: number })
-                                              .widthPx,
-                                          )
-                                        ? {
-                                            width: clampColumnWidthPx(
-                                              (col as { widthPx: number })
-                                                .widthPx,
-                                            ),
-                                            minWidth: clampColumnWidthPx(
-                                              (col as { widthPx: number })
-                                                .widthPx,
-                                            ),
-                                            maxWidth: clampColumnWidthPx(
-                                              (col as { widthPx: number })
-                                                .widthPx,
-                                            ),
-                                          }
-                                        : undefined
-                                }
+                                style={{
+                                  width:
+                                    columnWidths[layout.columns.indexOf(col)],
+                                  minWidth:
+                                    columnWidths[layout.columns.indexOf(col)],
+                                  maxWidth:
+                                    columnWidths[layout.columns.indexOf(col)],
+                                }}
                               >
                                 {renderAuditReportTableCellValue(col, value)}
                               </td>

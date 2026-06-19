@@ -2,32 +2,40 @@
 
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
-import { buildAuditPdfFilename, generateAuditReportPdf } from "@/lib/pdfGenerator";
+import {
+  buildAuditPdfFilename,
+  generateAuditReportPdf,
+  type PdfOrientation,
+} from "@/lib/pdfGenerator";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 type Props = {
   formTitle: string;
   tenantSlug?: string;
   evidencePhotos?: ReportEvidencePhoto[];
-  defaultOrientation?: "portrait" | "landscape";
+  defaultOrientation?: PdfOrientation;
 };
 
 export function PdfGeneratorButton({
   formTitle,
   tenantSlug,
   evidencePhotos = [],
-  defaultOrientation = "landscape",
+  defaultOrientation = "auto",
 }: Props) {
   const filename = buildAuditPdfFilename(formTitle, tenantSlug);
   const documentTitle = formTitle.trim() || "Form report";
   const [generating, setGenerating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [orientation, setOrientation] = useState<"portrait" | "landscape">(defaultOrientation);
+  const [orientation, setOrientation] =
+    useState<PdfOrientation>(defaultOrientation);
   const [includeEvidence, setIncludeEvidence] = useState(true);
 
   const hasEvidence = evidencePhotos.length > 0;
 
-  async function runExport(includeEvidencePages: boolean, orient: "portrait" | "landscape") {
+  async function runExport(
+    includeEvidencePages: boolean,
+    orient: PdfOrientation,
+  ) {
     const element = document.getElementById("report-content");
     if (!element) {
       throw new Error("Report content not found");
@@ -85,7 +93,11 @@ export function PdfGeneratorButton({
         className="inline-flex h-9 items-center gap-2 rounded-md border border-foreground/20 px-3 text-sm disabled:opacity-60 hover:bg-foreground/5"
         title="Download as PDF"
       >
-        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        {generating ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="h-4 w-4" />
+        )}
         {generating ? "Generating…" : "Download PDF"}
       </button>
 
@@ -108,7 +120,8 @@ export function PdfGeneratorButton({
             </h2>
             <p className="mt-1 text-sm text-foreground/70">
               This form has {evidencePhotos.length} evidence photo
-              {evidencePhotos.length === 1 ? "" : "s"}. Include full-size attachment pages for auditing?
+              {evidencePhotos.length === 1 ? "" : "s"}. Include full-size
+              attachment pages for auditing?
             </p>
 
             <div className="mt-4 grid gap-3">
@@ -123,9 +136,12 @@ export function PdfGeneratorButton({
                     className="mt-1"
                   />
                   <span className="text-sm">
-                    <span className="font-medium">With evidence attachments</span>
+                    <span className="font-medium">
+                      With evidence attachments
+                    </span>
                     <span className="mt-0.5 block text-foreground/65">
-                      Each photo on its own page under &quot;Evidence attachments&quot;, sized for review.
+                      Each photo on its own page under &quot;Evidence
+                      attachments&quot;, sized for review.
                     </span>
                   </span>
                 </label>
@@ -150,9 +166,12 @@ export function PdfGeneratorButton({
                 <span className="font-medium">Page orientation</span>
                 <select
                   value={orientation}
-                  onChange={(e) => setOrientation(e.target.value as "portrait" | "landscape")}
+                  onChange={(e) =>
+                    setOrientation(e.target.value as PdfOrientation)
+                  }
                   className="h-10 rounded-md border border-foreground/20 bg-background px-3"
                 >
+                  <option value="auto">Auto fit (recommended)</option>
                   <option value="landscape">Landscape (A4)</option>
                   <option value="portrait">Portrait (A4)</option>
                 </select>
@@ -174,7 +193,11 @@ export function PdfGeneratorButton({
                 disabled={generating}
                 onClick={() => void handleConfirmExport()}
               >
-                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {generating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
                 Export PDF
               </button>
             </div>
