@@ -9,6 +9,8 @@ import { WorkspaceMessageInboxButton } from "@/components/messages/TenantMessage
 import { TenantDueReminderWatcher } from "@/components/tenant/TenantDueReminderWatcher";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
+import { BrandCopilotHost } from "@/components/copilot/BrandCopilotHost";
+import { CopilotHeaderButton } from "@/components/copilot/CopilotHeaderButton";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { readWorkspaceCacheResolved } from "@/lib/client/workspaceCache";
 import { useAuth } from "@/components/AuthProvider";
@@ -52,6 +54,7 @@ export function TenantLayoutClient({
         </main>
       </div>
       <TenantDueReminderWatcher tenantSlug={tenantSlug} />
+      <BrandCopilotHost tenantSlug={tenantSlug} />
       <TenantLayoutClientBottomNav tenantSlug={tenantSlug} />
     </div>
   );
@@ -79,6 +82,9 @@ function TenantLayoutClientHeaderActions({ tenantSlug }: { tenantSlug: string })
         id="tenant-header-actions"
         className="order-3 flex w-full flex-wrap items-center justify-end gap-1.5 sm:order-1 sm:mr-2 sm:w-auto"
       />
+      <div className="hidden sm:block">
+        <CopilotHeaderButton />
+      </div>
       <div className="hidden md:block">
         <LoggedInStaffBadge tenantSlug={tenantSlug} />
       </div>

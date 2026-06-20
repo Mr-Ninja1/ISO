@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Mail } from "lucide-react";
+import { buildGeneralSupportMailto } from "@/lib/supportContact";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchNavCapabilities, readCachedNavCapabilities, type NavCapabilities } from "@/lib/client/navCapabilities";
 import { useAppOffline } from "@/lib/client/useAppOffline";
@@ -198,6 +199,11 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
       <HeaderMenuItem href={workspaceHref} onClick={() => handleLinkClick(workspaceHref)}>
         {loadingPath === workspaceHref ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Workspace
+      </HeaderMenuItem>
+
+      <HeaderMenuItem href={buildGeneralSupportMailto()}>
+        <Mail className="h-4 w-4" />
+        Contact support
       </HeaderMenuItem>
     </>
   );

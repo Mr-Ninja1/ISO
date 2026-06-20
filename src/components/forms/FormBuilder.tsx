@@ -36,6 +36,8 @@ import {
   COLUMN_HEADER_PLACEHOLDER,
   COLUMN_MAX_WIDTH_PX,
   COLUMN_MIN_WIDTH_PX,
+  GRID_COLUMN_LIMIT_MESSAGE,
+  MAX_GRID_COLUMNS,
   clampColumnWidthPx,
   columnHeaderDisplayLabel,
   isColumnHeaderPlaceholder,
@@ -1123,11 +1125,20 @@ function GridBuilder({
   }
 
   function addColumn() {
+    if (grid.columns.length >= MAX_GRID_COLUMNS) return;
     const colId = makeId("col");
-  const nextCol: SimpleFieldDef = { id: colId, type: "text", label: COLUMN_HEADER_PLACEHOLDER, required: false } as any;
+    const nextCol: SimpleFieldDef = {
+      id: colId,
+      type: "text",
+      label: COLUMN_HEADER_PLACEHOLDER,
+      required: false,
+    } as SimpleFieldDef;
     applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
     setActiveColId(colId);
   }
+
+  const atColumnLimit = grid.columns.length >= MAX_GRID_COLUMNS;
+  const nearColumnLimit = grid.columns.length >= MAX_GRID_COLUMNS - 1;
 
   const previewRows = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
   const layout = useMemo(() => buildGridLayout(grid, previewRows), [grid, previewRows]);
@@ -1255,11 +1266,24 @@ function GridBuilder({
         <div>
           <div className="text-sm font-semibold">Data Log Table</div>
           <div className="text-xs text-foreground/70 mt-0.5">
-            Click headers to edit columns
+            Click headers to edit columns · {grid.columns.length} / {MAX_GRID_COLUMNS} columns
           </div>
-          <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
-            Tip: Right-click or long-press cells/headers for contextual tools.
-          </div>
+          {nearColumnLimit ? (
+            <div
+              className={
+                "mt-1.5 text-[11px] leading-snug " +
+                (atColumnLimit ? "text-amber-800" : "text-foreground/55")
+              }
+            >
+              {atColumnLimit
+                ? `Maximum ${MAX_GRID_COLUMNS} columns reached. PDF export fits all columns by shrinking text — more columns get cut off.`
+                : `Up to ${MAX_GRID_COLUMNS} columns for reliable PDF export. Text wraps automatically in wide tables.`}
+            </div>
+          ) : (
+            <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
+              Tip: Right-click or long-press cells/headers for contextual tools.
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -1289,8 +1313,10 @@ function GridBuilder({
           </div>
           <button
             type="button"
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={addColumn}
+            disabled={atColumnLimit}
+            title={atColumnLimit ? GRID_COLUMN_LIMIT_MESSAGE : "Add column"}
           >
             <Plus className="h-3.5 w-3.5" />
             Add column
@@ -2027,8 +2053,13 @@ export function FormBuilder({
                   </div>
 
                   {state.topFields.length === 0 && state.bottomFields.length === 0 && !state.grid ? (
-                    <div className="mt-4 rounded-md border border-dashed border-foreground/20 p-6 text-center text-sm text-foreground/60">
-                      Use the tools above, or add a block below to start building.
+                    <div className="mt-4 rounded-lg border border-dashed border-foreground/20 bg-foreground/[0.02] p-6 text-center">
+                      <div className="text-sm font-medium text-foreground/70">
+                        Blank {builderConfig.label} canvas
+                      </div>
+                      <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-foreground/50">
+                        {builderConfig.emptyCanvasHint}
+                      </p>
                     </div>
                   ) : null}
 

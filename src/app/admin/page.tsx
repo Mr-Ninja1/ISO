@@ -11,7 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
-import { apiUrl } from "@/lib/client/apiBase";
+import { SupportContactLink } from "@/components/SupportContactLink";
 
 type AdminMetrics = {
   totalBrands: number;
@@ -107,13 +107,16 @@ export default function AdminPage() {
               Overview of all brands, system metrics, and platform-level controls.
             </p>
           </div>
-          <button
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <SupportContactLink label="Contact support" />
+            <button
             onClick={() => setShowBrands(true)}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px]"
           >
             <Building2 className="h-4 w-4" />
             Manage brands
           </button>
+          </div>
         </div>
       </div>
 

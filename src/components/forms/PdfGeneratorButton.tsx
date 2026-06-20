@@ -20,7 +20,7 @@ export function PdfGeneratorButton({
   formTitle,
   tenantSlug,
   evidencePhotos = [],
-  defaultOrientation = "auto",
+  defaultOrientation = "landscape",
 }: Props) {
   const filename = buildAuditPdfFilename(formTitle, tenantSlug);
   const documentTitle = formTitle.trim() || "Form report";
@@ -171,7 +171,6 @@ export function PdfGeneratorButton({
                   }
                   className="h-10 rounded-md border border-foreground/20 bg-background px-3"
                 >
-                  <option value="auto">Auto fit (recommended)</option>
                   <option value="landscape">Landscape (A4)</option>
                   <option value="portrait">Portrait (A4)</option>
                 </select>

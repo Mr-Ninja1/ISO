@@ -7,11 +7,10 @@ import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
-const LANDSCAPE_MARGIN_MM = 6;
-/** Smaller scale avoids massive rasterized PDFs while keeping text readable. */
-const DEFAULT_PDF_SCALE = 1;
+/** html2canvas multiplier; 2 keeps text sharp on A4 without bloating file size. */
+const DEFAULT_PDF_SCALE = 2;
 
-export type PdfOrientation = "portrait" | "landscape" | "auto";
+export type PdfOrientation = "portrait" | "landscape";
 
 type PdfOptions = {
   scale?: number;
@@ -50,14 +49,9 @@ function getPageSizeMm(orientation: "portrait" | "landscape") {
   };
 }
 
-function getMarginMm(orientation: "portrait" | "landscape") {
-  return orientation === "landscape" ? LANDSCAPE_MARGIN_MM : DEFAULT_MARGIN_MM;
-}
-
 function getTargetRenderWidthPx(orientation: "portrait" | "landscape") {
   const page = getPageSizeMm(orientation);
-  const margin = getMarginMm(orientation);
-  return Math.round((page.width - margin * 2) * PX_PER_MM);
+  return Math.round((page.width - DEFAULT_MARGIN_MM * 2) * PX_PER_MM);
 }
 
 function stripEvidenceThumbsForPdf(clone: HTMLElement) {
@@ -69,7 +63,52 @@ function stripEvidenceThumbsForPdf(clone: HTMLElement) {
   });
 }
 
-function createPdfCloneHost(orientation: "portrait" | "landscape") {
+/** Shrink wide tables so they fit the PDF page width without clipping. */
+function fitWideTablesForPdf(clone: HTMLElement) {
+  clone.querySelectorAll(".report-table-wrap").forEach((node) => {
+    const wrap = node as HTMLElement;
+    const table = wrap.querySelector(
+      "table.report-data-table",
+    ) as HTMLElement | null;
+    if (!table) return;
+
+    const colCount = table.querySelectorAll("thead th").length;
+    let fontSize = "11px";
+    if (colCount >= 8) fontSize = "8px";
+    else if (colCount >= 7) fontSize = "8.5px";
+    else if (colCount >= 6) fontSize = "9px";
+    else if (colCount >= 5) fontSize = "10px";
+
+    wrap.style.overflow = "visible";
+    wrap.style.width = "100%";
+    wrap.style.maxWidth = "100%";
+
+    table.classList.remove("min-w-max");
+    table.style.width = "100%";
+    table.style.minWidth = "0";
+    table.style.maxWidth = "100%";
+    table.style.tableLayout = "fixed";
+    table.style.fontSize = fontSize;
+
+    table.querySelectorAll("th, td").forEach((cell) => {
+      const el = cell as HTMLElement;
+      el.style.wordBreak = "break-word";
+      el.style.overflowWrap = "anywhere";
+      el.style.whiteSpace = "normal";
+      el.style.fontSize = fontSize;
+      el.style.padding = colCount >= 6 ? "3px 4px" : "4px 6px";
+    });
+  });
+}
+
+async function captureForPdf(
+  element: HTMLElement,
+  orientation: "portrait" | "landscape",
+  scale: number,
+  stripEvidenceThumbs = false,
+) {
+  const { default: html2canvas } = await import("html2canvas");
+  const clone = element.cloneNode(true) as HTMLElement;
   const host = document.createElement("div");
   const targetWidthPx = getTargetRenderWidthPx(orientation);
 
@@ -80,93 +119,37 @@ function createPdfCloneHost(orientation: "portrait" | "landscape") {
   host.style.background = "#fff";
   host.style.zIndex = "-1";
 
-  document.body.appendChild(host);
-  return { host, targetWidthPx };
-}
-
-function fitWideTablesForPdf(clone: HTMLElement) {
-  clone.querySelectorAll(".report-table-wrap").forEach((node) => {
-    const wrap = node as HTMLElement;
-    const table = wrap.querySelector(
-      "table.report-data-table",
-    ) as HTMLElement | null;
-    if (!table) return;
-
-    const colCount = table.querySelectorAll("thead th").length;
-    let fontSize = "12px";
-    if (colCount >= 8) fontSize = "8.5px";
-    else if (colCount >= 7) fontSize = "9px";
-    else if (colCount >= 6) fontSize = "9.5px";
-    else if (colCount >= 5) fontSize = "10.5px";
-
-    wrap.style.overflow = "visible";
-    wrap.style.width = "100%";
-    wrap.style.maxWidth = "100%";
-    wrap.style.setProperty("font-size", fontSize, "important");
-
-    table.classList.remove("min-w-max", "w-full");
-    table.style.transform = "none";
-    table.style.transformOrigin = "";
-    table.style.width = "100%";
-    table.style.minWidth = "0";
-    table.style.maxWidth = "100%";
-    table.style.tableLayout = "fixed";
-    table.style.setProperty("font-size", fontSize, "important");
-
-    table.querySelectorAll("th, td").forEach((cell) => {
-      const el = cell as HTMLElement;
-      el.style.width = "";
-      el.style.minWidth = "0";
-      el.style.maxWidth = "";
-      el.style.wordBreak = "break-word";
-      el.style.overflowWrap = "anywhere";
-      el.style.whiteSpace = "normal";
-      el.style.padding = colCount >= 6 ? "3px 4px" : "4px 6px";
-      el.style.setProperty("font-size", fontSize, "important");
-    });
-
-    wrap.style.minHeight = "";
-  });
-}
-
-function preparePdfClone(
-  element: HTMLElement,
-  targetWidthPx: number,
-  orientation: "portrait" | "landscape",
-  stripEvidenceThumbs = false,
-) {
-  const clone = element.cloneNode(true) as HTMLElement;
   clone.classList.add("pdf-generation-mode", "report-export-root");
   clone.style.width = `${targetWidthPx}px`;
   clone.style.maxWidth = `${targetWidthPx}px`;
   clone.style.margin = "0";
   clone.style.transform = "none";
-  clone.style.fontSize = orientation === "landscape" ? "13px" : "14px";
+  clone.style.fontSize = "14px";
   clone.style.overflow = "visible";
-
-  clone.setAttribute("data-pdf-orientation", orientation);
-
-  fitWideTablesForPdf(clone);
 
   if (stripEvidenceThumbs) {
     stripEvidenceThumbsForPdf(clone);
   }
 
-  return clone;
-}
+  fitWideTablesForPdf(clone);
 
-async function renderNodeToCanvas(node: HTMLElement, scale: number) {
-  const { default: html2canvas } = await import("html2canvas");
-  return await html2canvas(node, {
-    scale,
-    useCORS: true,
-    logging: false,
-    backgroundColor: "#ffffff",
-    width: node.scrollWidth,
-    height: node.scrollHeight,
-    windowWidth: node.scrollWidth,
-    windowHeight: node.scrollHeight,
-  });
+  host.appendChild(clone);
+  document.body.appendChild(host);
+
+  try {
+    return await html2canvas(clone, {
+      scale,
+      useCORS: true,
+      logging: false,
+      backgroundColor: "#ffffff",
+      width: clone.scrollWidth,
+      height: clone.scrollHeight,
+      windowWidth: targetWidthPx,
+      windowHeight: clone.scrollHeight,
+    });
+  } finally {
+    host.remove();
+  }
 }
 
 function applyPdfDocumentTitle(pdf: import("jspdf").jsPDF, title?: string) {
@@ -179,238 +162,80 @@ function applyPdfDocumentTitle(pdf: import("jspdf").jsPDF, title?: string) {
   }
 }
 
-async function createPdfDocument(
+async function canvasToA4Pdf(
+  canvas: HTMLCanvasElement,
   orientation: "portrait" | "landscape",
   documentTitle?: string,
+  jpegQuality = PDF_JPEG_QUALITY,
 ) {
   const { default: jsPDF } = await import("jspdf");
+  const page = getPageSizeMm(orientation);
+  const contentWidthMm = page.width - DEFAULT_MARGIN_MM * 2;
+  const contentHeightMm = page.height - DEFAULT_MARGIN_MM * 2;
+
   const pdf = new jsPDF({
     orientation,
     unit: "mm",
     format: "a4",
   });
   applyPdfDocumentTitle(pdf, documentTitle);
-  return pdf;
-}
 
-function addCanvasPageToPdf(
-  pdf: import("jspdf").jsPDF,
-  canvas: HTMLCanvasElement,
-  orientation: "portrait" | "landscape",
-  jpegQuality: number,
-  addPage: boolean,
-) {
-  const page = getPageSizeMm(orientation);
-  const marginMm = getMarginMm(orientation);
-  const contentWidthMm = page.width - marginMm * 2;
-  const contentHeightMm = page.height - marginMm * 2;
+  // Fit content to page width, then slice vertically across pages.
+  const pageSliceHeightPx = Math.max(
+    1,
+    Math.floor((canvas.width * contentHeightMm) / contentWidthMm),
+  );
 
-  if (addPage) {
-    pdf.addPage("a4", orientation);
-  }
+  let renderedHeightPx = 0;
+  let isFirstPage = true;
 
-  const pxPerMm = canvas.width / contentWidthMm;
-  const pageSliceHeightPx = Math.max(1, Math.floor(contentHeightMm * pxPerMm));
-  const totalSlices = Math.max(1, Math.ceil(canvas.height / pageSliceHeightPx));
-
-  for (let slice = 0; slice < totalSlices; slice += 1) {
-    if (slice > 0) {
-      pdf.addPage("a4", orientation);
-    }
-
-    const sourceY = slice * pageSliceHeightPx;
-    const sourceHeight = Math.min(pageSliceHeightPx, canvas.height - sourceY);
+  while (renderedHeightPx < canvas.height) {
+    const sliceHeightPx = Math.min(
+      pageSliceHeightPx,
+      canvas.height - renderedHeightPx,
+    );
     const sliceCanvas = document.createElement("canvas");
     sliceCanvas.width = canvas.width;
-    sliceCanvas.height = sourceHeight;
+    sliceCanvas.height = sliceHeightPx;
+
     const ctx = sliceCanvas.getContext("2d");
-    if (!ctx) continue;
+    if (!ctx) {
+      throw new Error("Failed to prepare PDF page canvas");
+    }
 
     ctx.drawImage(
       canvas,
       0,
-      sourceY,
+      renderedHeightPx,
       canvas.width,
-      sourceHeight,
+      sliceHeightPx,
       0,
       0,
       canvas.width,
-      sourceHeight,
+      sliceHeightPx,
     );
 
-    const drawHeightMm = sourceHeight / pxPerMm;
+    if (!isFirstPage) {
+      pdf.addPage("a4", orientation);
+    }
 
+    const sliceHeightMm = (sliceHeightPx * contentWidthMm) / canvas.width;
     pdf.addImage(
       canvasToJpegDataUrl(sliceCanvas, jpegQuality),
       "JPEG",
-      marginMm,
-      marginMm,
+      DEFAULT_MARGIN_MM,
+      DEFAULT_MARGIN_MM,
       contentWidthMm,
-      drawHeightMm,
+      sliceHeightMm,
       undefined,
       "FAST",
     );
-  }
-}
 
-function estimateRowsPerChunk(section: HTMLElement, rowCount: number) {
-  const headerCells = Array.from(section.querySelectorAll("thead th"));
-  const hasSignature = headerCells.some((cell) =>
-    cell.textContent?.toLowerCase().includes("signature"),
-  );
-  const hasWideTable = headerCells.length >= 8;
-  const hasMediumTable = headerCells.length >= 5;
-
-  if (hasSignature || hasWideTable) return Math.min(8, rowCount);
-  if (hasMediumTable) return Math.min(10, rowCount);
-  return Math.min(14, rowCount);
-}
-
-function collectPageBlocks(root: HTMLElement): HTMLElement[] {
-  const directSections = Array.from(
-    root.querySelectorAll(":scope > .mt-5 > .report-section"),
-  ) as HTMLElement[];
-  const header = root.querySelector(
-    ":scope > .report-header-block",
-  ) as HTMLElement | null;
-  const footer = root.querySelector(
-    ":scope > .report-footer",
-  ) as HTMLElement | null;
-
-  const blocks: HTMLElement[] = [];
-  if (header) blocks.push(header);
-
-  for (const section of directSections) {
-    const tableRows = Array.from(
-      section.querySelectorAll("tbody > tr"),
-    ) as HTMLElement[];
-    if (tableRows.length === 0) {
-      blocks.push(section);
-      continue;
-    }
-
-    const tableWrap = section.querySelector(
-      ".report-table-wrap",
-    ) as HTMLElement | null;
-    const table = section.querySelector("table") as HTMLTableElement | null;
-    const thead = table
-      ?.querySelector("thead")
-      ?.cloneNode(true) as HTMLElement | null;
-    if (!tableWrap || !table || !thead) {
-      blocks.push(section);
-      continue;
-    }
-
-    const sectionShell = section.cloneNode(true) as HTMLElement;
-    const shellWrap = sectionShell.querySelector(
-      ".report-table-wrap",
-    ) as HTMLElement | null;
-    if (!shellWrap) {
-      blocks.push(section);
-      continue;
-    }
-
-    shellWrap.innerHTML = "";
-
-    const maxRowsPerChunk = estimateRowsPerChunk(section, tableRows.length);
-    for (let start = 0; start < tableRows.length; start += maxRowsPerChunk) {
-      const sectionPage = sectionShell.cloneNode(true) as HTMLElement;
-      const pageWrap = sectionPage.querySelector(
-        ".report-table-wrap",
-      ) as HTMLElement | null;
-      if (!pageWrap) {
-        blocks.push(section);
-        break;
-      }
-
-      const pageTable = table.cloneNode(false) as HTMLTableElement;
-      pageTable.className = table.className;
-      const pageHead = thead.cloneNode(true) as HTMLElement;
-      const pageBody = document.createElement("tbody");
-
-      for (const row of tableRows.slice(start, start + maxRowsPerChunk)) {
-        pageBody.appendChild(row.cloneNode(true));
-      }
-
-      pageTable.appendChild(pageHead);
-      pageTable.appendChild(pageBody);
-      pageWrap.innerHTML = "";
-      pageWrap.appendChild(pageTable);
-      blocks.push(sectionPage);
-    }
+    renderedHeightPx += sliceHeightPx;
+    isFirstPage = false;
   }
 
-  if (footer) blocks.push(footer);
-  return blocks;
-}
-
-function detectBestPdfOrientation(
-  element: HTMLElement,
-): "portrait" | "landscape" {
-  const tables = Array.from(
-    element.querySelectorAll(".report-table-wrap table.report-data-table"),
-  ) as HTMLElement[];
-
-  const tableWidths = tables.map((node) => node.scrollWidth);
-  const widestTable = tableWidths.length ? Math.max(...tableWidths) : 0;
-
-  const maxColumnCount = tables.reduce((max, table) => {
-    const count = table.querySelectorAll("thead th").length;
-    return Math.max(max, count);
-  }, 0);
-
-  if (widestTable >= 820 || maxColumnCount >= 5) return "landscape";
-
-  return "portrait";
-}
-
-async function generatePdfFromBlocks(
-  element: HTMLElement,
-  orientation: "portrait" | "landscape",
-  scale: number,
-  documentTitle?: string,
-  jpegQuality = PDF_JPEG_QUALITY,
-  stripEvidenceThumbs = false,
-) {
-  const pdf = await createPdfDocument(orientation, documentTitle);
-  const { host, targetWidthPx } = createPdfCloneHost(orientation);
-
-  try {
-    const clone = preparePdfClone(
-      element,
-      targetWidthPx,
-      orientation,
-      stripEvidenceThumbs,
-    );
-    host.appendChild(clone);
-
-    const blocks = collectPageBlocks(clone);
-    let first = true;
-
-    for (const block of blocks) {
-      const pageRoot = document.createElement("div");
-      pageRoot.className = "pdf-generation-mode report-export-root";
-      pageRoot.style.width = `${targetWidthPx}px`;
-      pageRoot.style.maxWidth = `${targetWidthPx}px`;
-      pageRoot.style.margin = "0";
-      pageRoot.style.padding = orientation === "landscape" ? "10px" : "16px";
-      pageRoot.style.background = "#ffffff";
-      pageRoot.style.overflow = "visible";
-      pageRoot.appendChild(block.cloneNode(true));
-      host.appendChild(pageRoot);
-
-      fitWideTablesForPdf(pageRoot);
-
-      const canvas = await renderNodeToCanvas(pageRoot, scale);
-      addCanvasPageToPdf(pdf, canvas, orientation, jpegQuality, !first);
-      first = false;
-      pageRoot.remove();
-    }
-
-    return pdf;
-  } finally {
-    host.remove();
-  }
+  return pdf;
 }
 
 function triggerBlobDownload(blob: Blob, filename: string) {
@@ -432,7 +257,7 @@ export async function generateAuditReportPdf(
 ): Promise<void> {
   const {
     scale = DEFAULT_PDF_SCALE,
-    orientation = "auto",
+    orientation = "landscape",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
@@ -440,23 +265,24 @@ export async function generateAuditReportPdf(
   } = options || {};
 
   try {
-    const resolvedOrientation =
-      orientation === "auto" ? detectBestPdfOrientation(element) : orientation;
-
-    const pdf = await generatePdfFromBlocks(
+    const canvas = await captureForPdf(
       element,
-      resolvedOrientation,
+      orientation,
       scale,
+      includeEvidencePages && evidencePhotos.length > 0,
+    );
+    const pdf = await canvasToA4Pdf(
+      canvas,
+      orientation,
       documentTitle,
       jpegQuality,
-      includeEvidencePages && evidencePhotos.length > 0,
     );
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
-        resolvedOrientation,
+        orientation,
         jpegQuality,
       );
     }
@@ -483,7 +309,7 @@ export async function generatePdfBlobFromElement(
 ): Promise<Blob> {
   const {
     scale = DEFAULT_PDF_SCALE,
-    orientation = "auto",
+    orientation = "landscape",
     includeEvidencePages = false,
     evidencePhotos = [],
     documentTitle,
@@ -491,23 +317,24 @@ export async function generatePdfBlobFromElement(
   } = options || {};
 
   try {
-    const resolvedOrientation =
-      orientation === "auto" ? detectBestPdfOrientation(element) : orientation;
-
-    const pdf = await generatePdfFromBlocks(
+    const canvas = await captureForPdf(
       element,
-      resolvedOrientation,
+      orientation,
       scale,
+      includeEvidencePages && evidencePhotos.length > 0,
+    );
+    const pdf = await canvasToA4Pdf(
+      canvas,
+      orientation,
       documentTitle,
       jpegQuality,
-      includeEvidencePages && evidencePhotos.length > 0,
     );
 
     if (includeEvidencePages && evidencePhotos.length > 0) {
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
-        resolvedOrientation,
+        orientation,
         jpegQuality,
       );
     }

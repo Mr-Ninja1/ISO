@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   SortAsc,
   SortDesc,
+  Sparkles,
   Trash2,
   Users,
 } from "lucide-react";
@@ -20,6 +21,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { NotificationModal } from "@/components/NotificationModal";
+import { BrandPlanModal } from "@/components/admin/BrandPlanModal";
+import { SupportContactLink } from "@/components/SupportContactLink";
 import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
 import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
 import type { AnnouncementAudience } from "@/lib/platformAudience";
@@ -138,6 +141,7 @@ export function BrandOversightPanel() {
   const [deactivateReasonInput, setDeactivateReasonInput] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<BrandRow | null>(null);
   const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
+  const [planTarget, setPlanTarget] = useState<BrandRow | null>(null);
 
   const filteredBrands = useMemo(() => {
     let result = [...brands];
@@ -537,6 +541,7 @@ export function BrandOversightPanel() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-foreground/65">
+            <SupportContactLink label="Contact support" />
             <span className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-background px-3 py-1">
               <Users className="h-3.5 w-3.5" />
               {totalUsers} attached users
@@ -828,6 +833,15 @@ export function BrandOversightPanel() {
               ) : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] px-4 text-sm font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] disabled:opacity-60"
+                  disabled={savingBrandId === brand.id}
+                  onClick={() => setPlanTarget(brand)}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Plan & AI
+                </button>
                 <button
                   type="button"
                   className="inline-flex h-10 items-center justify-center rounded-full border border-foreground/15 px-4 text-sm font-medium hover:bg-foreground/5 disabled:opacity-60"
@@ -1208,6 +1222,16 @@ export function BrandOversightPanel() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {planTarget ? (
+        <BrandPlanModal
+          brandId={planTarget.id}
+          brandName={planTarget.name}
+          open={Boolean(planTarget)}
+          onClose={() => setPlanTarget(null)}
+          onSaved={() => setBusyMessage(`Plan updated for ${planTarget.name}.`)}
+        />
       ) : null}
 
       <NotificationModal

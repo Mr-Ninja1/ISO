@@ -12,6 +12,8 @@ import { TenantLayoutClient } from "@/components/tenant/TenantLayoutClient";
 import { capacitorTenantStaticParams } from "@/lib/capacitor/staticExport";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
+import { BrandCopilotHost } from "@/components/copilot/BrandCopilotHost";
+import { CopilotHeaderButton } from "@/components/copilot/CopilotHeaderButton";
 
 type TenantHeaderMeta = {
   name: string;
@@ -112,6 +114,7 @@ export default async function TenantLayout({
         </main>
       </div>
       <TenantDueReminderWatcher tenantSlug={tenant.slug} />
+      <BrandCopilotHost tenantSlug={tenant.slug} />
       <div className="print:hidden">
         <TenantBottomTabNav tenantSlug={tenant.slug} />
       </div>
@@ -155,6 +158,9 @@ function TenantLayoutHeaderActions({ tenantSlug }: { tenantSlug: string }) {
         id="tenant-header-actions"
         className="order-3 flex w-full flex-wrap items-center justify-end gap-1.5 sm:order-1 sm:mr-2 sm:w-auto"
       />
+      <div className="hidden sm:block">
+        <CopilotHeaderButton />
+      </div>
       <div className="hidden md:block">
         <LoggedInStaffBadge tenantSlug={tenantSlug} />
       </div>

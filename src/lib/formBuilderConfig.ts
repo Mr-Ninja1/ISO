@@ -30,6 +30,8 @@ export type FormBuilderConfig = {
   quickPaletteTypes?: Array<FieldType | "table">;
   /** Optional starter grid when user clicks "Add starter table" */
   starterGrid?: { rows: number; columns: SimpleFieldDef[] };
+  /** Shown on an empty canvas before the user adds anything */
+  emptyCanvasHint: string;
 };
 
 const PALETTE_QUICK_PRIORITY: Array<FieldType | "table"> = [
@@ -105,6 +107,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: true,
     defaultQuestionFieldType: "text",
     quickPaletteTypes: ["text", "yesno", "date", "signature", "table"],
+    emptyCanvasHint:
+      "Add header fields, a data table, or a footer — or use Create with AI for a head start.",
     starterGrid: {
       rows: 12,
       columns: [
@@ -131,6 +135,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: false,
     defaultQuestionFieldType: "yesno",
     quickPaletteTypes: ["text", "yesno", "checkbox", "photo", "table"],
+    emptyCanvasHint:
+      "Add checklist rows with + Checklist items, or load a starter layout from the ribbon above.",
     starterGrid: {
       rows: 15,
       columns: [
@@ -157,6 +163,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: false,
     defaultQuestionFieldType: "yesno",
     quickPaletteTypes: ["text", "yesno", "date", "photo"],
+    emptyCanvasHint:
+      "Questions stack vertically — no table needed. Use Quick add or Create with AI.",
   },
   "answer-sheet": {
     formType: "answer-sheet",
@@ -174,6 +182,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: false,
     defaultQuestionFieldType: "text",
     quickPaletteTypes: ["text", "date", "photo"],
+    emptyCanvasHint:
+      "Add written-answer questions one at a time, or describe your quiz with Create with AI.",
   },
   inspection: {
     formType: "inspection",
@@ -191,6 +201,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: false,
     defaultQuestionFieldType: "text",
     quickPaletteTypes: ["text", "yesno", "date", "table", "signature"],
+    emptyCanvasHint:
+      "Start with an inspection header and log table, or let AI build the full layout.",
     starterGrid: {
       rows: 10,
       columns: [
@@ -217,6 +229,8 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     showMetadataStarter: false,
     defaultQuestionFieldType: "signature",
     quickPaletteTypes: ["signature", "text", "table"],
+    emptyCanvasHint:
+      "Add signature fields or a handwritten log table — ideal for sign-in sheets.",
     starterGrid: {
       rows: 8,
       columns: [
@@ -278,12 +292,8 @@ export function defaultGridSectionForType(formType: FormType): FormSection {
   };
 }
 
-/** Blank canvas — only includes blocks the user will actually see (no empty header/footer shells). */
-export function blankCanvasForType(formType: FormType): FormSection[] {
-  const config = getFormBuilderConfig(formType);
-  if (config.sections.table) {
-    return [defaultGridSectionForType(formType) as FormSection];
-  }
+/** Blank canvas — starts empty; users add sections or use "Load starter layout". */
+export function blankCanvasForType(_formType: FormType): FormSection[] {
   return [];
 }
 

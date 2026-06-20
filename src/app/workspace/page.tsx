@@ -52,6 +52,8 @@ import {
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
+import { BrandCopilotHost } from "@/components/copilot/BrandCopilotHost";
+import { SupportContactMenuItem } from "@/components/SupportContactLink";
 import { OtaBundleBadge } from "@/components/OtaBundleBadge";
 import {
   applyWorkspaceThemeToDocument,
@@ -2722,6 +2724,12 @@ function WorkspacePageInner() {
                       </button>
                     ) : null}
 
+                    <SupportContactMenuItem
+                      tenantSlug={tenant.slug}
+                      brandName={tenant.name}
+                      onClose={() => setMenuOpen(false)}
+                    />
+
                     <button
                       type="button"
                       role="menuitem"
@@ -3395,6 +3403,8 @@ function WorkspacePageInner() {
         }}
         onSave={saveQuickSettings}
       />
+
+      {tenantSlug ? <BrandCopilotHost tenantSlug={tenantSlug} /> : null}
     </div>
   );
 }

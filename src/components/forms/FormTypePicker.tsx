@@ -26,9 +26,10 @@ type Props = {
   value: FormType;
   onChange: (next: FormType) => void;
   disabled?: boolean;
+  layout?: "inline" | "modal";
 };
 
-export function FormTypePicker({ value, onChange, disabled }: Props) {
+export function FormTypePicker({ value, onChange, disabled, layout = "inline" }: Props) {
   const [expanded, setExpanded] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -53,6 +54,43 @@ export function FormTypePicker({ value, onChange, disabled }: Props) {
   function pickType(next: FormType) {
     onChange(next);
     setExpanded(false);
+  }
+
+  if (layout === "modal") {
+    return (
+      <div className="grid gap-2 sm:grid-cols-2">
+        {FORM_TYPE_OPTIONS.map((type) => {
+          const config = getFormBuilderConfig(type);
+          const selected = value === type;
+          return (
+            <button
+              key={type}
+              type="button"
+              disabled={disabled}
+              onClick={() => pickType(type)}
+              className={
+                "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-all " +
+                (selected
+                  ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] ring-1 ring-[var(--hse-teal)]"
+                  : "border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.02]") +
+                (disabled ? " cursor-not-allowed opacity-60" : "")
+              }
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-foreground/15 bg-background text-foreground/70">
+                  {ICONS[type]}
+                </span>
+                <div>
+                  <div className="text-sm font-semibold">{config.label}</div>
+                  <div className="text-[11px] text-foreground/55">{config.tagline}</div>
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-foreground/60">{config.description}</p>
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (

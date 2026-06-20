@@ -9,6 +9,7 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
+import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
 import { SettingsPageClient } from "@/components/settings/SettingsPageClient";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
@@ -85,6 +86,10 @@ export default async function TenantSettingsPage({
               Import from library
             </Link>
           </div>
+
+          <DeferredDetailsSection title="Plan & usage" defaultOpen>
+            <BrandUsageCard tenantSlug={tenant.slug} />
+          </DeferredDetailsSection>
 
           <DeferredDetailsSection title="Brand profile" defaultOpen>
             <TenantSettingsForm tenant={tenant} tenantSlug={tenant.slug} />

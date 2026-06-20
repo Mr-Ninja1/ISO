@@ -7,9 +7,22 @@ function trimTrailingSlash(value: string) {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
+function isLocalDevHost(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "[::1]" ||
+    hostname === "10.0.2.2"
+  );
+}
+
 export function getApiBaseUrl() {
-  if (typeof window !== "undefined" && !isCapacitorNativeApp()) {
-    return window.location.origin;
+  if (typeof window !== "undefined") {
+    const { hostname, origin } = window.location;
+    // npm run dev on localhost must always call the local Next server, even when
+    // NEXT_PUBLIC_CAPACITOR_APP=1 and NEXT_PUBLIC_API_BASE_URL point at Azure.
+    if (isLocalDevHost(hostname)) return origin;
+    if (!isCapacitorNativeApp()) return origin;
   }
 
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || PLATFORM_API_BASE_URL;

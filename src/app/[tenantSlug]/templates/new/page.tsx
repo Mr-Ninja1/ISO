@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Eye, Laptop, Loader2 } from "lucide-react";
-import { createPortal } from "react-dom";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Laptop, Loader2, Sparkles } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { readWorkspaceCacheResolved, writeWorkspaceCache } from "@/lib/client/workspaceCache";
 import { FormBuilder } from "@/components/forms/FormBuilder";
 import { FormTypePicker } from "@/components/forms/FormTypePicker";
+import { AiFormChatModal, type AiChatMessage } from "@/components/forms/AiFormChatModal";
+import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
+import { PlanLimitReachedError, isPlanLimitError } from "@/lib/planLimitErrors";
 import {
   blankCanvasForType,
   getFormBuilderConfig,
@@ -20,7 +22,7 @@ import {
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
-import type { FieldDef, FormSection, FormStyle, FormType } from "@/types/forms";
+import type { FieldDef, FormSchemaV1, FormSection, FormStyle, FormType } from "@/types/forms";
 import { columnHeaderDisplayLabel, isColumnHeaderPlaceholder } from "@/lib/formFieldConstants";
 import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
@@ -30,6 +32,9 @@ import {
   getPendingTemplateSyncCount,
 } from "@/lib/client/templateSyncQueue";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import type { AiClarificationQuestion } from "@/lib/ai/types";
+import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
+import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
 
 type CategorySummary = {
   id: string;
@@ -263,6 +268,110 @@ function previewFieldInput(type: FieldDef["type"]) {
   return <input type="text" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
 }
 
+function FormPreviewBody({
+  title,
+  sections,
+  maxHeightClass = "max-h-[78vh]",
+}: {
+  title: string;
+  sections: FormSection[];
+  maxHeightClass?: string;
+}) {
+  return (
+    <div className={`overflow-auto ${maxHeightClass} p-4`}>
+      <div className="mx-auto w-full max-w-4xl rounded-lg border border-foreground/20 bg-background p-5 shadow-sm">
+        <div className="text-center text-xl font-semibold">{title || "Untitled form"}</div>
+        <div className="mt-4 space-y-4">
+          {sections.map((section, idx) =>
+            section.type === "fields" ? (
+              <section key={`pv-f-${idx}`} className="rounded-md border border-foreground/15 p-3">
+                {section.title ? (
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                    {section.title}
+                  </div>
+                ) : null}
+                <div
+                  className={
+                    "grid gap-3 " +
+                    (section.columns === 4
+                      ? "md:grid-cols-4"
+                      : section.columns === 3
+                        ? "md:grid-cols-3"
+                        : section.columns === 2
+                          ? "md:grid-cols-2"
+                          : "md:grid-cols-1")
+                  }
+                >
+                  {section.fields.map((field) => (
+                    <div
+                      key={field.id}
+                      className={field.type === "display" ? "space-y-1 md:col-span-full" : "space-y-1"}
+                    >
+                      {field.type === "display" ? (
+                        <div
+                          className={
+                            "rounded-md border border-foreground/10 px-2 py-1.5 text-sm " +
+                            displayVariantClass((field as import("@/types/forms").DisplayField).variant || "body")
+                          }
+                        >
+                          {displayFieldText(field as import("@/types/forms").DisplayField)}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-xs font-medium text-foreground/70">{field.label}</div>
+                          {previewFieldInput(field.type)}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section key={`pv-g-${idx}`} className="rounded-md border border-foreground/15 p-3">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">
+                  {section.title || "Log Sheet"}
+                </div>
+                <div className="overflow-x-auto rounded-md border border-foreground/15">
+                  <table className="w-full min-w-max border-collapse text-xs">
+                    <thead>
+                      <tr>
+                        {section.columns.map((col) => (
+                          <th
+                            key={col.id}
+                            className={
+                              "border-b border-r border-foreground/15 px-2 py-2 text-left " +
+                              (isColumnHeaderPlaceholder(col.label) ? "italic text-foreground/45" : "")
+                            }
+                          >
+                            {columnHeaderDisplayLabel(col.label)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({
+                        length: Math.min(typeof section.rows === "number" ? section.rows : 3, 5),
+                      }).map((_, rowIdx) => (
+                        <tr key={`pv-row-${rowIdx}`}>
+                          {section.columns.map((col) => (
+                            <td key={`${rowIdx}-${col.id}`} className="border-b border-r border-foreground/10 px-2 py-2">
+                              {col.type === "checkbox" ? "[ ]" : col.type === "signature" ? "Sign" : "..."}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ),
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FormStructurePreview({
   open,
   onClose,
@@ -290,78 +399,7 @@ function FormStructurePreview({
             Close
           </button>
         </div>
-        <div className="max-h-[78vh] overflow-auto p-4">
-          <div className="mx-auto w-full max-w-4xl rounded-lg border border-foreground/20 bg-background p-5">
-            <div className="text-center text-xl font-semibold">{title || "Untitled form"}</div>
-            <div className="mt-4 space-y-4">
-              {sections.map((section, idx) =>
-                section.type === "fields" ? (
-                  <section key={`pv-f-${idx}`} className="rounded-md border border-foreground/15 p-3">
-                    {section.title ? <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">{section.title}</div> : null}
-                    <div className={"grid gap-3 " + (section.columns === 4 ? "md:grid-cols-4" : section.columns === 3 ? "md:grid-cols-3" : section.columns === 2 ? "md:grid-cols-2" : "md:grid-cols-1")}>
-                      {section.fields.map((field) => (
-                        <div
-                          key={field.id}
-                          className={field.type === "display" ? "space-y-1 md:col-span-full" : "space-y-1"}
-                        >
-                          {field.type === "display" ? (
-                            <div
-                              className={
-                                "rounded-md border border-foreground/10 px-2 py-1.5 text-sm " +
-                                displayVariantClass((field as import("@/types/forms").DisplayField).variant || "body")
-                              }
-                            >
-                              {displayFieldText(field as import("@/types/forms").DisplayField)}
-                            </div>
-                          ) : (
-                            <>
-                              <div className="text-xs font-medium text-foreground/70">{field.label}</div>
-                              {previewFieldInput(field.type)}
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ) : (
-                  <section key={`pv-g-${idx}`} className="rounded-md border border-foreground/15 p-3">
-                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">{section.title || "Log Sheet"}</div>
-                    <div className="overflow-x-auto rounded-md border border-foreground/15">
-                      <table className="w-full min-w-max border-collapse text-xs">
-                        <thead>
-                          <tr>
-                            {section.columns.map((col) => (
-                              <th
-                                key={col.id}
-                                className={
-                                  "border-b border-r border-foreground/15 px-2 py-2 text-left " +
-                                  (isColumnHeaderPlaceholder(col.label) ? "italic text-foreground/45" : "")
-                                }
-                              >
-                                {columnHeaderDisplayLabel(col.label)}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Array.from({ length: Math.min(typeof section.rows === "number" ? section.rows : 3, 5) }).map((_, rowIdx) => (
-                            <tr key={`pv-row-${rowIdx}`}>
-                              {section.columns.map((col) => (
-                                <td key={`${rowIdx}-${col.id}`} className="border-b border-r border-foreground/10 px-2 py-2">
-                                  {col.type === "checkbox" ? "[ ]" : col.type === "signature" ? "Sign" : "..."}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
-                )
-              )}
-            </div>
-          </div>
-        </div>
+        <FormPreviewBody title={title} sections={sections} />
       </div>
     </CenteredOverlay>
   );
@@ -392,7 +430,26 @@ function NewTemplatePageInner() {
 
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [importingPhoto, setImportingPhoto] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [showAiGenerate, setShowAiGenerate] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiImageFile, setAiImageFile] = useState<File | null>(null);
+  const [aiStep, setAiStep] = useState<"input" | "clarify">("input");
+  const [aiQuestions, setAiQuestions] = useState<AiClarificationQuestion[]>([]);
+  const [aiAnswers, setAiAnswers] = useState<Record<string, string>>({});
+  const [aiAssessSummary, setAiAssessSummary] = useState("");
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [aiQuota, setAiQuota] = useState<{
+    used: number;
+    limit: number;
+    remaining: number;
+    unlimited: boolean;
+  } | null>(null);
+  const [planLimitOpen, setPlanLimitOpen] = useState(false);
+  const [planLimitDetails, setPlanLimitDetails] = useState<{
+    used?: number;
+    limit?: number;
+  }>({});
   const [loadingEditInfo, setLoadingEditInfo] = useState(false);
   const [error, setError] = useState<string>("");
 
@@ -400,19 +457,20 @@ function NewTemplatePageInner() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("Add form title");
-  const [sections, setSections] = useState<FormSection[]>(() => blankCanvasForType("custom"));
+  const [sections, setSections] = useState<FormSection[]>([]);
   const [formType, setFormType] = useState<FormType>("custom");
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
   const [cardIcon, setCardIcon] = useState("clipboard");
   const [cardColor, setCardColor] = useState("default");
   const [schemaMeta, setSchemaMeta] = useState<Record<string, unknown>>({});
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
-  const [showPhotoImportGuide, setShowPhotoImportGuide] = useState(false);
-  const [headerActionsMount, setHeaderActionsMount] = useState<HTMLElement | null>(null);
+  const [showFormTypeModal, setShowFormTypeModal] = useState(false);
+  const [showAiCompleteModal, setShowAiCompleteModal] = useState(false);
+  const [aiCompleteStep, setAiCompleteStep] = useState<"success" | "preview">("success");
   const [online, setOnline] = useState(true);
   const [builderBlockedSmallScreen, setBuilderBlockedSmallScreen] = useState(false);
 
-  const [baseSections, setBaseSections] = useState<FormSection[]>(() => blankCanvasForType("custom"));
+  const [baseSections, setBaseSections] = useState<FormSection[]>([]);
   const [baseVersion, setBaseVersion] = useState(1);
   const [hasAudits, setHasAudits] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
@@ -420,7 +478,10 @@ function NewTemplatePageInner() {
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
   const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
   const [offlineDraftTemplateId, setOfflineDraftTemplateId] = useState<string | null>(null);
-  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  function welcomeAiMessages(): AiChatMessage[] {
+    return [{ id: "welcome", role: "assistant", content: AI_WELCOME_MESSAGE }];
+  }
 
   if (offline) {
     return (
@@ -453,7 +514,6 @@ function NewTemplatePageInner() {
   }, [baseSections, hasAudits]);
 
   useEffect(() => {
-    setHeaderActionsMount(document.getElementById("tenant-header-actions"));
     setOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
     setQueuedTemplateSaves(getPendingTemplateSyncCount());
   }, []);
@@ -784,46 +844,281 @@ function NewTemplatePageInner() {
     }
   }
 
-  async function importFromPhoto(file: File) {
-    if (!accessToken || !tenantSlug) return;
-
-    setImportingPhoto(true);
-    setError("");
-    try {
-      const formData = new FormData();
-      formData.set("tenantSlug", tenantSlug);
-      formData.set("file", file);
-
-      const res = await fetch(apiUrl("/api/templates/ocr-import"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: formData,
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `OCR import failed (${res.status})`);
-
-      const importedSections: FormSection[] = Array.isArray(data?.sections)
-        ? (data.sections as FormSection[])
+  function applyImportedSchema(
+    data: { title?: string; sections?: FormSection[]; schema?: FormSchemaV1 },
+    resetKeyPrefix: string,
+  ) {
+    const schema = data.schema;
+    const importedSections: FormSection[] = Array.isArray(data?.sections)
+      ? (data.sections as FormSection[])
+      : Array.isArray(schema?.sections)
+        ? schema.sections
         : [{ type: "fields", title: "Fields", fields: [] }];
 
-      setTitle((data?.title as string) || "Imported Form");
-      setSections(importedSections);
-      setFormType("custom");
-      setFormStyle("default");
-      setCardIcon("clipboard");
-      setCardColor("default");
-      setSchemaMeta({});
-      setBaseSections(importedSections);
-      setBuilderResetKey(`ocr-import-${Date.now()}`);
-      setShowFormPreview(false);
-    } catch (err: any) {
-      setError(err?.message || "Failed to import from photo");
-    } finally {
-      setImportingPhoto(false);
+    const meta =
+      schema?.meta && typeof schema.meta === "object" && !Array.isArray(schema.meta)
+        ? schema.meta
+        : {};
+    const nextFormType = parseFormType(meta.formType);
+
+    setTitle((data?.title as string) || schema?.title || "Imported Form");
+    setSections(importedSections);
+    setFormType(nextFormType);
+    setFormStyle((meta.formStyle as FormStyle) || "default");
+    setCardIcon(typeof meta.cardIcon === "string" ? meta.cardIcon : getFormBuilderConfig(nextFormType).cardIcon);
+    setCardColor(typeof meta.cardColor === "string" ? meta.cardColor : "default");
+    setSchemaMeta({});
+    setBaseSections(importedSections);
+    setBuilderResetKey(`${resetKeyPrefix}-${Date.now()}`);
+    setShowFormPreview(false);
+  }
+
+  function resetAiModalState() {
+    setAiStep("input");
+    setAiQuestions([]);
+    setAiAnswers({});
+    setAiAssessSummary("");
+    setAiPrompt("");
+    setAiImageFile(null);
+    setAiMessages(welcomeAiMessages());
+  }
+
+  async function postAiGenerate(formData: FormData) {
+    const res = await fetch(apiUrl("/api/templates/ai-generate"), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 402) {
+        const quota = data?.quota as { used?: number; limit?: number } | undefined;
+        throw new PlanLimitReachedError(
+          "ai_quota",
+          data?.error || "AI form limit reached for this month.",
+          {
+            used: quota?.used,
+            limit: quota?.limit,
+            tenantSlug,
+          },
+        );
+      }
+      if (res.status === 404) {
+        throw new Error(
+          "AI endpoint not found on this server. Use localhost:3000 for local dev, or deploy the latest code to Azure and add GEMINI_API_KEY there.",
+        );
+      }
+      throw new Error(data?.error || `AI request failed (${res.status})`);
     }
+    if (data?.quota) {
+      setAiQuota(data.quota);
+    }
+    return data;
+  }
+
+  async function refreshAiQuota(): Promise<boolean> {
+    if (!accessToken || !tenantSlug) return true;
+    try {
+      const res = await fetch(
+        apiUrl(`/api/workspace/storage?tenantSlug=${encodeURIComponent(tenantSlug)}`),
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return true;
+      const q = data.aiQuota as {
+        used: number;
+        limit: number;
+        remaining: number;
+        unlimited: boolean;
+      };
+      if (q) setAiQuota(q);
+      if (q && !q.unlimited && q.remaining <= 0) {
+        setPlanLimitDetails({ used: q.used, limit: q.limit });
+        setPlanLimitOpen(true);
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  function handlePlanLimit(err: unknown) {
+    if (!isPlanLimitError(err)) return false;
+    setPlanLimitDetails({ used: err.details.used, limit: err.details.limit });
+    setPlanLimitOpen(true);
+    return true;
+  }
+
+  function buildAiFormData(options: { phase: "assess" | "generate"; answers?: Record<string, string> }) {
+    const formData = new FormData();
+    formData.set("tenantSlug", tenantSlug);
+    formData.set("phase", options.phase);
+    const prompt = aiPrompt.trim();
+    if (prompt) formData.set("prompt", prompt);
+    if (aiImageFile) formData.set("file", aiImageFile);
+    if (options.answers && Object.keys(options.answers).length) {
+      formData.set("answers", JSON.stringify(options.answers));
+    }
+    return formData;
+  }
+
+  function finishAiGeneration() {
+    setShowAiGenerate(false);
+    resetAiModalState();
+    setAiCompleteStep("success");
+    setShowAiCompleteModal(true);
+  }
+
+  async function continueAiFlow() {
+    if (!accessToken || !tenantSlug) return;
+
+    const prompt = aiPrompt.trim();
+    if (!prompt && !aiImageFile) {
+      setError("Describe your form, attach a photo/PDF, or both.");
+      return;
+    }
+
+    const displayContent =
+      prompt || (aiImageFile ? `Attached ${aiImageFile.name}` : "");
+
+    setAiMessages((prev) => [
+      ...prev.filter((m) => !m.isTyping),
+      {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: displayContent,
+        attachmentName: aiImageFile?.name,
+      },
+      { id: "typing", role: "assistant", content: "", isTyping: true },
+    ]);
+
+    setGeneratingAi(true);
+    setError("");
+    try {
+      const assessment = await postAiGenerate(buildAiFormData({ phase: "assess" }));
+
+      setAiMessages((prev) => prev.filter((m) => !m.isTyping));
+
+      if (assessment.status === "needs_clarification" && Array.isArray(assessment.questions) && assessment.questions.length) {
+        const questions = assessment.questions as AiClarificationQuestion[];
+        const initialAnswers: Record<string, string> = {};
+        questions.forEach((q) => {
+          if (q.defaultValue) initialAnswers[q.id] = q.defaultValue;
+        });
+        setAiQuestions(questions);
+        setAiAnswers(initialAnswers);
+        const summary = typeof assessment.summary === "string" ? assessment.summary : "";
+        setAiAssessSummary(summary);
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            id: `clarify-${Date.now()}`,
+            role: "assistant",
+            content: summary || "I need a few more details before I build your draft:",
+          },
+        ]);
+        setAiStep("clarify");
+        return;
+      }
+
+      setAiMessages((prev) => [
+        ...prev,
+        { id: `ready-${Date.now()}`, role: "assistant", content: "Building your form draft…" },
+      ]);
+
+      const generated = await postAiGenerate(buildAiFormData({ phase: "generate" }));
+      applyImportedSchema(generated, "ai-generate");
+      finishAiGeneration();
+    } catch (err: unknown) {
+      if (handlePlanLimit(err)) {
+        setAiMessages((prev) => prev.filter((m) => !m.isTyping));
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      setAiMessages((prev) => [
+        ...prev.filter((m) => !m.isTyping),
+        {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          content: message,
+        },
+      ]);
+      setError(message);
+    } finally {
+      setGeneratingAi(false);
+    }
+  }
+
+  async function generateWithAiAnswers() {
+    if (!accessToken || !tenantSlug) return;
+
+    const unanswered = aiQuestions.filter((q) => !(aiAnswers[q.id] || "").trim());
+    if (unanswered.length) {
+      setError(`Please answer: ${unanswered[0]?.question || "all questions"}`);
+      return;
+    }
+
+    const answerSummary = aiQuestions
+      .map((q) => `${q.question} → ${aiAnswers[q.id]}`)
+      .join("\n");
+
+    setAiMessages((prev) => [
+      ...prev,
+      { id: `answers-${Date.now()}`, role: "user", content: answerSummary },
+      { id: "typing", role: "assistant", content: "", isTyping: true },
+    ]);
+
+    setGeneratingAi(true);
+    setError("");
+    try {
+      const generated = await postAiGenerate(
+        buildAiFormData({ phase: "generate", answers: aiAnswers }),
+      );
+      applyImportedSchema(generated, "ai-generate");
+      finishAiGeneration();
+    } catch (err: unknown) {
+      if (handlePlanLimit(err)) {
+        setAiMessages((prev) => prev.filter((m) => !m.isTyping));
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to generate form. Please try again.";
+      setAiMessages((prev) => [
+        ...prev.filter((m) => !m.isTyping),
+        {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          content: message,
+        },
+      ]);
+      setError(message);
+    } finally {
+      setGeneratingAi(false);
+    }
+  }
+
+  function handleAiExampleSelect(example: ExamplePrompt) {
+    setAiPrompt(example.prompt);
+  }
+
+  function handleAiBack() {
+    setAiStep("input");
+    setAiQuestions([]);
+    setAiAnswers({});
+    setAiAssessSummary("");
+  }
+  async function openAiGenerateModal() {
+    setError("");
+    resetAiModalState();
+    const allowed = await refreshAiQuota();
+    if (!allowed) return;
+    setShowAiGenerate(true);
+  }
+
+  function closeAiGenerateModal() {
+    if (generatingAi) return;
+    setShowAiGenerate(false);
+    resetAiModalState();
   }
 
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
@@ -844,54 +1139,6 @@ function NewTemplatePageInner() {
 
   return (
     <div className="relative min-h-dvh">
-      {headerActionsMount
-        ? createPortal(
-            <div className="mr-1 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-foreground/25 bg-background px-3 text-xs font-medium text-foreground hover:bg-foreground/5 disabled:opacity-50 sm:h-7"
-                onClick={() => setShowFormPreview(true)}
-                disabled={workspaceLoading || builderBlockedSmallScreen}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Preview
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50 sm:h-7"
-                onClick={() => setShowSaveConfirm(true)}
-                disabled={disableSave}
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Saving
-                  </>
-                ) : isEditMode ? (
-                  "Save changes"
-                ) : (
-                  "Save"
-                )}
-              </button>
-              {!isEditMode ? (
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    e.currentTarget.value = "";
-                    if (!file) return;
-                    await importFromPhoto(file);
-                  }}
-                />
-              ) : null}
-            </div>,
-            headerActionsMount
-          )
-        : null}
-
       {error ? (
         <div className="fixed right-6 top-20 z-40 max-w-[calc(100vw-2rem)] rounded-md border border-foreground/20 bg-background/95 px-2 py-1 text-xs shadow-sm">
           {error}
@@ -921,75 +1168,68 @@ function NewTemplatePageInner() {
       <div className="overflow-visible">
         <div className="grid grid-cols-1">
           <div className="min-w-0">
-            <div className="px-3 pt-3 sm:px-6">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
-                <div className="w-full py-1">
-                  <FormTypePicker
-                    value={formType}
-                    onChange={handleFormTypeChange}
-                    disabled={saving || loadingEditInfo}
-                  />
-                </div>
-                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Style</label>
-                <select
-                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                  value={formStyle}
-                  onChange={(e) => setFormStyle(e.target.value as FormStyle)}
-                >
-                  <option value="default">Default</option>
-                  <option value="compact">Compact</option>
-                  <option value="report">Report</option>
-                </select>
-                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Card icon</label>
-                <select
-                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                  value={cardIcon}
-                  onChange={(e) => setCardIcon(e.target.value)}
-                >
-                  <option value="clipboard">Clipboard</option>
-                  <option value="checklist">Checklist</option>
-                  <option value="safety">Safety</option>
-                  <option value="cleaning">Cleaning</option>
-                  <option value="inventory">Inventory</option>
-                  <option value="staff">Staff</option>
-                  <option value="food">Food</option>
-                  <option value="temperature">Temperature</option>
-                </select>
-                <label className="ml-2 text-xs font-semibold uppercase tracking-wide">Card color</label>
-                <select
-                  className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
-                  value={cardColor}
-                  onChange={(e) => setCardColor(e.target.value)}
-                >
-                  <option value="default">Default</option>
-                  <option value="emerald">Emerald</option>
-                  <option value="amber">Amber</option>
-                  <option value="sky">Sky</option>
-                  <option value="violet">Violet</option>
-                  <option value="rose">Rose</option>
-                </select>
+            <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/95 px-3 py-2 backdrop-blur sm:px-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  className="ml-2 inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
-                  onClick={() => setShowFormPreview(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.06] disabled:opacity-50"
+                  disabled={saving || loadingEditInfo}
+                  onClick={() => setShowFormTypeModal(true)}
                 >
-                  <Eye className="mr-1 h-3.5 w-3.5" />
-                  Preview
+                  {getFormBuilderConfig(formType).label}
+                  <ChevronDown className="h-3.5 w-3.5 text-foreground/50" />
                 </button>
+
+                <label className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 text-xs">
+                  <span className="pl-1 text-foreground/55">Style</span>
+                  <select
+                    className="h-6 rounded-md border-0 bg-transparent pr-1 text-xs font-medium text-foreground focus:outline-none"
+                    value={formStyle}
+                    onChange={(e) => setFormStyle(e.target.value as FormStyle)}
+                    disabled={saving || loadingEditInfo}
+                  >
+                    <option value="default">Default</option>
+                    <option value="compact">Compact</option>
+                    <option value="report">Report</option>
+                  </select>
+                </label>
+
+                <div className="flex-1" />
+
                 {!isEditMode ? (
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5 disabled:opacity-50"
-                    disabled={importingPhoto || saving || workspaceLoading}
-                    onClick={() => setShowPhotoImportGuide(true)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
+                    disabled={generatingAi || saving || workspaceLoading}
+                    onClick={() => void openAiGenerateModal()}
                   >
-                    {importingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    {importingPhoto ? "Importing…" : "Import from photo"}
+                    {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {generatingAi ? "Working…" : "Create with AI"}
                   </button>
                 ) : null}
-                <span className="text-foreground/50">{getFormBuilderConfig(formType).tagline}</span>
+
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
+                  onClick={() => setShowFormPreview(true)}
+                  disabled={workspaceLoading || builderBlockedSmallScreen}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Preview
+                </button>
+
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+                  onClick={() => setShowSaveConfirm(true)}
+                  disabled={disableSave}
+                >
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? "Saving…" : isEditMode ? "Save changes" : "Save form"}
+                </button>
               </div>
             </div>
+
             <FormBuilder
               onChangeSections={setSections}
               initialSections={sections}
@@ -1174,42 +1414,142 @@ function NewTemplatePageInner() {
         </CenteredOverlay>
       ) : null}
 
-      {showPhotoImportGuide ? (
-        <CenteredOverlay open maxWidthClass="max-w-lg" onClose={() => setShowPhotoImportGuide(false)}>
+      {showAiGenerate ? (
+        <AiFormChatModal
+          open
+          onClose={closeAiGenerateModal}
+          generating={generatingAi}
+          step={aiStep}
+          messages={aiMessages}
+          prompt={aiPrompt}
+          onPromptChange={setAiPrompt}
+          imageFile={aiImageFile}
+          onImageChange={setAiImageFile}
+          questions={aiQuestions}
+          answers={aiAnswers}
+          onAnswersChange={setAiAnswers}
+          assessSummary={aiAssessSummary}
+          onSend={() => void continueAiFlow()}
+          onGenerate={() => void generateWithAiAnswers()}
+          onBack={handleAiBack}
+          onExampleSelect={handleAiExampleSelect}
+          aiQuota={aiQuota}
+        />
+      ) : null}
+
+      <PlanLimitModal
+        open={planLimitOpen}
+        kind="ai_quota"
+        details={{ ...planLimitDetails, tenantSlug }}
+        settingsHref={tenantSlug ? `/${tenantSlug}/settings?focus=usage` : undefined}
+        onClose={() => {
+          setPlanLimitOpen(false);
+          setShowAiGenerate(false);
+        }}
+      />
+
+      {showFormTypeModal ? (
+        <CenteredOverlay open maxWidthClass="max-w-2xl" onClose={() => setShowFormTypeModal(false)}>
           <div className="p-4">
-            <div className="text-sm font-semibold">Create a form from photo</div>
-            <div className="mt-2 text-sm text-foreground/80">
-              You can generate a form by uploading a clear photo (or PDF) of your physical form.
+            <div className="text-sm font-semibold">Form type</div>
+            <p className="mt-1 text-sm text-foreground/70">
+              Choose the layout that best matches how this form will be filled in. You can change fields freely after.
+            </p>
+            <div className="mt-4">
+              <FormTypePicker
+                layout="modal"
+                value={formType}
+                onChange={(next) => {
+                  handleFormTypeChange(next);
+                  setShowFormTypeModal(false);
+                }}
+                disabled={saving || loadingEditInfo}
+              />
             </div>
-
-            <div className="mt-3 rounded-md border border-foreground/20 bg-foreground/[0.03] p-3 text-xs text-foreground/80">
-              Best results:
-              <br />- Capture the full page edge-to-edge in good lighting.
-              <br />- Keep text, labels, table headers, and signature lines fully visible.
-              <br />- Avoid shadows, blur, skewed angles, and folded paper.
-              <br />- Use a blank printed form only. Handwritten marks can reduce OCR accuracy.
-            </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2">
+            <div className="mt-4 flex justify-end">
               <button
                 type="button"
                 className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                onClick={() => setShowPhotoImportGuide(false)}
+                onClick={() => setShowFormTypeModal(false)}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 text-sm font-medium text-background"
-                onClick={() => {
-                  setShowPhotoImportGuide(false);
-                  photoInputRef.current?.click();
-                }}
-              >
-                Choose photo
+                Done
               </button>
             </div>
           </div>
+        </CenteredOverlay>
+      ) : null}
+
+      {showAiCompleteModal ? (
+        <CenteredOverlay
+          open
+          maxWidthClass={aiCompleteStep === "preview" ? "max-w-5xl" : "max-w-md"}
+          onClose={() => {
+            setShowAiCompleteModal(false);
+            setAiCompleteStep("success");
+          }}
+        >
+          {aiCompleteStep === "success" ? (
+            <div className="p-5">
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <CheckCircle2 className="h-7 w-7" />
+                </div>
+                <div className="mt-3 text-lg font-semibold">Form generated</div>
+                <p className="mt-2 text-sm leading-6 text-foreground/75">
+                  Your draft is ready. Take a moment to preview it and check that the fields, table columns, and title
+                  match what you had in mind — you can still adjust anything before saving.
+                </p>
+              </div>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+                  onClick={() => setShowAiCompleteModal(false)}
+                >
+                  Edit in builder
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-foreground px-3 text-sm font-medium text-background"
+                  onClick={() => setAiCompleteStep("preview")}
+                >
+                  <Eye className="h-4 w-4" />
+                  Preview form
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between gap-3 border-b border-foreground/15 px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold">Your generated form</div>
+                  <div className="text-xs text-foreground/70">
+                    Does this look right? Edit anything that needs changing, or save when you&apos;re happy.
+                  </div>
+                </div>
+              </div>
+              <FormPreviewBody title={title} sections={sections} maxHeightClass="max-h-[65vh]" />
+              <div className="flex flex-col gap-2 border-t border-foreground/10 px-4 py-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+                  onClick={() => setShowAiCompleteModal(false)}
+                >
+                  Edit in builder
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-4 text-sm font-medium text-background"
+                  onClick={() => {
+                    setShowAiCompleteModal(false);
+                    setShowSaveConfirm(true);
+                  }}
+                >
+                  Save form
+                </button>
+              </div>
+            </div>
+          )}
         </CenteredOverlay>
       ) : null}
     </div>

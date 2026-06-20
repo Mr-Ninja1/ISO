@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
+import { ensureTenantPlan } from "@/lib/tenantPlan";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -93,7 +94,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: memberErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ slug: tenant.slug, tenantId: tenant.id, isActive: true, mode: "trial" });
+    await ensureTenantPlan(svc, tenant.id);
+
+    return NextResponse.json({
+      slug: tenant.slug,
+      tenantId: tenant.id,
+      isActive: true,
+      mode: "free",
+      plan: {
+        storageLimitMb: 512,
+        aiMonthlyQuota: 4,
+        copilotEnabled: true,
+      },
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create tenant";
     return NextResponse.json({ error: msg }, { status: 500 });

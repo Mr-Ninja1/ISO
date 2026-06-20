@@ -8,6 +8,12 @@ let cachedReachable: boolean | null = null;
 let lastProbeAt = 0;
 let probeInFlight: Promise<boolean> | null = null;
 
+function isLocalDevHost() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
 function dispatchOfflineChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(OFFLINE_MODE_CHANGED_EVENT));
@@ -15,6 +21,7 @@ function dispatchOfflineChanged() {
 
 /**
  * Probes the hosted API origin. navigator.onLine is unreliable in Android WebViews.
+ * On localhost dev, slow cold starts should not mark the app offline when the browser says online.
  */
 export async function probeInternetReachability(force = false): Promise<boolean> {
   if (typeof window === "undefined") return true;
@@ -46,11 +53,12 @@ export async function probeInternetReachability(force = false): Promise<boolean>
 
   probeInFlight = (async () => {
     const wasOffline = cachedReachable === false;
+    const localDev = isLocalDevHost();
     try {
       const base = getApiBaseUrl();
       const target = base ? `${base}/login` : "/login";
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), 5000);
+      const timer = window.setTimeout(() => controller.abort(), localDev ? 12000 : 5000);
       const res = await fetch(target, {
         method: "GET",
         cache: "no-store",
@@ -59,7 +67,8 @@ export async function probeInternetReachability(force = false): Promise<boolean>
       window.clearTimeout(timer);
       cachedReachable = res.status < 500;
     } catch {
-      cachedReachable = false;
+      // Slow localhost dev servers often fail a 5s probe even when online.
+      cachedReachable = localDev && typeof navigator !== "undefined" && navigator.onLine;
     }
 
     lastProbeAt = Date.now();

@@ -1283,11 +1283,6 @@ body {
     padding: 16px !important;
 }
 
-.pdf-generation-mode[data-pdf-orientation="landscape"] .print-shell,
-.pdf-generation-mode[data-pdf-orientation="landscape"] .report-export-root {
-    padding: 10px !important;
-}
-
 .pdf-generation-mode .text-xs,
 .pdf-generation-mode .text-sm,
 .pdf-generation-mode table,
@@ -1296,37 +1291,17 @@ body {
     line-height: 1.45 !important;
 }
 
-.pdf-generation-mode[data-pdf-orientation="landscape"] .text-xs,
-.pdf-generation-mode[data-pdf-orientation="landscape"] .text-sm,
-.pdf-generation-mode[data-pdf-orientation="landscape"] table,
-.pdf-generation-mode[data-pdf-orientation="landscape"] .report-field-value {
-    font-size: 12px !important;
-    line-height: 1.3 !important;
-}
-
 .pdf-generation-mode h3 {
     font-size: 13px !important;
     font-weight: 700 !important;
-}
-
-.pdf-generation-mode[data-pdf-orientation="landscape"] h3 {
-    font-size: 12px !important;
 }
 
 .pdf-generation-mode .text-2xl {
     font-size: 22px !important;
 }
 
-.pdf-generation-mode[data-pdf-orientation="landscape"] .text-2xl {
-    font-size: 18px !important;
-}
-
 .pdf-generation-mode .text-lg {
     font-size: 18px !important;
-}
-
-.pdf-generation-mode[data-pdf-orientation="landscape"] .text-lg {
-    font-size: 15px !important;
 }
 
 .pdf-generation-mode .report-signature-img {

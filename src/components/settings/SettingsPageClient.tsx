@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { TenantSettingsForm } from "@/components/TenantSettingsForm";
@@ -11,6 +12,7 @@ import { DeferredDetailsSection } from "@/components/DeferredDetailsSection";
 import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { apiUrl } from "@/lib/client/apiBase";
 import {
@@ -36,6 +38,8 @@ type TenantMeta = {
 
 export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
   const tenantSlug = useResolvedTenantSlug(routeSlug);
+  const searchParams = useSearchParams();
+  const focusUsage = searchParams.get("focus") === "usage";
   const { session, user } = useAuth();
   const offline = useAppOffline();
   const userId = user?.id || session?.user?.id || null;
@@ -134,6 +138,12 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
     };
   }, [tenantSlug, accessToken, offline, tenant]);
 
+  useEffect(() => {
+    if (!focusUsage || loading) return;
+    const el = document.getElementById("brand-usage");
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusUsage, loading]);
+
   const backHref = useMemo(
     () => `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug || "")}`,
     [tenantSlug]
@@ -202,6 +212,10 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
             Import from library
           </Link>
         </div>
+
+        <DeferredDetailsSection title="Plan & usage" defaultOpen={focusUsage}>
+          <BrandUsageCard tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
 
         <DeferredDetailsSection title="Brand profile" defaultOpen>
           <TenantSettingsForm tenant={tenant ?? undefined} tenantSlug={tenantSlug} />

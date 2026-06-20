@@ -1,0 +1,111 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
+import { resolveCopilotIntent, screenContextLabel } from "@/lib/copilot/intents";
+import { hasPermission, normalizeRole } from "@/lib/roleGate";
+import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus } from "@/lib/tenantPlan";
+import { DC_AI_NAME } from "@/lib/ai/deepControl";
+
+function getBearerToken(req: Request) {
+  const header =
+    req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] || null;
+}
+
+export async function POST(req: Request) {
+  const token = getBearerToken(req);
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = (await req.json().catch(() => ({}))) as {
+    message?: string;
+    tenantSlug?: string;
+    pathname?: string;
+  };
+
+  const tenantSlug = String(body.tenantSlug || "").trim();
+  const message = String(body.message || "").trim();
+  const pathname = String(body.pathname || "/");
+
+  if (!tenantSlug) {
+    return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
+  }
+
+  const supabaseAuth = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } },
+  );
+
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser(token);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const sb = createSupabaseWithBearer(token);
+    const { data: tenant } = await sb.from("tenants").select("id,name").eq("slug", tenantSlug).maybeSingle();
+    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+    const { data: membership } = await sb
+      .from("tenant_members")
+      .select("role")
+      .eq("tenant_id", tenant.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const plan = await ensureTenantPlan(sb, tenant.id as string);
+    const aiProfile = await ensureTenantAiProfile(sb, tenant.id as string);
+    const copilotAccess = getCopilotAccessStatus(plan);
+
+    if (!plan.copilot_enabled) {
+      return NextResponse.json({
+        code: "copilot_disabled",
+        message: `${DC_AI_NAME} is not enabled for this brand. Contact your platform developer to upgrade.`,
+        actions: [],
+        screen: screenContextLabel(pathname),
+        assistantName: aiProfile.assistant_name || DC_AI_NAME,
+        copilotAccess,
+      }, { status: 403 });
+    }
+
+    if (!copilotAccess.allowed) {
+      return NextResponse.json({
+        code: "copilot_trial_expired",
+        message: `Your ${copilotAccess.trialDays}-day ${DC_AI_NAME} trial has ended. Contact your platform developer to upgrade for unlimited help.`,
+        actions: [],
+        screen: screenContextLabel(pathname),
+        assistantName: aiProfile.assistant_name || DC_AI_NAME,
+        copilotAccess,
+      }, { status: 402 });
+    }
+
+    const role = normalizeRole(membership.role);
+    const caps = {
+      canCreateForms: hasPermission(role, "forms.create"),
+      canManageCategories: hasPermission(role, "categories.manage"),
+      canManageStaff: hasPermission(role, "staff.manage"),
+      canAccessSettings: hasPermission(role, "settings.view"),
+    };
+
+    const result = resolveCopilotIntent(message, {
+      tenantSlug,
+      pathname,
+      caps,
+    });
+
+    // Chat context lives in browser localStorage — not DB (saves storage)
+    return NextResponse.json({
+      ...result,
+      screen: screenContextLabel(pathname),
+      brandName: tenant.name,
+      assistantName: aiProfile.assistant_name || DC_AI_NAME,
+      tenantId: tenant.id,
+      copilotAccess,
+    });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
