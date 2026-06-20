@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { resolveCopilotIntent, screenContextLabel } from "@/lib/copilot/intents";
+import { pickAutoNavigateHref, autoNavigateLabel } from "@/lib/copilot/autoNavigate";
 import { hasPermission, normalizeRole } from "@/lib/roleGate";
 import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus } from "@/lib/tenantPlan";
 import { DC_AI_NAME } from "@/lib/ai/deepControl";
@@ -95,9 +96,13 @@ export async function POST(req: Request) {
       caps,
     });
 
+    const navigateTo = pickAutoNavigateHref(message, result.actions);
+
     // Chat context lives in browser localStorage — not DB (saves storage)
     return NextResponse.json({
       ...result,
+      navigateTo,
+      navigateLabel: navigateTo ? autoNavigateLabel(result.actions) : null,
       screen: screenContextLabel(pathname),
       brandName: tenant.name,
       assistantName: aiProfile.assistant_name || DC_AI_NAME,

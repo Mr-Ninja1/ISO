@@ -1,3 +1,11 @@
+import { resolvePlaybook } from "@/lib/copilot/playbooks";
+import {
+  classifyCopilotMessage,
+  buildOffTopicResponse,
+  buildUnsupportedResponse,
+  buildUnclearResponse,
+} from "@/lib/copilot/guardrails";
+
 export type CopilotAction = {
   type: "navigate" | "open_url";
   label: string;
@@ -27,6 +35,62 @@ type IntentMatch = {
 };
 
 const INTENTS: IntentMatch[] = [
+  {
+    patterns: [
+      /forms?.*(saved|submitted).*today/i,
+      /today.*(saved|submitted).*forms?/i,
+      /forms? that were (saved|submitted).*today/i,
+      /(saved|submitted).*today/i,
+      /forms?.*today/i,
+      /today.*forms?/i,
+    ],
+    build: ({ tenantSlug }) => ({
+      message:
+        "Saved forms hold completed submissions. Tap **Saved forms** below — today's entries are near the top.",
+      actions: [{ type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` }],
+    }),
+  },
+  {
+    patterns: [
+      /want to see.*forms.*(saved|submitted)/i,
+      /like to see.*forms.*(saved|submitted)/i,
+      /need to see.*forms.*(saved|submitted)/i,
+      /see.*(saved|submitted).*forms/i,
+      /view.*(saved|submitted).*forms/i,
+      /show.*(saved|submitted).*forms/i,
+      /forms that were (saved|submitted)/i,
+      /recent submissions/i,
+      /completed forms/i,
+    ],
+    build: ({ tenantSlug }) => ({
+      message: "Saved forms are your submitted entries. Choose **Saved forms** below to open the list.",
+      actions: [{ type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` }],
+    }),
+  },
+  {
+    patterns: [
+      /^(saved forms?|submitted forms?|stored forms?)[.?!]*$/i,
+      /\bopen saved forms?\b/i,
+      /\bgo to saved forms?\b/i,
+    ],
+    build: ({ tenantSlug }) => ({
+      message: "Opening **Saved forms** — tap below if you'd like to go there now.",
+      actions: [{ type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` }],
+    }),
+  },
+  {
+    patterns: [/forms?.*(saved|submitted)/i, /(saved|submitted).*forms?/i],
+    build: ({ tenantSlug }) => ({
+      message:
+        "Do you mean **saved submissions** (already filled in) or **templates** (forms to fill in)? Pick below:",
+      actions: [
+        { type: "navigate", label: "Saved forms (submissions)", href: `/${tenantSlug}/audits` },
+        { type: "navigate", label: "Workspace (forms to fill)", href: `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` },
+        { type: "navigate", label: "Templates", href: `/${tenantSlug}/templates` },
+      ],
+      suggestions: ["How do I create a form?", "How do I export a PDF?"],
+    }),
+  },
   {
     patterns: [/create (a )?form/i, /new form/i, /build (a )?form/i, /make (a )?form/i, /ai form/i],
     build: ({ tenantSlug, caps }) => ({
@@ -77,7 +141,7 @@ const INTENTS: IntentMatch[] = [
     }),
   },
   {
-    patterns: [/saved forms/i, /submitted forms/i, /form submissions/i, /audit/i, /reports?/i],
+    patterns: [/saved forms/i, /submitted forms/i, /form submissions/i, /stored forms/i, /audit reports?/i],
     build: ({ tenantSlug }) => ({
       message:
         "Saved forms (submissions) live under **Saved forms**. Open any entry to view the report or export PDF.",
@@ -85,17 +149,11 @@ const INTENTS: IntentMatch[] = [
     }),
   },
   {
-    patterns: [/how many.*today/i, /forms today/i, /submitted today/i, /today.*forms/i],
-    build: ({ tenantSlug, caps }) => ({
-      message: caps.canAccessSettings
-        ? "Open the **Dashboard** for submission trends. For a quick count today, filter saved forms by date or check dashboard metrics."
-        : "Open **Saved forms** and sort by today’s date to see what was submitted.",
-      actions: [
-        { type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` },
-        ...(caps.canAccessSettings
-          ? [{ type: "navigate" as const, label: "Dashboard", href: `/${tenantSlug}/dashboard` }]
-          : []),
-      ],
+    patterns: [/how many.*today/i, /forms today/i, /submitted today/i],
+    build: ({ tenantSlug }) => ({
+      message:
+        "For today's submissions, open **Saved forms** — the newest are listed first.",
+      actions: [{ type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` }],
     }),
   },
   {
@@ -139,21 +197,15 @@ const INTENTS: IntentMatch[] = [
     }),
   },
   {
-    patterns: [/help/i, /what can you do/i, /how do i/i, /show me/i, /where (is|are)/i],
+    patterns: [/help/i, /what can you do/i, /how do i/i, /show me how/i, /where (is|are)/i],
     build: (ctx) => {
       const screen = screenContextLabel(ctx.pathname);
       return {
-        message: `You're on **${screen}**. I can walk you through forms, categories, staff, saved submissions, PDF export, and settings — just tell me what you're trying to do.`,
-        actions: [
-          {
-            type: "navigate",
-            label: "Workspace",
-            href: `/workspace/forms?tenantSlug=${encodeURIComponent(ctx.tenantSlug)}`,
-          },
-        ],
+        message: `You're on **${screen}**. Tell me what you're trying to do — I'll give step-by-step help or point you to the right place.\n\nExamples: *How do I create a form?* · *Where are saved forms?*`,
+        actions: [],
         suggestions: ctx.caps.canCreateForms
-          ? ["Create a form with AI", "Add a category", "Where are saved forms?"]
-          : ["Where are saved forms?", "Open settings", "How do I export PDF?"],
+          ? ["How do I create a form?", "Where are saved forms?", "How do I add a category?"]
+          : ["Where are saved forms?", "How do I export a PDF?", "What can you help with?"],
       };
     },
   },
@@ -281,19 +333,29 @@ export function resolveCopilotIntent(
   ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities },
 ): CopilotResponse {
   const trimmed = message.trim();
+
   if (!trimmed) {
-    return {
-      message: "Ask me how to create forms, find saved submissions, add staff, or manage categories.",
-      actions: [
-        { type: "navigate", label: "Workspace", href: `/workspace/forms?tenantSlug=${encodeURIComponent(ctx.tenantSlug)}` },
-      ],
-      suggestions: ["Create a form", "Where are saved forms?", "Add a staff member"],
-    };
+    return buildUnclearResponse(ctx.tenantSlug, ctx.caps, "What would you like help with?");
   }
+
+  const guard = classifyCopilotMessage(trimmed);
+  if (guard.kind === "off_topic") {
+    return buildOffTopicResponse(ctx.caps);
+  }
+  if (guard.kind === "unsupported" && guard.reason) {
+    return buildUnsupportedResponse(guard.reason, ctx.caps);
+  }
+
+  const playbook = resolvePlaybook(trimmed, ctx);
+  if (playbook) return playbook;
 
   for (const intent of INTENTS) {
     if (intent.patterns.some((p) => p.test(trimmed))) {
-      return intent.build(ctx);
+      const response = intent.build(ctx);
+      if (guard.kind === "unclear" && response.actions.length !== 1) {
+        return buildUnclearResponse(ctx.tenantSlug, ctx.caps);
+      }
+      return response;
     }
   }
 
@@ -303,24 +365,29 @@ export function resolveCopilotIntent(
       return {
         message: `**${topic.title}**\n\n${topic.body}`,
         actions: [],
-        suggestions: ["Create a form", "Open settings", "View saved forms"],
+        suggestions: ["How do I create a form?", "Where are saved forms?", "How do I export a PDF?"],
       };
     }
   }
 
-  return {
-    message:
-      `I'm here on **${screenContextLabel(ctx.pathname)}** — try asking about creating forms, categories, staff, saved forms, PDF export, or settings. I'll take you straight there.`,
-    actions: [
-      {
-        type: "navigate",
-        label: "Workspace",
-        href: `/workspace/forms?tenantSlug=${encodeURIComponent(ctx.tenantSlug)}`,
-      },
-    ],
-    suggestions: ["Create a form with AI", "How do I add a category?", "Where is the dashboard?"],
-  };
+  if (guard.kind === "unclear" || !IN_SCOPE_FALLBACK.test(trimmed)) {
+    return buildUnclearResponse(
+      ctx.tenantSlug,
+      ctx.caps,
+      `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+    );
+  }
+
+  return buildUnclearResponse(
+    ctx.tenantSlug,
+    ctx.caps,
+    `I didn't quite match that to a feature. Try being more specific about forms, saved submissions, staff, or settings.`,
+  );
 }
+
+/** Loose in-scope check for fallback (mirrors guardrails). */
+const IN_SCOPE_FALLBACK =
+  /\b(form|template|audit|saved|submitted|category|staff|setting|workspace|dashboard|pdf|export|brand|inspection|checklist|corrective|storage|usage|plan|offline|sync|logo|library|report|share|role|admin|manager)\b/i;
 
 export function screenContextLabel(pathname: string): string {
   if (pathname.includes("/templates/new")) return "Form builder";

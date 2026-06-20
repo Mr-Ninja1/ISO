@@ -1,10 +1,18 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { DC_AI_NAME, DC_AI_SHORT } from "@/lib/ai/deepControl";
 import { openBrandCopilot } from "@/lib/copilot/events";
+import { shouldShowBrandCopilot } from "@/lib/copilot/visibility";
+import { useAppOffline } from "@/lib/client/useAppOffline";
 
 export function CopilotHeaderButton() {
+  const pathname = usePathname() || "/";
+  const offline = useAppOffline();
+
+  if (!shouldShowBrandCopilot(pathname, offline)) return null;
+
   return (
     <button
       type="button"

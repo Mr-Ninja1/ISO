@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { requirePlatformDeveloper } from "@/lib/platformDevelopers";
 import { ensureTenantPlan, normalizePlanPatch, getCopilotAccessStatus } from "@/lib/tenantPlan";
+import { resetTenantFormAiUsageThisMonth } from "@/lib/admin/aiReset";
 import { PLAN_PRESETS, type PlanCode } from "@/lib/tenantPlanDefaults";
 
 function getBearerToken(req: Request) {
@@ -93,6 +94,11 @@ export async function PATCH(
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
+    let aiUsageRowsDeleted = 0;
+    if (body.resetAiFormUsageThisMonth === true) {
+      aiUsageRowsDeleted = await resetTenantFormAiUsageThisMonth(svc, tenantId);
+    }
+
     let patch = normalizePlanPatch(body);
 
     if (typeof body.applyPreset === "string") {
@@ -110,22 +116,35 @@ export async function PATCH(
       }
     }
 
-    if (!Object.keys(patch).length) {
+    if (!Object.keys(patch).length && body.resetAiFormUsageThisMonth !== true) {
       return NextResponse.json({ error: "No valid plan fields provided" }, { status: 400 });
     }
 
     await ensureTenantPlan(svc, tenantId);
 
-    const { data: updated, error } = await svc
-      .from("tenant_storage_plans")
-      .update(patch)
-      .eq("tenant_id", tenantId)
-      .select("*")
-      .single();
+    let updated = await ensureTenantPlan(svc, tenantId);
 
-    if (error || !updated) {
-      return NextResponse.json({ error: error?.message || "Update failed" }, { status: 500 });
+    if (Object.keys(patch).length) {
+      const { data: patched, error } = await svc
+        .from("tenant_storage_plans")
+        .update(patch)
+        .eq("tenant_id", tenantId)
+        .select("*")
+        .single();
+
+      if (error || !patched) {
+        return NextResponse.json({ error: error?.message || "Update failed" }, { status: 500 });
+      }
+      updated = patched as typeof updated;
     }
+
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    const { count: aiUsed } = await svc
+      .from("tenant_ai_usage_events")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+      .eq("usage_kind", "form_ai_generate")
+      .gte("created_at", monthStart.toISOString());
 
     return NextResponse.json({
       plan: {
@@ -139,7 +158,9 @@ export async function PATCH(
         activityLogRetentionDays: updated.activity_log_retention_days,
         aiMemoryRetentionDays: updated.ai_memory_retention_days,
       },
-      copilotAccess: getCopilotAccessStatus(updated as Parameters<typeof getCopilotAccessStatus>[0]),
+      copilotAccess: getCopilotAccessStatus(updated),
+      aiUsageRowsDeleted,
+      usage: { aiGenerationsThisMonth: aiUsed ?? 0 },
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";

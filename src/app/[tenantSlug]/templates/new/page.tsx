@@ -1009,15 +1009,8 @@ function NewTemplatePageInner() {
         setAiQuestions(questions);
         setAiAnswers(initialAnswers);
         const summary = typeof assessment.summary === "string" ? assessment.summary : "";
-        setAiAssessSummary(summary);
-        setAiMessages((prev) => [
-          ...prev,
-          {
-            id: `clarify-${Date.now()}`,
-            role: "assistant",
-            content: summary || "I need a few more details before I build your draft:",
-          },
-        ]);
+      setAiAssessSummary(summary);
+        setAiMessages((prev) => prev.filter((m) => !m.isTyping));
         setAiStep("clarify");
         return;
       }

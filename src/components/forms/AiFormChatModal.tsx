@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   FileText,
+  HelpCircle,
   ImageIcon,
   Lightbulb,
   Loader2,
@@ -16,6 +17,7 @@ import type { AiClarificationQuestion } from "@/lib/ai/types";
 import { DC_AI_SHORT } from "@/lib/ai/deepControl";
 import {
   AI_EXAMPLE_PROMPTS,
+  AI_FORM_BUILDER_GUIDE,
   getSuggestionForPartialPrompt,
   type ExamplePrompt,
 } from "@/lib/ai/examplePrompts";
@@ -201,7 +203,9 @@ export function AiFormChatModal({
             <div className="min-w-0">
               <div className="text-sm font-semibold">{DC_AI_SHORT} · Form builder</div>
               <div className="truncate text-[11px] text-foreground/55">
-                Describe it, attach a photo, or both
+                {step === "clarify"
+                  ? "Step 2 of 2 — answer a few questions"
+                  : "Step 1 of 2 — describe it, attach a photo, or both"}
               </div>
             </div>
           </div>
@@ -234,32 +238,79 @@ export function AiFormChatModal({
 
         {/* Chat area */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
+          {step === "input" ? (
+            <div className="mb-4 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] p-3">
+              <div className="flex items-start gap-2">
+                <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--hse-teal)]" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-foreground/85">
+                    {AI_FORM_BUILDER_GUIDE.label}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-foreground/65">
+                    {AI_FORM_BUILDER_GUIDE.prompt}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={generating}
+                    onClick={() => onExampleSelect(AI_FORM_BUILDER_GUIDE)}
+                    className="mt-2 inline-flex h-7 items-center rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-white px-3 text-[11px] font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] disabled:opacity-50"
+                  >
+                    Use this example
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-3">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
+          </div>
 
-            {step === "clarify" ? (
-              <div className="flex justify-start">
-                <div className="w-full max-w-full rounded-2xl rounded-bl-md border border-foreground/10 bg-foreground/[0.04] p-3 sm:max-w-[95%] sm:p-4">
-                  <p className="text-sm text-foreground/80">
-                    {assessSummary || "A few quick details will help me build the right layout:"}
+          {step === "clarify" ? (
+            <div className="mt-4 overflow-hidden rounded-2xl border-2 border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-background shadow-sm">
+              <div className="border-b border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)] px-4 py-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--hse-teal)]">
+                  Questions for you
+                </div>
+                <div className="mt-0.5 text-sm font-semibold text-foreground">
+                  Before I make the form
+                </div>
+                {assessSummary ? (
+                  <p className="mt-1.5 text-xs leading-relaxed text-foreground/70">{assessSummary}</p>
+                ) : (
+                  <p className="mt-1.5 text-xs leading-relaxed text-foreground/70">
+                    A few quick answers help me build the right layout for you.
                   </p>
-                  <div className="mt-3 space-y-3">
-                    {questions.map((q) => (
-                      <div key={q.id}>
-                        <label className="block text-xs font-medium text-foreground">{q.question}</label>
-                        {q.hint ? <p className="mt-0.5 text-[11px] text-foreground/50">{q.hint}</p> : null}
+                )}
+              </div>
+
+              <div className="space-y-4 p-4">
+                {questions.map((q, index) => (
+                  <div
+                    key={q.id}
+                    className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-3"
+                  >
+                    <div className="flex gap-2">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--hse-teal)] text-[11px] font-bold text-white">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <label className="block text-sm font-medium text-foreground">{q.question}</label>
+                        {q.hint ? (
+                          <p className="mt-0.5 text-[11px] text-foreground/55">{q.hint}</p>
+                        ) : null}
                         {q.inputType === "choice" && q.options?.length ? (
                           <select
-                            className="mt-1 h-8 w-full rounded-lg border border-foreground/15 bg-background px-2 text-sm"
+                            className="mt-2 h-9 w-full rounded-lg border border-foreground/15 bg-background px-2 text-sm"
                             value={answers[q.id] || ""}
                             disabled={generating}
                             onChange={(e) =>
                               onAnswersChange({ ...answers, [q.id]: e.target.value })
                             }
                           >
-                            <option value="">Select…</option>
+                            <option value="">Choose an option…</option>
                             {q.options.map((opt) => (
                               <option key={opt} value={opt}>
                                 {opt}
@@ -269,7 +320,8 @@ export function AiFormChatModal({
                         ) : (
                           <input
                             type={q.inputType === "number" ? "number" : "text"}
-                            className="mt-1 h-8 w-full rounded-lg border border-foreground/15 bg-background px-3 text-sm"
+                            className="mt-2 h-9 w-full rounded-lg border border-foreground/15 bg-background px-3 text-sm"
+                            placeholder="Type your answer…"
                             value={answers[q.id] || ""}
                             disabled={generating}
                             onChange={(e) =>
@@ -278,31 +330,33 @@ export function AiFormChatModal({
                           />
                         )}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                  <div className="mt-4 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      className="text-xs text-foreground/55 underline hover:text-foreground"
-                      disabled={generating}
-                      onClick={onBack}
-                    >
-                      ← Back
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--hse-teal)] px-4 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                      disabled={generating}
-                      onClick={onGenerate}
-                    >
-                      {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                      {generating ? "Building…" : "Generate draft"}
-                    </button>
-                  </div>
-                </div>
+                ))}
               </div>
-            ) : null}
-          </div>
+
+              <div className="flex items-center justify-between gap-2 border-t border-foreground/10 px-4 py-3">
+                <button
+                  type="button"
+                  className="text-xs font-medium text-foreground/55 underline hover:text-foreground"
+                  disabled={generating}
+                  onClick={onBack}
+                >
+                  ← Back to description
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[var(--hse-teal)] px-4 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                  disabled={generating}
+                  onClick={onGenerate}
+                >
+                  {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {generating ? "Building your form…" : "Generate my form"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div ref={chatEndRef} />
         </div>
 

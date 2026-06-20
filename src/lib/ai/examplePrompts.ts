@@ -10,6 +10,15 @@ export type ExamplePrompt = {
 export const AI_WELCOME_MESSAGE =
   "Describe the form you need — the more specific, the better the draft. You can also attach a photo or PDF of an existing paper form.";
 
+/** Always-visible guide in the form builder AI modal. */
+export const AI_FORM_BUILDER_GUIDE: ExamplePrompt = {
+  id: "guide-featured",
+  formType: "custom",
+  label: "Example prompt",
+  prompt:
+    "Daily fridge temperature log: header with Location and Date, table with 12 rows, columns Time | Temperature (°C) | Initials | Verified by (signature)",
+};
+
 export const AI_EXAMPLE_PROMPTS: ExamplePrompt[] = [
   {
     id: "temp-log",

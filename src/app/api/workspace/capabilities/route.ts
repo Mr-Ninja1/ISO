@@ -57,6 +57,7 @@ export async function GET(req: Request) {
           canCreateForms: hasPermission(role, "forms.create"),
           canManageCategories: hasPermission(role, "categories.manage"),
           canManageStaff: hasPermission(role, "staff.manage"),
+          canDeleteAudits: hasPermission(role, "audit.delete"),
         },
       },
       {

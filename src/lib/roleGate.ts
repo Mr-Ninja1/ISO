@@ -4,6 +4,7 @@ export type AppPermission =
   | "audit.view"
   | "audit.saveDraft"
   | "audit.submit"
+  | "audit.delete"
   | "forms.create"
   | "forms.edit"
   | "forms.import"
@@ -18,6 +19,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Set<AppPermission>> = {
     "audit.view",
     "audit.saveDraft",
     "audit.submit",
+    "audit.delete",
     "forms.create",
     "forms.edit",
     "forms.import",
@@ -31,6 +33,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Set<AppPermission>> = {
     "audit.view",
     "audit.saveDraft",
     "audit.submit",
+    "audit.delete",
     "forms.create",
     "forms.edit",
     "forms.import",

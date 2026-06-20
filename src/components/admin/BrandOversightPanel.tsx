@@ -142,6 +142,47 @@ export function BrandOversightPanel() {
   const [deleteTarget, setDeleteTarget] = useState<BrandRow | null>(null);
   const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
   const [planTarget, setPlanTarget] = useState<BrandRow | null>(null);
+  const [aiResetBusy, setAiResetBusy] = useState(false);
+
+  async function resetAllBrandsAi(options: { resetFormAiUsage?: boolean; resetDcTrial?: boolean }) {
+    const token = session?.access_token || "";
+    if (!token || offline) return;
+
+    const parts: string[] = [];
+    if (options.resetFormAiUsage) parts.push("form AI credits for all brands (this month)");
+    if (options.resetDcTrial) parts.push("Deep Control trials for all unpaid brands");
+    const label = parts.join(" and ");
+    if (!window.confirm(`Reset ${label}? This cannot be undone.`)) return;
+
+    setAiResetBusy(true);
+    setError("");
+    const result = await adminFetch<{
+      formAiRowsDeleted?: number;
+      brandsDcTrialReset?: number;
+    }>("/api/admin/ai-reset", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ scope: "all", ...options }),
+    });
+    setAiResetBusy(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    const messages: string[] = [];
+    if (options.resetFormAiUsage) {
+      messages.push(`cleared ${result.data.formAiRowsDeleted ?? 0} form AI record(s)`);
+    }
+    if (options.resetDcTrial) {
+      messages.push(`restarted DC trial on ${result.data.brandsDcTrialReset ?? 0} brand(s)`);
+    }
+    setBusyMessage(`AI reset complete: ${messages.join("; ")}.`);
+  }
 
   const filteredBrands = useMemo(() => {
     let result = [...brands];
@@ -554,6 +595,42 @@ export function BrandOversightPanel() {
               <PowerOff className="h-3.5 w-3.5" />
               {inactiveCount} inactive
             </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-foreground/15 bg-background p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">AI usage resets</h2>
+            <p className="mt-1 max-w-xl text-xs text-foreground/60">
+              Per-brand: open Plan &amp; AI limits on a brand row. Use these buttons to reset all
+              brands at once.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={offline || aiResetBusy}
+              className="inline-flex h-9 items-center rounded-full border border-foreground/15 px-3 text-xs font-medium hover:bg-foreground/5 disabled:opacity-50"
+              onClick={() =>
+                void resetAllBrandsAi({ resetFormAiUsage: true, resetDcTrial: false })
+              }
+            >
+              {aiResetBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Reset all form AI credits
+            </button>
+            <button
+              type="button"
+              disabled={offline || aiResetBusy}
+              className="inline-flex h-9 items-center rounded-full border border-foreground/15 px-3 text-xs font-medium hover:bg-foreground/5 disabled:opacity-50"
+              onClick={() =>
+                void resetAllBrandsAi({ resetFormAiUsage: false, resetDcTrial: true })
+              }
+            >
+              {aiResetBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Reset all DC trials
+            </button>
           </div>
         </div>
       </div>

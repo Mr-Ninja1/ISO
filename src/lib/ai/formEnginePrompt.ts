@@ -106,6 +106,8 @@ Output shape:
 
 Rules:
 - If an image/PDF is attached and shows the form layout clearly: status "ready" (questions must be empty).
+- If an image/PDF is attached but blurry, dark, cropped, or column/field labels are unreadable: status "needs_clarification". Ask the user to describe row count, column names, and field types — or suggest they retake a clearer photo. Mention in summary that the attachment was hard to read.
+- If only an image is attached with no description and layout is unclear: status "needs_clarification" with questions about table structure.
 - If the text description already specifies table rows/columns, headers, field types, and purpose: status "ready".
 - If text-only and vague (e.g. "make a checklist", "temperature log"): status "needs_clarification".
 - Ask ONLY missing details needed to build the form — max 5 questions, no duplicates.

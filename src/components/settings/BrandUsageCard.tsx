@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Mail, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, Mail, RefreshCw, Sparkles } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
 import { apiUrl } from "@/lib/client/apiBase";
@@ -21,6 +21,7 @@ type StoragePayload = {
     usageRatio: number;
     warning: boolean;
     overLimit: boolean;
+    breakdown?: Record<string, number>;
   };
   aiQuota: {
     used: number;
@@ -43,7 +44,8 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [limitModal, setLimitModal] = useState<PlanLimitKind | null>(null);
-  useEffect(() => {
+
+  const loadUsage = useCallback(async () => {
     const token = session?.access_token;
     if (!token || !tenantSlug) {
       setLoading(false);
@@ -51,23 +53,30 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
     }
 
     setLoading(true);
-    fetch(apiUrl(`/api/workspace/storage?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || "Failed to load usage");
-        return json as StoragePayload;
-      })
-      .then((payload) => {
-        setData(payload);
-        setError("");
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load usage");
-      })
-      .finally(() => setLoading(false));
+    try {
+      const res = await fetch(apiUrl(`/api/workspace/storage?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Failed to load usage");
+      setData(json as StoragePayload);
+      setError("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load usage");
+    } finally {
+      setLoading(false);
+    }
   }, [session?.access_token, tenantSlug]);
+
+  useEffect(() => {
+    void loadUsage();
+  }, [loadUsage]);
+
+  useEffect(() => {
+    const onRefresh = () => void loadUsage();
+    window.addEventListener("brand-storage-changed", onRefresh);
+    return () => window.removeEventListener("brand-storage-changed", onRefresh);
+  }, [loadUsage]);
 
   if (loading) {
     return (
@@ -87,6 +96,9 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
   }
 
   const storagePct = Math.min(100, Math.round(data.usage.usageRatio * 100));
+  const auditLogsMb = data.usage.breakdown?.audit_logs
+    ? Number((data.usage.breakdown.audit_logs / (1024 * 1024)).toFixed(2))
+    : null;
   const aiLabel = data.aiQuota.unlimited
     ? `${data.aiQuota.used} used (unlimited)`
     : `${data.aiQuota.used} / ${data.aiQuota.limit} AI forms this month`;
@@ -113,6 +125,15 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
         <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-foreground/55">
           {data.plan.code}
         </span>
+        <button
+          type="button"
+          onClick={() => void loadUsage()}
+          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-foreground/15 px-2 text-[10px] font-medium text-foreground/60 hover:bg-foreground/5"
+          title="Refresh usage"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Refresh
+        </button>
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -130,6 +151,11 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
               style={{ width: `${storagePct}%` }}
             />
           </div>
+          {auditLogsMb != null ? (
+            <div className="mt-1 text-[10px] text-foreground/50">
+              Submissions (saved forms): ~{auditLogsMb} MB
+            </div>
+          ) : null}
         </div>
         <div>
           <div className="text-xs text-foreground/55">Deep Control chat</div>
