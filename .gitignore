@@ -17,6 +17,7 @@
 /.next/
 /out/
 /ota-dist/
+/.ota-staging/
 
 # OTA zips are large — manifest.json may be committed
 /public/ota/**/*.zip

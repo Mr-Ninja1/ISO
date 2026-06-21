@@ -24,3 +24,5 @@ npm run publish:ota:public
 Then deploy the site (or upload `public/ota/production/`).
 
 Zip files are gitignored locally; CI always builds them fresh on deploy.
+
+**Important:** Only one bundle zip should exist in this folder at a time. Older zips are removed automatically by `publish-ota-public.mjs` — embedding multiple OTA zips in the app shell caused 90MB+ bundle bloat.

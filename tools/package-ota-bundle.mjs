@@ -38,23 +38,55 @@ function defaultBundleId() {
   return `${y}${m}${day}.${h}${min}`;
 }
 
+function* listFilesRecursive(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) yield* listFilesRecursive(full);
+    else yield full;
+  }
+}
+
 function zipOutFolder() {
   fs.mkdirSync(distDir, { recursive: true });
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true });
 
+  // Never embed prior OTA bundles (out/ota or public/ota copies) — prevents recursive zip bloat.
+  const stagingDir = path.join(root, ".ota-staging");
+  if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true });
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(outDir, { withFileTypes: true })) {
+    if (entry.name === "ota") {
+      console.log("[package-ota] Skipping out/ota (host-served OTA assets, not app shell).");
+      continue;
+    }
+    fs.cpSync(path.join(outDir, entry.name), path.join(stagingDir, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  const stagingMb = (
+    [...listFilesRecursive(stagingDir)].reduce((sum, f) => sum + fs.statSync(f).size, 0) /
+    (1024 * 1024)
+  ).toFixed(1);
+  console.log(`[package-ota] Staging ${stagingMb} MB from out/ (excluding ota/).`);
+
   if (process.platform === "win32") {
     const ps = [
       "Compress-Archive",
-      `-Path "${outDir.replace(/\\/g, "/")}/*"`,
+      `-Path "${stagingDir.replace(/\\/g, "/")}/*"`,
       `-DestinationPath "${zipPath.replace(/\\/g, "/")}"`,
       "-Force",
     ].join(" ");
     const result = spawnSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
+    fs.rmSync(stagingDir, { recursive: true, force: true });
     if (result.status !== 0) process.exit(result.status ?? 1);
     return;
   }
 
-  const result = spawnSync("zip", ["-r", zipPath, "."], { cwd: outDir, stdio: "inherit" });
+  const result = spawnSync("zip", ["-r", zipPath, "."], { cwd: stagingDir, stdio: "inherit" });
+  fs.rmSync(stagingDir, { recursive: true, force: true });
   if (result.status !== 0) {
     console.error("[package-ota] `zip` not found. Install zip or run on Windows with PowerShell.");
     process.exit(result.status ?? 1);
@@ -82,6 +114,12 @@ const manifest = {
 };
 
 fs.writeFileSync(path.join(distDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+const zipMb = fs.existsSync(zipPath) ? (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(1) : "?";
+console.log(`[package-ota] Bundle size: ${zipMb} MB`);
+if (parseFloat(zipMb) > 15) {
+  console.warn("[package-ota] WARNING: bundle is unusually large — check for embedded OTA zips or stray assets in out/.");
+}
 
 console.log("");
 console.log("[package-ota] Done.");

@@ -2,6 +2,8 @@
 /**
  * Copy the latest OTA bundle from ota-dist/ into public/ota/ for deployment with the Next.js site.
  * Zips are gitignored; manifest.json is committed so deploys can serve it from the Azure site / CDN.
+ *
+ * Only the current bundle zip is kept — old zips are removed to avoid recursive OTA bloat.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,6 +13,21 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const channel = (process.env.OTA_CHANNEL || "production").trim();
 const srcDir = path.join(root, "ota-dist", channel);
 const destDir = path.join(root, "public", "ota", channel);
+
+function removeStalePublicOtaZips(keepZipName) {
+  if (!fs.existsSync(destDir)) return;
+  let removed = 0;
+  for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".zip")) continue;
+    if (keepZipName && entry.name === keepZipName) continue;
+    fs.rmSync(path.join(destDir, entry.name), { force: true });
+    removed += 1;
+    console.log(`[publish-ota-public] Removed stale ${entry.name}`);
+  }
+  if (removed === 0) {
+    console.log("[publish-ota-public] No stale OTA zips in public/ota.");
+  }
+}
 
 if (!fs.existsSync(srcDir)) {
   console.error(`[publish-ota-public] Missing ${srcDir} — run npm run package:ota first.`);
@@ -28,6 +45,8 @@ fs.mkdirSync(destDir, { recursive: true });
 const manifest = JSON.parse(fs.readFileSync(manifestSrc, "utf8"));
 const zipName = path.basename(String(manifest.bundleUrl || "").split("/").pop() || "");
 const zipSrc = zipName ? path.join(srcDir, zipName) : null;
+
+removeStalePublicOtaZips(zipName);
 
 fs.copyFileSync(manifestSrc, path.join(destDir, "manifest.json"));
 console.log(`[publish-ota-public] manifest -> public/ota/${channel}/manifest.json`);

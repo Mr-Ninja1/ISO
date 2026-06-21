@@ -82,6 +82,18 @@ function listHtmlFiles(dir, base = dir) {
 }
 
 /**
+ * OTA update zips live on the server under /ota/production — they must never be embedded
+ * in the Capacitor static bundle (each publish copied public/ota into out/, then zipped out/
+ * again, causing 90MB+ recursive bloat).
+ */
+function stripEmbeddedOtaAssets() {
+  const otaInOut = path.join(outDir, "ota");
+  if (!fs.existsSync(otaInOut)) return;
+  fs.rmSync(otaInOut, { recursive: true, force: true });
+  console.log("[capacitor-build] Removed out/ota — OTA bundles are served from the host, not embedded in the app.");
+}
+
+/**
  * Capacitor serves files from disk. Any tenant slug in the URL needs a matching HTML file.
  * We mirror the placeholder slug `_` tree so runtime URLs like `/acme/audits/` resolve offline.
  */
@@ -172,6 +184,7 @@ try {
   if (appBundleLabel) {
     console.log(`[capacitor-build] App bundle label: ${appBundleLabel}`);
   }
+  stripEmbeddedOtaAssets();
   mirrorTenantShellRoutes();
 
   const skipCapSync =
