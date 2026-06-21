@@ -68,13 +68,13 @@ export function planLimitCopy(
       return {
         title: `${DC_AI_NAME} trial ended`,
         message: `Your free ${DC_AI_NAME} trial${brand} has ended. Upgrade to keep unlimited guidance, navigation help, and priority AI features.`,
-        actionLabel: "Contact developer to upgrade",
+        actionLabel: "Contact support to upgrade",
       };
     case "copilot_disabled":
       return {
         title: `${DC_AI_NAME} not available`,
-        message: `${DC_AI_NAME} is turned off${brand}. Your platform developer can enable it and upgrade your plan for full AI features.`,
-        actionLabel: "Contact developer to upgrade",
+        message: `${DC_AI_NAME} is turned off${brand}. Contact support to enable it and upgrade your plan for full AI features.`,
+        actionLabel: "Contact support to upgrade",
       };
     default:
       return {

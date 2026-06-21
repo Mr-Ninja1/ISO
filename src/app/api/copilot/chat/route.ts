@@ -94,6 +94,7 @@ export async function POST(req: Request) {
       tenantSlug,
       pathname,
       caps,
+      brandName: tenant.name as string,
     });
 
     const navigateTo = pickAutoNavigateHref(message, result.actions);

@@ -1,8 +1,10 @@
 /** Client-safe support contact (uses NEXT_PUBLIC_PLATFORM_SUPPORT_EMAIL). */
 
+export const DEFAULT_PLATFORM_SUPPORT_EMAIL = "sikalumbit30@gmail.com";
+
 export function getSupportEmail(): string {
-  if (typeof process === "undefined") return "";
-  return process.env.NEXT_PUBLIC_PLATFORM_SUPPORT_EMAIL?.trim() || "";
+  if (typeof process === "undefined") return DEFAULT_PLATFORM_SUPPORT_EMAIL;
+  return process.env.NEXT_PUBLIC_PLATFORM_SUPPORT_EMAIL?.trim() || DEFAULT_PLATFORM_SUPPORT_EMAIL;
 }
 
 export function buildGeneralSupportMailto(options?: {

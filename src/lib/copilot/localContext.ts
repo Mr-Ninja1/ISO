@@ -75,19 +75,26 @@ export function clearLocalCopilotHistory(tenantSlug: string, userId: string | nu
   }
 }
 
+export type LocalCopilotPrefs = {
+  hintsHidden?: boolean;
+  /** User has seen or dismissed the one-time greeting bubble */
+  greetingSeen?: boolean;
+};
+
 /** Lightweight prefs — no server round-trip */
-export function readLocalCopilotPrefs(tenantSlug: string): { hintsHidden?: boolean } {
+export function readLocalCopilotPrefs(tenantSlug: string): LocalCopilotPrefs {
   try {
     const raw = localStorage.getItem(`${PREFIX}:prefs:${tenantSlug}`);
-    return raw ? (JSON.parse(raw) as { hintsHidden?: boolean }) : {};
+    return raw ? (JSON.parse(raw) as LocalCopilotPrefs) : {};
   } catch {
     return {};
   }
 }
 
-export function writeLocalCopilotPrefs(tenantSlug: string, prefs: { hintsHidden?: boolean }) {
+export function writeLocalCopilotPrefs(tenantSlug: string, prefs: LocalCopilotPrefs) {
   try {
-    localStorage.setItem(`${PREFIX}:prefs:${tenantSlug}`, JSON.stringify(prefs));
+    const prev = readLocalCopilotPrefs(tenantSlug);
+    localStorage.setItem(`${PREFIX}:prefs:${tenantSlug}`, JSON.stringify({ ...prev, ...prefs }));
   } catch {
     // ignore
   }

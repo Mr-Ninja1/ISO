@@ -10,7 +10,7 @@ export type GuardrailVerdict = {
 
 /** Topics Deep Control can help with in this app. */
 const IN_SCOPE =
-  /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|iso|hse|inspection|checklist|corrective|storage|quota|usage|plan|trial|copilot|deep control|pin|role|admin|manager|auditor|offline|sync|logo|library|import|report|table|column|photo|evidence|signature|temp|fridge|haccp|navigate|open|create|add|delete submission|upgrade|limit|activity|message|inbox|share|due|reminder)\b/i;
+  /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|iso|hse|inspection|checklist|corrective|storage|quota|usage|plan|trial|copilot|deep control|pin|role|admin|manager|auditor|offline|sync|logo|library|import|report|table|column|photo|evidence|signature|temp|fridge|haccp|navigate|open|create|add|delete submission|upgrade|limit|activity|message|inbox|share|due|reminder|find|looking|need|want|check|show|tell|where|how|help me|get to|take me)\b/i;
 
 const OFF_TOPIC =
   /\b(weather|forecast|joke|poem|recipe|cook|movie|sport|football|politics|election|stock|crypto|bitcoin|homework|essay|write me a|tell me about(?! the (form|brand|app|workspace|system))|\bwho is\b|\bwhat is the capital\b|translate this|code this|python|javascript|sql query|medical advice|legal advice|relationship|dating)\b/i;
@@ -60,7 +60,7 @@ const UNSUPPORTED: Array<{ pattern: RegExp; message: string }> = [
 
 /** Very short or generic — need clarification before navigating. */
 const VAGUE_ONLY =
-  /^(hi|hello|hey|help|thanks|thank you|ok|okay|yes|no|maybe|forms?|stuff|something|question|support|info|menu|options?|start|please)$/i;
+  /^(hi|hello|hey|help|thanks|thank you|ok|okay|yes|no|maybe|forms?|stuff|something|question|info|menu|options?|start|please)$/i;
 
 const VAGUE_FRAGMENT =
   /^(i need help|need help|not sure|confused|what now|what do i do|where|show me|i want to|can you help)$/i;
@@ -84,6 +84,11 @@ export function classifyCopilotMessage(message: string): GuardrailVerdict {
 
   if (VAGUE_ONLY.test(trimmed) || VAGUE_FRAGMENT.test(trimmed) || AMBIGUOUS_FORMS.test(trimmed)) {
     return { kind: "unclear" };
+  }
+
+  // Longer natural-language questions are usually in-scope — let fuzzy matching handle them
+  if (trimmed.length >= 18 && IN_SCOPE.test(trimmed)) {
+    return { kind: "ok" };
   }
 
   if (trimmed.length < 12 && !IN_SCOPE.test(trimmed)) {

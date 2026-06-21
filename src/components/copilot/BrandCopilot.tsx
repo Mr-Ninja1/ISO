@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
@@ -46,7 +46,19 @@ const DEFAULT_CAPS: CopilotCapabilities = {
   canAccessSettings: false,
 };
 
-const HINT_DISMISS_KEY = "iso-copilot-hints-dismissed";
+/** Bubble timing — keeps the FAB unobtrusive until the user has settled in */
+const COPILOT_TIMING = {
+  /** Wait before showing the one-time greeting */
+  GREETING_DELAY_MS: 6_000,
+  /** Auto-hide greeting if ignored */
+  GREETING_AUTO_HIDE_MS: 11_000,
+  /** Wait after page load before rotating tips appear */
+  HINTS_START_DELAY_MS: 28_000,
+  /** Auto-hide each tip if ignored */
+  HINT_AUTO_HIDE_MS: 9_000,
+  /** Rotate to the next tip */
+  HINT_ROTATE_MS: 16_000,
+} as const;
 
 function renderInlineBold(text: string) {
   const parts = text.split(/\*\*(.+?)\*\*/g);
@@ -162,6 +174,8 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   const [hintIndex, setHintIndex] = useState(0);
   const [hintsHidden, setHintsHidden] = useState(false);
   const [greetingDismissed, setGreetingDismissed] = useState(false);
+  const [greetingReady, setGreetingReady] = useState(false);
+  const [hintsReady, setHintsReady] = useState(false);
   const [currentHintDismissed, setCurrentHintDismissed] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const welcomedRef = useRef(false);
@@ -172,6 +186,22 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   const [portalReady, setPortalReady] = useState(false);
   const userId = session?.user?.id || null;
 
+  const activeHint = useMemo(
+    () =>
+      hintsReady && !open && !hintsHidden && greetingDismissed && (!copilotAccess || copilotAccess.allowed)
+        ? pickRotatingHint(pathname, caps, hintIndex)
+        : null,
+    [hintsReady, open, hintsHidden, greetingDismissed, copilotAccess, pathname, caps, hintIndex],
+  );
+
+  const showGreeting =
+    greetingReady && !greetingDismissed && !hintsHidden && !open && (!copilotAccess || copilotAccess.allowed);
+
+  const showHintBubble = Boolean(activeHint && !currentHintDismissed);
+
+  /** Attention animation only when a bubble is visible — not on the bare FAB */
+  const showAttentionAnim = showGreeting || showHintBubble;
+
   useEffect(() => {
     setPortalReady(true);
   }, []);
@@ -180,8 +210,42 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     const prefs = readLocalCopilotPrefs(tenantSlug);
     const hidden = prefs.hintsHidden === true;
     setHintsHidden(hidden);
-    if (hidden) setGreetingDismissed(true);
+    if (hidden || prefs.greetingSeen) {
+      setGreetingDismissed(true);
+    }
   }, [tenantSlug]);
+
+  // Delay greeting — don't pop up immediately on page load
+  useEffect(() => {
+    if (hintsHidden || open || greetingDismissed) return;
+    const id = window.setTimeout(() => setGreetingReady(true), COPILOT_TIMING.GREETING_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [hintsHidden, open, greetingDismissed, tenantSlug]);
+
+  // Auto-hide greeting after a while if user ignores it
+  useEffect(() => {
+    if (!greetingReady || greetingDismissed || open) return;
+    const id = window.setTimeout(() => {
+      setGreetingDismissed(true);
+      writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true });
+    }, COPILOT_TIMING.GREETING_AUTO_HIDE_MS);
+    return () => window.clearTimeout(id);
+  }, [greetingReady, greetingDismissed, open, tenantSlug]);
+
+  // Rotating tips only after user has been on the page a while
+  useEffect(() => {
+    if (hintsHidden || open) return;
+    const id = window.setTimeout(() => setHintsReady(true), COPILOT_TIMING.HINTS_START_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [hintsHidden, open, tenantSlug]);
+
+  // Auto-hide each rotating tip; next one appears on the rotate interval
+  useEffect(() => {
+    if (!hintsReady || hintsHidden || open || !greetingDismissed) return;
+    if (currentHintDismissed) return;
+    const id = window.setTimeout(() => setCurrentHintDismissed(true), COPILOT_TIMING.HINT_AUTO_HIDE_MS);
+    return () => window.clearTimeout(id);
+  }, [hintsReady, hintsHidden, open, greetingDismissed, hintIndex, currentHintDismissed]);
 
   useEffect(() => {
     const token = session?.access_token;
@@ -236,14 +300,14 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   }, [open, pathname, caps, brandName, copilotAccess, tenantSlug, userId]);
 
   useEffect(() => {
-    if (hintsHidden || open) return;
+    if (hintsHidden || open || !hintsReady) return;
     if (copilotAccess && !copilotAccess.allowed) return;
     const id = window.setInterval(() => {
       setHintIndex((i) => i + 1);
       setCurrentHintDismissed(false);
-    }, 9000);
+    }, COPILOT_TIMING.HINT_ROTATE_MS);
     return () => window.clearInterval(id);
-  }, [hintsHidden, open, copilotAccess]);
+  }, [hintsHidden, open, hintsReady, copilotAccess]);
 
   useEffect(() => {
     setCurrentHintDismissed(false);
@@ -282,11 +346,6 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     window.addEventListener(COPILOT_OPEN_EVENT, onOpen);
     return () => window.removeEventListener(COPILOT_OPEN_EVENT, onOpen);
   }, []);
-
-  const activeHint =
-    !open && !hintsHidden && (!copilotAccess || copilotAccess.allowed)
-      ? pickRotatingHint(pathname, caps, hintIndex)
-      : null;
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
@@ -372,6 +431,14 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     }
   }
 
+  function handleAction(action: CopilotAction) {
+    if (action.type === "open_url" || action.href.startsWith("mailto:")) {
+      window.location.href = action.href;
+      return;
+    }
+    handleNavigate(action.href);
+  }
+
   function handleNavigate(href: string) {
     setNavigatingTo(null);
     setOpen(false);
@@ -384,15 +451,18 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
 
   function dismissGreeting() {
     setGreetingDismissed(true);
+    writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true });
   }
 
   function dismissHints() {
     setHintsHidden(true);
     setGreetingDismissed(true);
-    writeLocalCopilotPrefs(tenantSlug, { hintsHidden: true });
+    writeLocalCopilotPrefs(tenantSlug, { hintsHidden: true, greetingSeen: true });
   }
 
   function handleOpenCopilot() {
+    writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true });
+    setGreetingDismissed(true);
     if (copilotAccess && !copilotAccess.allowed) {
       setPlanLimitKind(
         copilotAccess.reason === "disabled" ? "copilot_disabled" : "copilot_trial_expired",
@@ -466,7 +536,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
                         key={`${msg.id}-${action.href}`}
                         type="button"
                         className="max-w-full truncate rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]"
-                        onClick={() => handleNavigate(action.href)}
+                        onClick={() => handleAction(action)}
                       >
                         {action.label}
                       </button>
@@ -537,10 +607,10 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
           className="pointer-events-none fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 flex max-w-[min(calc(100vw-2rem),320px)] flex-col items-end gap-2 sm:bottom-[calc(1.25rem+env(safe-area-inset-bottom))] sm:right-6 print:hidden"
           style={{ zIndex: Z_COPILOT_FAB }}
         >
-          {!hintsHidden && !greetingDismissed ? (
+          {showGreeting ? (
             <CopilotGreetingBubble onOpen={handleOpenCopilot} onDismiss={dismissGreeting} />
           ) : null}
-          {!hintsHidden && greetingDismissed && activeHint && !currentHintDismissed ? (
+          {showHintBubble && activeHint ? (
             <CopilotHintBubble
               text={activeHint.text}
               onOpen={handleOpenCopilot}
@@ -549,14 +619,18 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
           ) : null}
 
           <div className="pointer-events-auto relative">
-            <span
-              className="absolute inset-0 animate-ping rounded-full bg-[var(--hse-teal)] opacity-25"
-              aria-hidden
-            />
-            <span
-              className="absolute -inset-1 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)]"
-              aria-hidden
-            />
+            {showAttentionAnim ? (
+              <>
+                <span
+                  className="absolute inset-0 animate-ping rounded-full bg-[var(--hse-teal)] opacity-20"
+                  aria-hidden
+                />
+                <span
+                  className="absolute -inset-1 animate-pulse rounded-full bg-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)]"
+                  aria-hidden
+                />
+              </>
+            ) : null}
             <button
               type="button"
               onClick={handleOpenCopilot}
@@ -571,7 +645,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
             </button>
           </div>
 
-          {!hintsHidden && greetingDismissed && !activeHint ? (
+          {hintsReady && !hintsHidden && greetingDismissed && !showHintBubble ? (
             <button
               type="button"
               onClick={dismissHints}

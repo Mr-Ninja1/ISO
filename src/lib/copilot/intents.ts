@@ -1,4 +1,10 @@
 import { resolvePlaybook } from "@/lib/copilot/playbooks";
+import { buildContextualFallback, resolveFuzzyIntent } from "@/lib/copilot/fuzzyIntent";
+import {
+  buildSupportContactResponse,
+  isSupportRequestMessage,
+  withSupportEscalation,
+} from "@/lib/copilot/supportEscalation";
 import {
   classifyCopilotMessage,
   buildOffTopicResponse,
@@ -61,6 +67,10 @@ const INTENTS: IntentMatch[] = [
       /forms that were (saved|submitted)/i,
       /recent submissions/i,
       /completed forms/i,
+      /looking for.*(saved|submitted|completed)/i,
+      /find.*(saved|submitted|completed)/i,
+      /where.*(saved|submitted|reports?)/i,
+      /check.*(saved|submitted)/i,
     ],
     build: ({ tenantSlug }) => ({
       message: "Saved forms are your submitted entries. Choose **Saved forms** below to open the list.",
@@ -92,7 +102,16 @@ const INTENTS: IntentMatch[] = [
     }),
   },
   {
-    patterns: [/create (a )?form/i, /new form/i, /build (a )?form/i, /make (a )?form/i, /ai form/i],
+    patterns: [
+      /create (a )?form/i,
+      /new form/i,
+      /build (a )?form/i,
+      /make (a )?form/i,
+      /ai form/i,
+      /want to (create|make|build|design).*(form|checklist|template)/i,
+      /need (a |an )?(new )?(form|checklist|template)/i,
+      /set up (a )?(form|checklist)/i,
+    ],
     build: ({ tenantSlug, caps }) => ({
       message: caps.canCreateForms
         ? "I can take you to the form builder. Use **Create with AI** to describe your form, or build manually from a blank canvas."
@@ -181,7 +200,7 @@ const INTENTS: IntentMatch[] = [
     patterns: [/storage/i, /quota/i, /limit/i, /upgrade/i],
     build: ({ tenantSlug, caps }) => ({
       message: caps.canAccessSettings
-        ? "Each brand has a storage allowance and monthly AI form credits. Check **Settings → Plan & usage** for details, or contact your platform developer to upgrade."
+        ? "Each brand has a storage allowance and monthly AI form credits. Check **Settings → Plan & usage** for details, or contact support to upgrade."
         : "Storage and AI limits are managed by your brand admin.",
       actions: caps.canAccessSettings
         ? [{ type: "navigate", label: "Settings & usage", href: `/${tenantSlug}/settings?focus=usage` }]
@@ -330,7 +349,7 @@ const HELP_TOPICS: Array<{ keywords: string[]; title: string; body: string }> = 
 
 export function resolveCopilotIntent(
   message: string,
-  ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities },
+  ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities; brandName?: string },
 ): CopilotResponse {
   const trimmed = message.trim();
 
@@ -338,56 +357,84 @@ export function resolveCopilotIntent(
     return buildUnclearResponse(ctx.tenantSlug, ctx.caps, "What would you like help with?");
   }
 
+  if (isSupportRequestMessage(trimmed)) {
+    return buildSupportContactResponse({
+      tenantSlug: ctx.tenantSlug,
+      brandName: ctx.brandName,
+      message: trimmed,
+    });
+  }
+
   const guard = classifyCopilotMessage(trimmed);
   if (guard.kind === "off_topic") {
-    return buildOffTopicResponse(ctx.caps);
+    return withSupportEscalation(buildOffTopicResponse(ctx.caps), trimmed);
   }
   if (guard.kind === "unsupported" && guard.reason) {
-    return buildUnsupportedResponse(guard.reason, ctx.caps);
+    return withSupportEscalation(buildUnsupportedResponse(guard.reason, ctx.caps), trimmed, {
+      always: true,
+    });
   }
 
   const playbook = resolvePlaybook(trimmed, ctx);
-  if (playbook) return playbook;
+  if (playbook) return withSupportEscalation(playbook, trimmed);
 
   for (const intent of INTENTS) {
     if (intent.patterns.some((p) => p.test(trimmed))) {
       const response = intent.build(ctx);
       if (guard.kind === "unclear" && response.actions.length !== 1) {
-        return buildUnclearResponse(ctx.tenantSlug, ctx.caps);
+        return withSupportEscalation(buildUnclearResponse(ctx.tenantSlug, ctx.caps), trimmed);
       }
-      return response;
+      return withSupportEscalation(response, trimmed);
     }
   }
 
   const lower = trimmed.toLowerCase();
   for (const topic of HELP_TOPICS) {
     if (topic.keywords.some((k) => lower.includes(k))) {
-      return {
-        message: `**${topic.title}**\n\n${topic.body}`,
-        actions: [],
-        suggestions: ["How do I create a form?", "Where are saved forms?", "How do I export a PDF?"],
-      };
+      return withSupportEscalation(
+        {
+          message: `**${topic.title}**\n\n${topic.body}`,
+          actions: [],
+          suggestions: ["How do I create a form?", "Where are saved forms?", "How do I export a PDF?"],
+        },
+        trimmed,
+      );
     }
   }
 
-  if (guard.kind === "unclear" || !IN_SCOPE_FALLBACK.test(trimmed)) {
-    return buildUnclearResponse(
-      ctx.tenantSlug,
-      ctx.caps,
-      `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+  const fuzzy = resolveFuzzyIntent(trimmed, ctx);
+  if (fuzzy) return withSupportEscalation(fuzzy, trimmed);
+
+  if (guard.kind === "unclear") {
+    return withSupportEscalation(
+      buildUnclearResponse(
+        ctx.tenantSlug,
+        ctx.caps,
+        `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+      ),
+      trimmed,
+      { always: true },
     );
   }
 
-  return buildUnclearResponse(
-    ctx.tenantSlug,
-    ctx.caps,
-    `I didn't quite match that to a feature. Try being more specific about forms, saved submissions, staff, or settings.`,
-  );
+  if (!IN_SCOPE_FALLBACK.test(trimmed)) {
+    return withSupportEscalation(
+      buildUnclearResponse(
+        ctx.tenantSlug,
+        ctx.caps,
+        `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+      ),
+      trimmed,
+      { always: true },
+    );
+  }
+
+  return withSupportEscalation(buildContextualFallback(trimmed, ctx), trimmed);
 }
 
 /** Loose in-scope check for fallback (mirrors guardrails). */
 const IN_SCOPE_FALLBACK =
-  /\b(form|template|audit|saved|submitted|category|staff|setting|workspace|dashboard|pdf|export|brand|inspection|checklist|corrective|storage|usage|plan|offline|sync|logo|library|report|share|role|admin|manager)\b/i;
+  /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|inspection|checklist|corrective|storage|usage|plan|offline|sync|logo|library|report|share|role|admin|manager|find|looking|need|want|check|show|where|how|help)\b/i;
 
 export function screenContextLabel(pathname: string): string {
   if (pathname.includes("/templates/new")) return "Form builder";
