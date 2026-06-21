@@ -38,7 +38,9 @@ jobs:
           NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
           NEXT_PUBLIC_PLATFORM_SUPPORT_EMAIL: sikalumbit30@gmail.com
           NEXT_PUBLIC_NATIVE_BUILD: ${{ github.run_number }}
-        run: npm run package:apk
+        run: |
+          chmod +x android/gradlew
+          npm run package:apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
