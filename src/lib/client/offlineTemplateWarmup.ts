@@ -1,7 +1,10 @@
 "use client";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { writeAuditTemplateCache, type AuditTemplatePayload } from "@/lib/client/auditTemplateCache";
+import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 const BULK_CACHE_KEY_PREFIX = "template-schemas-bulk-cached:v1:";
 
@@ -83,4 +86,109 @@ export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenant
 
   markTenantTemplateBulkCached(tenantSlug);
   return json.templates.length;
+}
+
+async function cacheTemplatesFromRows(
+  tenantSlug: string,
+  tenant: AuditTemplatePayload["tenant"],
+  templates: Array<{
+    id: string;
+    title: string;
+    schema: AuditTemplatePayload["template"]["schema"];
+    updatedAt: string;
+  }>
+) {
+  for (const template of templates) {
+    writeAuditTemplateCache(tenantSlug, template.id, {
+      tenant,
+      template: {
+        id: template.id,
+        title: template.title,
+        schema: template.schema,
+        updatedAt: template.updatedAt,
+      },
+    });
+  }
+
+  markTenantTemplateBulkCached(tenantSlug);
+  return templates.length;
+}
+
+/** Native app: download form schemas directly from Supabase. */
+export async function cacheAllTenantTemplatesFromSupabase(
+  supabase: SupabaseClient,
+  tenantSlug: string
+) {
+  const { data: tenant, error: tenantErr } = await supabase
+    .from("tenants")
+    .select("id, slug, name, logo_url")
+    .eq("slug", tenantSlug)
+    .maybeSingle();
+
+  if (tenantErr || !tenant) {
+    throw new Error("Tenant not found");
+  }
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+
+  if (userErr || !user) {
+    throw new Error("Unauthorized");
+  }
+
+  const { data: membership, error: membershipErr } = await supabase
+    .from("tenant_members")
+    .select("id")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (membershipErr || !membership) {
+    throw new Error("Forbidden");
+  }
+
+  const { data: allTemplates, error: templateErr } = await supabase
+    .from("form_templates")
+    .select("id, title, schema, updated_at")
+    .eq("tenant_id", tenant.id)
+    .order("updated_at", { ascending: false });
+
+  if (templateErr) {
+    throw new Error(templateErr.message);
+  }
+
+  const templates = (allTemplates || [])
+    .filter((row) => isLiveTemplateSchema(row.schema))
+    .map((row) => ({
+      id: row.id as string,
+      title: row.title as string,
+      schema: row.schema as AuditTemplatePayload["template"]["schema"],
+      updatedAt: row.updated_at as string,
+    }));
+
+  if (!templates.length) {
+    markTenantTemplateBulkCached(tenantSlug);
+    return 0;
+  }
+
+  return cacheTemplatesFromRows(
+    tenantSlug,
+    {
+      slug: tenant.slug as string,
+      name: tenant.name as string,
+      logoUrl: (tenant.logo_url as string | null) ?? null,
+    },
+    templates
+  );
+}
+
+/** Downloads every form schema for a brand — API on web, Supabase on native. */
+export async function cacheAllTenantTemplates(accessToken: string, tenantSlug: string) {
+  if (isCapacitorNativeApp()) {
+    const { createClient } = await import("@/lib/auth");
+    return cacheAllTenantTemplatesFromSupabase(createClient(), tenantSlug);
+  }
+  return cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
 }

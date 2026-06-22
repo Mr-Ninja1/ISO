@@ -109,8 +109,7 @@ export function LiveUpdateBootstrap() {
     }
 
     function onAuthReady() {
-      void runCheckIfRemoteNewer("auth-ready");
-      // Realtime needs a session — (re)subscribe after login hydration.
+      window.setTimeout(() => void runCheckIfRemoteNewer("auth-ready"), 8_000);
     }
 
     function onInternetRestored() {
@@ -143,7 +142,8 @@ export function LiveUpdateBootstrap() {
         clearOtaBootGracePeriod();
       }
 
-      await runCheckIfRemoteNewer("cold-start");
+      // Defer cold-start OTA check — avoid fighting entry/login hydration.
+      window.setTimeout(() => void runCheckIfRemoteNewer("cold-start"), 10_000);
     })();
 
     const timer = window.setInterval(

@@ -15,6 +15,10 @@ import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
+import { createClient } from "@/lib/auth";
+import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import {
   readTenantMetaFromWorkspaceCache,
   useResolvedTenantSlug,
@@ -84,45 +88,62 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
     setLoading(true);
     setError("");
 
-    const url = new URL(apiUrl("/api/workspace"));
-    url.searchParams.set("tenantSlug", tenantSlug);
+    const applyWorkspacePayload = (data: {
+      tenant?: TenantMeta;
+      categories?: Array<{ id: string; name: string }>;
+      templates?: Array<{
+        id: string;
+        title: string;
+        categoryId: string | null;
+        updatedAt: string;
+      }>;
+    }) => {
+      if (data.tenant?.id) {
+        setTenant({
+          id: data.tenant.id,
+          name: data.tenant.name,
+          slug: data.tenant.slug,
+          logoUrl: data.tenant.logoUrl ?? null,
+        });
+      }
+      const categoryById = new Map((data.categories || []).map((c) => [c.id, c.name]));
+      const nextTemplates = (data.templates || []).map((t) => ({
+        id: t.id,
+        title: t.title,
+        categoryId: t.categoryId,
+        categoryName: t.categoryId ? categoryById.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+        updatedAt: t.updatedAt,
+      }));
+      setTemplates(nextTemplates);
+    };
 
-    fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Failed to load brand (${res.status})`);
-        return json as {
-          tenant?: TenantMeta;
-          categories?: Array<{ id: string; name: string }>;
-          templates?: Array<{
-            id: string;
-            title: string;
-            categoryId: string | null;
-            updatedAt: string;
-          }>;
-        };
-      })
+    const load = isCapacitorNativeApp()
+      ? fetchWorkspaceViaSupabase(createClient(), tenantSlug, null).then((data) => ({
+          tenant: data.tenant,
+          categories: data.categories,
+          templates: data.templates,
+        }))
+      : fetch(new URL(apiUrl("/api/workspace")).toString() + `?tenantSlug=${encodeURIComponent(tenantSlug)}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Failed to load brand (${res.status})`);
+          return json as {
+            tenant?: TenantMeta;
+            categories?: Array<{ id: string; name: string }>;
+            templates?: Array<{
+              id: string;
+              title: string;
+              categoryId: string | null;
+              updatedAt: string;
+            }>;
+          };
+        });
+
+    load
       .then((data) => {
         if (cancelled) return;
-        if (data.tenant?.id) {
-          setTenant({
-            id: data.tenant.id,
-            name: data.tenant.name,
-            slug: data.tenant.slug,
-            logoUrl: data.tenant.logoUrl ?? null,
-          });
-        }
-        const categoryById = new Map((data.categories || []).map((c) => [c.id, c.name]));
-        const nextTemplates = (data.templates || []).map((t) => ({
-          id: t.id,
-          title: t.title,
-          categoryId: t.categoryId,
-          categoryName: t.categoryId ? categoryById.get(t.categoryId) || "Uncategorized" : "Uncategorized",
-          updatedAt: t.updatedAt,
-        }));
-        setTemplates(nextTemplates);
+        applyWorkspacePayload(data);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -144,10 +165,7 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [focusUsage, loading]);
 
-  const backHref = useMemo(
-    () => `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug || "")}`,
-    [tenantSlug]
-  );
+  const backHref = useMemo(() => buildWorkspaceFormsHref(tenantSlug || ""), [tenantSlug]);
 
   if (!tenantSlug) {
     return (

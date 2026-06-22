@@ -12,6 +12,9 @@ import {
   runOfflineBootstrap,
   type OfflineBootstrapProgress,
 } from '@/lib/client/offlineBootstrap';
+import { isCapacitorNativeApp } from '@/lib/capacitor/runtime';
+import { isTenantTemplateBulkCached } from '@/lib/client/offlineTemplateWarmup';
+import { readWorkspaceCacheResolved } from '@/lib/client/workspaceCache';
 import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
 
 const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
@@ -120,6 +123,15 @@ function FirstTimeDownloadScreen({
   );
 }
 
+function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
+  if (!isOfflineBootstrapComplete(userId, tenantSlug)) return false;
+  if (!isCapacitorNativeApp()) return true;
+  return (
+    isTenantTemplateBulkCached(tenantSlug) &&
+    Boolean(readWorkspaceCacheResolved(userId, tenantSlug, null))
+  );
+}
+
 /**
  * Blocks the UI until the active brand has been fully cached for offline (first login / new device).
  */
@@ -142,7 +154,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     !skip &&
     Boolean(user) &&
     Boolean(tenantSlug) &&
-    (forceBootstrap || !isOfflineBootstrapComplete(userId, tenantSlug!));
+    (forceBootstrap || !offlineCacheLooksReady(userId, tenantSlug!));
 
   const [ready, setReady] = useState(!needsBootstrap);
   const [progress, setProgress] = useState<OfflineBootstrapProgress>({
@@ -153,10 +165,14 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
   const runIdRef = useRef(0);
+  const bootstrapInFlightRef = useRef(false);
+  const autoStartKeyRef = useRef<string | null>(null);
 
   const startBootstrap = useCallback(async () => {
     if (!tenantSlug || !accessToken) return;
+    if (bootstrapInFlightRef.current) return;
 
+    bootstrapInFlightRef.current = true;
     const runId = ++runIdRef.current;
     setError('');
     setReady(false);
@@ -192,8 +208,13 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       }
       setError(message);
       setReady(false);
+    } finally {
+      bootstrapInFlightRef.current = false;
     }
   }, [accessToken, pathname, router, tenantSlug, userId]);
+
+  const startBootstrapRef = useRef(startBootstrap);
+  startBootstrapRef.current = startBootstrap;
 
   useEffect(() => {
     const update = () => setOffline(isAppOffline());
@@ -230,13 +251,19 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       return;
     }
     if (offline) {
-      setReady(false);
-      setError('Internet is required for first-time setup. Connect and tap Try again.');
+      if (!bootstrapInFlightRef.current) {
+        setReady(false);
+        setError('Internet is required for first-time setup. Connect and tap Try again.');
+      }
       return;
     }
 
-    startBootstrap();
-  }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, startBootstrap]);
+    const autoKey = `${userId || 'anon'}:${tenantSlug}`;
+    if (autoStartKeyRef.current === autoKey) return;
+    autoStartKeyRef.current = autoKey;
+
+    void startBootstrapRef.current();
+  }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId]);
 
   if (authLoading) {
     return (
@@ -259,7 +286,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
             return;
           }
           if (offline) return;
-          startBootstrap();
+          autoStartKeyRef.current = null;
+          void startBootstrap();
         }}
       />
     );

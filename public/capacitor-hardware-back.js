@@ -80,6 +80,29 @@
     writeStack(stack);
   }
 
+  function buildTenantHref(tenantSlug, subpath, extraQuery) {
+    var params = new URLSearchParams(extraQuery || "");
+    params.set("tenantSlug", tenantSlug);
+    var clean = (subpath || "").replace(/^\//, "");
+    var base = clean ? "/_/" + clean : "/_/";
+    var qs = params.toString();
+    return qs ? base + "?" + qs : base;
+  }
+
+  function rewriteTenantHref(href) {
+    if (!href || href.charAt(0) !== "/") return href;
+    var parts = href.split("?")[0].replace(/\/+$/, "").split("/").filter(Boolean);
+    if (!parts.length) return href;
+    if (parts[0] === "_" || RESERVED[parts[0]]) return href;
+    var tenantSlug = parts[0];
+    var rest = parts.slice(1).join("/");
+    var params = new URLSearchParams(href.indexOf("?") >= 0 ? href.split("?")[1] : "");
+    if (!params.get("tenantSlug")) params.set("tenantSlug", tenantSlug);
+    var base = rest ? "/_/" + rest : "/_/";
+    var qs = params.toString();
+    return qs ? base + "?" + qs : base;
+  }
+
   function resolveTenantSlug() {
     var parts = location.pathname.split("/").filter(Boolean);
     if (parts[0] && !RESERVED[parts[0]]) return parts[0];
@@ -96,23 +119,34 @@
 
   function resolveBackHref(pathname, tenantSlug) {
     if (!pathname || !tenantSlug) return null;
-    var workspaceHref = "/workspace/forms?tenantSlug=" + encodeURIComponent(tenantSlug);
+    var workspaceHref =
+      "/workspace?tenantSlug=" + encodeURIComponent(tenantSlug) + "&view=forms";
     var adminHref = "/workspace?tenantSlug=" + encodeURIComponent(tenantSlug) + "&view=admin";
-    var auditsHref = "/" + tenantSlug + "/audits";
+    var auditsHref = buildTenantHref(tenantSlug, "audits");
+    var tenantPrefix = "/" + tenantSlug;
+    var shellPrefix = "/_/";
 
-    if (pathname === "/" + tenantSlug + "/audits") return workspaceHref;
-    if (pathname === "/" + tenantSlug + "/audits/new") return auditsHref;
+    if (pathname === tenantPrefix + "/audits" || pathname === shellPrefix + "audits") return workspaceHref;
+    if (pathname === tenantPrefix + "/audits/new" || pathname === shellPrefix + "audits/new") return auditsHref;
     if (/^\/[^/]+\/audits\/[^/]+$/.test(pathname) && !/\/local$/.test(pathname) && !/\/offline-last$/.test(pathname)) {
       return auditsHref;
     }
-    if (pathname.indexOf("/" + tenantSlug + "/audits/") === 0) return auditsHref;
+    if (pathname.indexOf(tenantPrefix + "/audits/") === 0 || pathname.indexOf(shellPrefix + "audits/") === 0) {
+      return auditsHref;
+    }
     if (
-      pathname.indexOf("/" + tenantSlug + "/settings") === 0 ||
-      pathname.indexOf("/" + tenantSlug + "/categories") === 0 ||
-      pathname.indexOf("/" + tenantSlug + "/templates") === 0 ||
-      pathname.indexOf("/" + tenantSlug + "/activity") === 0 ||
-      pathname.indexOf("/" + tenantSlug + "/dashboard") === 0 ||
-      pathname.indexOf("/" + tenantSlug + "/corrective-actions") === 0
+      pathname.indexOf(tenantPrefix + "/settings") === 0 ||
+      pathname.indexOf(tenantPrefix + "/categories") === 0 ||
+      pathname.indexOf(tenantPrefix + "/templates") === 0 ||
+      pathname.indexOf(tenantPrefix + "/activity") === 0 ||
+      pathname.indexOf(tenantPrefix + "/dashboard") === 0 ||
+      pathname.indexOf(tenantPrefix + "/corrective-actions") === 0 ||
+      pathname.indexOf(shellPrefix + "settings") === 0 ||
+      pathname.indexOf(shellPrefix + "categories") === 0 ||
+      pathname.indexOf(shellPrefix + "templates") === 0 ||
+      pathname.indexOf(shellPrefix + "activity") === 0 ||
+      pathname.indexOf(shellPrefix + "dashboard") === 0 ||
+      pathname.indexOf(shellPrefix + "corrective-actions") === 0
     ) {
       return adminHref;
     }
@@ -129,7 +163,7 @@
   }
 
   function navigateInApp(target) {
-    var normalized = target.charAt(0) === "/" ? target : "/" + target;
+    var normalized = rewriteTenantHref(target.charAt(0) === "/" ? target : "/" + target);
     if (currentPath() === normalized) return true;
     window.location.assign(normalized);
     return true;
@@ -161,7 +195,7 @@
 
     if (!isAppRoot(pathname, location.search)) {
       var fallback = tenantSlug
-        ? "/workspace/forms?tenantSlug=" + encodeURIComponent(tenantSlug)
+        ? "/workspace?tenantSlug=" + encodeURIComponent(tenantSlug) + "&view=forms"
         : "/workspace";
       return navigateInApp(fallback);
     }

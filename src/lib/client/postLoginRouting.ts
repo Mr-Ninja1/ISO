@@ -1,6 +1,13 @@
+import { createClient } from "@/lib/auth";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { apiUrl } from "@/lib/client/apiBase";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
 import { isPlatformDeveloperSession } from "@/lib/client/platformDeveloperSession";
+import {
+  fetchUserTenantsViaSupabase,
+  resolveStaffTenantSlugViaSupabase,
+  tenantHasAdminRoutes,
+} from "@/lib/client/userTenants";
 
 export type PostLoginRoute = {
   path: string;
@@ -52,11 +59,42 @@ async function verifyStaffSession(accessToken: string, fallbackEmail: string, us
   return typeof verifyJson?.tenantSlug === "string" ? verifyJson.tenantSlug : "";
 }
 
+async function resolvePostLoginRouteNative(
+  fallbackEmail: string,
+  userId: string | null
+): Promise<PostLoginRoute> {
+  const supabase = createClient();
+  const tenantSlug = await resolveStaffTenantSlugViaSupabase(supabase, fallbackEmail, userId);
+  if (tenantSlug) {
+    try {
+      localStorage.setItem("lastTenantSlug", tenantSlug);
+    } catch {
+      // ignore
+    }
+
+    const tenants = await fetchUserTenantsViaSupabase(supabase).catch(() => []);
+    const tenant = tenants.find((item) => item.slug === tenantSlug);
+    if (tenant && tenantHasAdminRoutes(tenant)) {
+      return {
+        path: `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}&view=admin`,
+      };
+    }
+
+    return { path: `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}` };
+  }
+
+  return { path: "/workspace" };
+}
+
 export async function resolvePostLoginRoute(
   accessToken: string,
   fallbackEmail: string,
   userId: string | null
 ): Promise<PostLoginRoute> {
+  if (isCapacitorNativeApp()) {
+    return resolvePostLoginRouteNative(fallbackEmail, userId);
+  }
+
   try {
     if (await isPlatformDeveloperSession(accessToken)) {
       return { path: "/admin" };

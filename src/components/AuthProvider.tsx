@@ -22,19 +22,16 @@ type AuthContextType = {
   signUp: (
     email: string,
     password: string,
-    options?: { emailRedirectTo?: string },
+    options?: { emailRedirectTo?: string }
   ) => Promise<{ userId: string | null }>;
-  signIn: (
-    email: string,
-    password: string,
-  ) => Promise<{ session: Session; user: { id: string; email: string } }>;
+  signIn: (email: string, password: string) => Promise<{ session: Session; user: { id: string; email: string } }>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 async function hydrateSupabaseSession(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient>
 ): Promise<Session | null> {
   const {
     data: { session: supaSession },
@@ -63,7 +60,7 @@ async function hydrateSupabaseSession(
 const SESSION_HYDRATE_TIMEOUT_MS = isCapacitorNativeApp() ? 2000 : 4000;
 
 async function hydrateSupabaseSessionWithTimeout(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient>
 ): Promise<Session | null> {
   const fallback = readPersistedSupabaseSession();
   try {
@@ -80,9 +77,7 @@ async function hydrateSupabaseSessionWithTimeout(
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(() =>
-    readPersistedSupabaseSession(),
-  );
+  const [session, setSession] = useState<Session | null>(() => readPersistedSupabaseSession());
   const [user, setUser] = useState<{ id: string; email: string } | null>(() => {
     const cached = readCachedAuthUser();
     if (cached) return cached;
@@ -94,16 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const [loading, setLoading] = useState(() => {
     if (typeof window === "undefined") return true;
-    return (
-      !hasPersistedAuthCredentials() &&
-      !readPersistedSupabaseSession()?.access_token
-    );
+    return !hasPersistedAuthCredentials() && !readPersistedSupabaseSession()?.access_token;
   });
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     let cancelled = false;
-    const timeoutId = window.setTimeout(() => {
+    let timeoutId = window.setTimeout(() => {
       if (cancelled) return;
       setLoading(false);
     }, SESSION_HYDRATE_TIMEOUT_MS + 500);
@@ -112,10 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       setSession(resolved);
       if (resolved?.user?.id) {
-        const nextUser = {
-          id: resolved.user.id,
-          email: resolved.user.email || "",
-        };
+        const nextUser = { id: resolved.user.id, email: resolved.user.email || "" };
         setUser(nextUser);
         writeCachedAuthUser(nextUser);
       }
@@ -134,8 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         window.clearTimeout(timeoutId);
         try {
-          const { dispatchAuthReady } =
-            await import("@/lib/capacitor/otaEvents");
+          const { dispatchAuthReady } = await import("@/lib/capacitor/otaEvents");
           dispatchAuthReady();
         } catch {
           // ignore on web-only builds
@@ -152,10 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (nextSession?.user) {
         setSession(nextSession);
-        const nextUser = {
-          id: nextSession.user.id,
-          email: nextSession.user.email || "",
-        };
+        const nextUser = { id: nextSession.user.id, email: nextSession.user.email || "" };
         setUser(nextUser);
         writeCachedAuthUser(nextUser);
         writeBrowserSupabaseSession(nextSession);
@@ -176,13 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (fallback?.access_token) {
           setSession((prev) => prev ?? fallback);
           if (fallback.user?.id) {
-            setUser(
-              (prev) =>
-                prev ?? {
-                  id: fallback.user!.id,
-                  email: fallback.user!.email || "",
-                },
-            );
+            setUser((prev) => prev ?? { id: fallback.user!.id, email: fallback.user!.email || "" });
           }
         }
       }
@@ -197,26 +176,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [supabase]);
 
-  const signUp = async (
-    email: string,
-    password: string,
-    options?: { emailRedirectTo?: string },
-  ) => {
+  const signUp = async (email: string, password: string, options?: { emailRedirectTo?: string }) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: options?.emailRedirectTo
-        ? { emailRedirectTo: options.emailRedirectTo }
-        : undefined,
+      options: options?.emailRedirectTo ? { emailRedirectTo: options.emailRedirectTo } : undefined,
     });
     if (error) throw error;
     return { userId: data.user?.id ?? null };
   };
 
-  const applySignedInSession = async (
-    sessionPayload: Session,
-    userPayload: { id: string; email: string },
-  ) => {
+  const applySignedInSession = async (sessionPayload: Session, userPayload: { id: string; email: string }) => {
     const { data, error } = await supabase.auth.setSession({
       access_token: sessionPayload.access_token,
       refresh_token: sessionPayload.refresh_token,
@@ -237,12 +207,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    // Native app: sign in with Supabase directly. The hosted /api/auth/sign-in route
+    // is for the web cookie flow and often returns a broken response through CapacitorHttp.
+    if (isCapacitorNativeApp()) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error || !data.session || !data.user) {
+        throw new Error(error?.message || "Sign in failed");
+      }
+
+      return applySignedInSession(data.session, {
+        id: data.user.id,
+        email: data.user.email || email,
+      });
+    }
+
     let apiUnavailable = false;
 
     try {
       const res = await fetch(apiUrl("/api/auth/sign-in"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
         body: JSON.stringify({ email, password }),
       });
 
@@ -255,14 +245,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const sessionPayload = payload?.session as Session | undefined;
-        const userPayload = payload?.user as
-          | { id?: string; email?: string }
-          | undefined;
-        if (
-          !sessionPayload?.access_token ||
-          !sessionPayload.refresh_token ||
-          !userPayload?.id
-        ) {
+        const userPayload = payload?.user as { id?: string; email?: string } | undefined;
+        if (!sessionPayload?.access_token || !sessionPayload.refresh_token || !userPayload?.id) {
           throw new Error("Sign in failed");
         }
 
@@ -274,21 +258,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error: unknown) {
       if (!apiUnavailable) {
         const message = error instanceof Error ? error.message : "";
-        if (
-          message &&
-          !message.includes("fetch") &&
-          !message.includes("network")
-        ) {
+        const isNetworkError =
+          message.includes("fetch") || message.includes("network");
+        const isBrokenApiPayload =
+          message === "Sign in failed" ||
+          message.startsWith("Sign in failed:");
+        if (message && !isNetworkError && !isBrokenApiPayload) {
           throw error;
         }
         apiUnavailable = true;
       }
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.session || !data.user) {
       throw new Error(error?.message || "Sign in failed");
     }
@@ -317,9 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={{ session, user, loading, signUp, signIn, signOut }}
-    >
+    <AuthContext.Provider value={{ session, user, loading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

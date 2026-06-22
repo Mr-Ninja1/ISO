@@ -4,6 +4,9 @@ export type NavCapabilities = {
 };
 
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { hasPermission, normalizeRole } from "@/lib/roleGate";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type CacheEntry = { ts: number; value: NavCapabilities };
 
@@ -48,6 +51,40 @@ export function readCachedNavCapabilities(tenantSlug: string): NavCapabilities |
   return null;
 }
 
+async function fetchNavCapabilitiesViaSupabase(
+  supabase: SupabaseClient,
+  tenantSlug: string
+): Promise<NavCapabilities> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const { data: tenant, error: tenantErr } = await supabase
+    .from("tenants")
+    .select("id")
+    .eq("slug", tenantSlug)
+    .maybeSingle();
+
+  if (tenantErr || !tenant) throw new Error("Tenant not found");
+
+  const { data: membership, error: memErr } = await supabase
+    .from("tenant_members")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (memErr || !membership) throw new Error("Forbidden");
+
+  const role = normalizeRole(membership.role);
+  const canSeeAdminRoutes = role === "ADMIN" || role === "MANAGER";
+  return {
+    canSeeAdminRoutes,
+    canCreateForms: hasPermission(role, "forms.create") || canSeeAdminRoutes,
+  };
+}
+
 export async function fetchNavCapabilities(accessToken: string, tenantSlug: string): Promise<NavCapabilities> {
   const cached = readCachedNavCapabilities(tenantSlug);
   if (cached) return cached;
@@ -56,25 +93,32 @@ export async function fetchNavCapabilities(accessToken: string, tenantSlug: stri
   if (existing) return existing;
 
   const promise = (async () => {
-    const url = new URL(apiUrl("/api/workspace/capabilities"));
-    url.searchParams.set("tenantSlug", tenantSlug);
+    const value = isCapacitorNativeApp()
+      ? await (async () => {
+          const { createClient } = await import("@/lib/auth");
+          return fetchNavCapabilitiesViaSupabase(createClient(), tenantSlug);
+        })()
+      : await (async () => {
+          const url = new URL(apiUrl("/api/workspace/capabilities"));
+          url.searchParams.set("tenantSlug", tenantSlug);
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+          const res = await fetch(url.toString(), {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
 
-    if (!res.ok) throw new Error("Failed to load navigation capabilities");
-    const json = (await res.json()) as {
-      role?: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
-      capabilities?: { canCreateForms?: boolean };
-    };
+          if (!res.ok) throw new Error("Failed to load navigation capabilities");
+          const json = (await res.json()) as {
+            role?: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
+            capabilities?: { canCreateForms?: boolean };
+          };
 
-    const role = json.role || "MEMBER";
-    const canSeeAdminRoutes = role === "ADMIN" || role === "MANAGER";
-    const value: NavCapabilities = {
-      canSeeAdminRoutes,
-      canCreateForms: Boolean(json.capabilities?.canCreateForms) || canSeeAdminRoutes,
-    };
+          const role = json.role || "MEMBER";
+          const canSeeAdminRoutes = role === "ADMIN" || role === "MANAGER";
+          return {
+            canSeeAdminRoutes,
+            canCreateForms: Boolean(json.capabilities?.canCreateForms) || canSeeAdminRoutes,
+          };
+        })();
 
     const entry: CacheEntry = { ts: Date.now(), value };
     memory.set(tenantSlug, entry);

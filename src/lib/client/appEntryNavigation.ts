@@ -1,4 +1,5 @@
 import { hasPersistedAuthCredentials } from "@/lib/auth";
+import { rewriteCapacitorHref } from "@/lib/capacitor/routeRewrite";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 export function normalizeAppPathname(pathname: string) {
@@ -40,15 +41,40 @@ export function resolvePostAuthDestination(): string {
   return resolveWorkspaceUrlWithLastTenant() || resolveAuthenticatedEntryPath();
 }
 
+/** Ensure static-export paths resolve to on-disk HTML (trailingSlash build). */
+function toCapacitorDocumentHref(href: string): string {
+  if (!isCapacitorNativeApp()) return href;
+
+  const hashIdx = href.indexOf("#");
+  const base = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+  const hash = hashIdx >= 0 ? href.slice(hashIdx) : "";
+
+  const qIdx = base.indexOf("?");
+  const path = qIdx >= 0 ? base.slice(0, qIdx) : base;
+  const query = qIdx >= 0 ? base.slice(qIdx) : "";
+
+  if (
+    path &&
+    path !== "/" &&
+    !path.endsWith("/") &&
+    !/\.[a-z0-9]+$/i.test(path)
+  ) {
+    return `${path}/${query}${hash}`;
+  }
+  return href;
+}
+
 /** Reliable navigation after force-close / WebView resume (client router alone can stall). */
 export function hardNavigate(href: string) {
   if (typeof window === "undefined") return;
   const path = href.startsWith("/") ? href : `/${href}`;
+  let destination = rewriteCapacitorHref(path);
+  destination = toCapacitorDocumentHref(destination);
   if (isCapacitorNativeApp()) {
-    window.location.replace(path);
+    window.location.replace(destination);
     return;
   }
-  window.location.assign(path);
+  window.location.assign(destination);
 }
 
 export function navigateToPostAuthEntry(routerReplace: (href: string) => void) {

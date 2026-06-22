@@ -1,9 +1,9 @@
 {
-  "bundleId": "20260619.2",
-  "version": "20260619.2",
+  "bundleId": "golden.9.1782119256809",
+  "version": "golden.9.1782119256809",
   "channel": "production",
-  "minNativeBuild": 1,
-  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260619.2.zip",
-  "publishedAt": "2026-06-19T16:42:22.624Z",
-  "releaseNotes": "Fix shared form links, PDF evidence labels, and native PDF download behavior"
+  "minNativeBuild": 9,
+  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-golden.9.1782119256809.zip",
+  "publishedAt": "2026-06-22T09:15:13.561Z",
+  "releaseNotes": "Golden baseline build 9 — stable shell; ship web fixes via OTA after this."
 }

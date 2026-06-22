@@ -18,8 +18,10 @@
     "cap:build-native": "npx cap copy android && npx cap open android",
     "build:capacitor": "node tools/capacitor-build.mjs",
     "package:apk": "node tools/package-android-apk.mjs",
+    "package:golden-apk": "node tools/package-android-apk.mjs",
     "package:ota": "node tools/package-ota-bundle.mjs",
     "publish:ota:public": "node tools/publish-ota-public.mjs",
+    "release:golden": "node tools/golden-release.mjs",
     "release:ota": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
     "release:ota:ci": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
     "lint": "eslint"

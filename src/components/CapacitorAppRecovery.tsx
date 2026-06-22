@@ -53,7 +53,10 @@ function shouldForceEntryNavigation() {
   const path = normalizeAppPathname(window.location.pathname);
   const search = window.location.search;
   if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) return true;
-  return pageLooksStuckOnLoadingShell() && (isAppRootPath(path) || path === "/workspace");
+
+  // Workspace with a tenant is allowed to show loading shells for several seconds during bootstrap.
+  const stuckOnWorkspaceWithoutTenant = path === "/workspace" && !search.includes("tenantSlug=");
+  return pageLooksStuckOnLoadingShell() && (isAppRootPath(path) || stuckOnWorkspaceWithoutTenant);
 }
 
 function tryRecover(reason: string) {

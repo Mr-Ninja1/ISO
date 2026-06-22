@@ -4,6 +4,8 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
 import { SmallScreenModal } from '@/components/SmallScreenModal';
 import { CapacitorBootstrap } from '@/components/CapacitorBootstrap';
+import { CapacitorRouteRewrite } from '@/components/CapacitorRouteRewrite';
+import { CapacitorRouterRewrite } from '@/components/CapacitorRouterRewrite';
 import { CapacitorAppRecovery } from '@/components/CapacitorAppRecovery';
 import { CapacitorEntryRedirect } from '@/components/CapacitorEntryRedirect';
 import { CapacitorBackButtonHandler } from '@/components/CapacitorBackButtonHandler';
@@ -70,6 +72,8 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
+          <CapacitorRouteRewrite />
+          <CapacitorRouterRewrite />
           <LiveUpdateBootstrap />
           <CapacitorStylesGuard />
           <NativeUpdateGate />

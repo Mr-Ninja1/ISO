@@ -9,6 +9,8 @@ import { AuthPageShell } from "@/components/AuthPageShell";
 import { AuthHsePlatformBadge } from "@/components/AuthHsePlatformBadge";
 import { MobileAppInstallBanner } from "@/components/MobileAppInstallBanner";
 import { resolvePostLoginRoute } from "@/lib/client/postLoginRouting";
+import { hardNavigate } from "@/lib/client/appEntryNavigation";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,7 +57,11 @@ export default function LoginPage() {
         signedInUser.email || email,
         signedInUser.id
       );
-      router.replace(route.path);
+      if (isCapacitorNativeApp()) {
+        hardNavigate(route.path);
+      } else {
+        router.replace(route.path);
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign in failed";
       if (/failed to fetch|networkerror|network request failed/i.test(message)) {

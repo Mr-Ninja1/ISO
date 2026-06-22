@@ -19,9 +19,10 @@ function isLocalDevHost(hostname: string) {
 export function getApiBaseUrl() {
   if (typeof window !== "undefined") {
     const { hostname, origin } = window.location;
-    // npm run dev on localhost must always call the local Next server, even when
-    // NEXT_PUBLIC_CAPACITOR_APP=1 and NEXT_PUBLIC_API_BASE_URL point at Azure.
-    if (isLocalDevHost(hostname)) return origin;
+    // Browser dev on localhost — use local Next server.
+    // Capacitor also serves from https://localhost but API routes are not in the APK;
+    // native must call the hosted Azure API (see NEXT_PUBLIC_API_BASE_URL below).
+    if (!isCapacitorNativeApp() && isLocalDevHost(hostname)) return origin;
     if (!isCapacitorNativeApp()) return origin;
   }
 

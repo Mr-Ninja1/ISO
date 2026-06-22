@@ -82,18 +82,6 @@ function listHtmlFiles(dir, base = dir) {
 }
 
 /**
- * OTA update zips live on the server under /ota/production — they must never be embedded
- * in the Capacitor static bundle (each publish copied public/ota into out/, then zipped out/
- * again, causing 90MB+ recursive bloat).
- */
-function stripEmbeddedOtaAssets() {
-  const otaInOut = path.join(outDir, "ota");
-  if (!fs.existsSync(otaInOut)) return;
-  fs.rmSync(otaInOut, { recursive: true, force: true });
-  console.log("[capacitor-build] Removed out/ota — OTA bundles are served from the host, not embedded in the app.");
-}
-
-/**
  * Capacitor serves files from disk. Any tenant slug in the URL needs a matching HTML file.
  * We mirror the placeholder slug `_` tree so runtime URLs like `/acme/audits/` resolve offline.
  */
@@ -134,7 +122,7 @@ function writeCapacitorWebConfig() {
     bundledWebRuntime: false,
     plugins: {
       CapacitorHttp: {
-        enabled: true,
+        enabled: false,
       },
       LiveUpdate: {
         readyTimeout: 30000,
@@ -173,19 +161,26 @@ try {
       }
     }
   }
+  const webBundleId =
+    process.env.WEB_BUNDLE_ID?.trim() ||
+    process.env.NEXT_PUBLIC_WEB_BUNDLE_ID?.trim() ||
+    new Date().toISOString();
   // Capacitor uses static export (out/) — do not run standalone copy step.
   run("npx", ["next", "build", "--webpack"], {
     CAPACITOR_BUILD: "1",
     NEXT_PUBLIC_API_BASE_URL: apiBase,
     NEXT_PUBLIC_CAPACITOR_APP: "1",
     NEXT_PUBLIC_NATIVE_BUILD: nativeBuild,
+    NEXT_PUBLIC_WEB_BUNDLE_ID: webBundleId,
     ...(appBundleLabel ? { NEXT_PUBLIC_APP_BUNDLE_LABEL: appBundleLabel } : {}),
   });
   if (appBundleLabel) {
     console.log(`[capacitor-build] App bundle label: ${appBundleLabel}`);
   }
-  stripEmbeddedOtaAssets();
   mirrorTenantShellRoutes();
+
+  fs.writeFileSync(path.join(outDir, "web-bundle-id.txt"), `${webBundleId}\n`);
+  console.log(`[capacitor-build] Web bundle id: ${webBundleId}`);
 
   const skipCapSync =
     process.env.CI === "true" ||

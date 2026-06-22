@@ -17,7 +17,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "out");
 const channel = (process.env.OTA_CHANNEL || "production").trim();
 const bundleId = (process.env.OTA_BUNDLE_ID || defaultBundleId()).trim();
-const publicBase = (process.env.OTA_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+const azureOtaBase =
+  "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production";
+const publicBase = (process.env.OTA_PUBLIC_BASE_URL || azureOtaBase).trim().replace(/\/+$/, "");
 const minNativeBuild = parseInt(process.env.OTA_MIN_NATIVE_BUILD || "1", 10);
 const releaseNotes = (process.env.OTA_RELEASE_NOTES || "").trim();
 

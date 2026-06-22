@@ -1,4 +1,5 @@
 import { buildTenantHref } from "@/lib/client/tenantHref";
+import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 
 export type PageWayfinderConfig = {
   backHref: string;
@@ -13,7 +14,7 @@ export function resolvePageWayfinder(
 ): PageWayfinderConfig | null {
   if (!pathname || !tenantSlug) return null;
 
-  const workspaceHref = `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`;
+  const workspaceHref = buildWorkspaceFormsHref(tenantSlug);
   const adminHref = `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}&view=admin`;
   const auditsHref = buildTenantHref(tenantSlug, "audits");
 

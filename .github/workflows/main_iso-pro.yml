@@ -33,11 +33,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CI: true
           NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
-          NEXT_PUBLIC_NATIVE_BUILD: "1"
+          NEXT_PUBLIC_NATIVE_BUILD: "8"
           OTA_BUNDLE_ID: ci.${{ github.run_number }}
           OTA_PUBLIC_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production
           OTA_CHANNEL: production
-          OTA_MIN_NATIVE_BUILD: "1"
+          OTA_MIN_NATIVE_BUILD: "9"
           OTA_RELEASE_NOTES: Deploy ${{ github.sha }} (run ${{ github.run_number }})
           SKIP_CAP_SYNC: "1"
         run: |

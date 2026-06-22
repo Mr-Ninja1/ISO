@@ -10,10 +10,12 @@ import { Z_HEADER_MENU, Z_HEADER_MENU_BACKDROP, Z_STICKY_HEADER } from "@/lib/ui
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
 import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
+import { fetchUserTenantsViaSupabase } from "@/lib/client/userTenants";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { pushTenantRoute, tenantRouteHref } from "@/lib/client/tenantNavigation";
+import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -35,7 +37,7 @@ import { apiUrl } from "@/lib/client/apiBase";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
-  cacheAllTenantTemplatesFromApi,
+  cacheAllTenantTemplates,
   clearTenantTemplateBulkCached,
   isTenantTemplateBulkCached,
 } from "@/lib/client/offlineTemplateWarmup";
@@ -973,19 +975,23 @@ function WorkspacePageInner() {
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
 
       for (const cid of targets) {
-        const url = new URL(apiUrl("/api/workspace"));
-        url.searchParams.set("tenantSlug", tenantSlug);
-        if (cid) url.searchParams.set("categoryId", cid);
-
-        const res = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((data as any)?.error || `Offline prep failed (${res.status})`);
-        writeWorkspaceCache(cacheUserId, tenantSlug, cid, data as WorkspaceData);
+        const data = isCapacitorNativeApp()
+          ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData)
+          : await (async () => {
+              const url = new URL(apiUrl("/api/workspace"));
+              url.searchParams.set("tenantSlug", tenantSlug);
+              if (cid) url.searchParams.set("categoryId", cid);
+              const res = await fetch(url.toString(), {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              });
+              const json = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error((json as { error?: string })?.error || `Offline prep failed (${res.status})`);
+              return json as WorkspaceData;
+            })();
+        writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
       }
 
-      await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+      await cacheAllTenantTemplates(accessToken, tenantSlug);
 
       const now = new Date().toISOString();
       localStorage.setItem("offlineModeEnabled", "1");
@@ -1024,23 +1030,27 @@ function WorkspacePageInner() {
 
     try {
       // One workspace snapshot only — parallel GET /api/workspace per category hammers Prisma and causes 503s + infinite retry UX on mobile shells.
-      const url = new URL(apiUrl("/api/workspace"));
-      url.searchParams.set("tenantSlug", tenantSlug);
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => null)) as WorkspaceData | null;
-        if (data) {
-          writeWorkspaceCache(cacheUserId, tenantSlug, null, data);
-          if (data.selectedCategoryId) {
-            writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
-          }
+      const data = isCapacitorNativeApp()
+        ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, null)) as WorkspaceData)
+        : await (async () => {
+            const url = new URL(apiUrl("/api/workspace"));
+            url.searchParams.set("tenantSlug", tenantSlug);
+            const res = await fetch(url.toString(), {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (!res.ok) return null;
+            return (await res.json().catch(() => null)) as WorkspaceData | null;
+          })();
+
+      if (data) {
+        writeWorkspaceCache(cacheUserId, tenantSlug, null, data);
+        if (data.selectedCategoryId) {
+          writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
         }
       }
 
       if (!schemasReady) {
-        await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+        await cacheAllTenantTemplates(accessToken, tenantSlug);
       }
 
       const now = new Date().toISOString();
@@ -1083,8 +1093,8 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (openingFormsNav) return;
     setOpeningFormsNav(true);
-    router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}`);
-    clearNavLoading();
+    router.replace(buildWorkspaceFormsHref(workspace.tenant.slug));
+    clearNavLoading(400);
   }
 
   function handleOpenAdminView() {
@@ -1728,12 +1738,23 @@ function WorkspacePageInner() {
     setTenantChoiceLoading(true);
     setError("");
 
-    fetch(apiUrl("/api/tenants"), { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Failed to load brands (${res.status})`);
-        return data;
-      })
+    const loadTenants = isCapacitorNativeApp()
+      ? fetchUserTenantsViaSupabase(createClient()).then((tenants) => ({
+          tenants: tenants.map((tenant) => ({
+            id: tenant.id,
+            name: tenant.name,
+            slug: tenant.slug,
+            logoUrl: tenant.logoUrl,
+          })),
+        }))
+      : fetch(apiUrl("/api/tenants"), { headers: { Authorization: `Bearer ${accessToken}` } })
+          .then(async (res) => {
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Failed to load brands (${res.status})`);
+            return data;
+          });
+
+    loadTenants
       .then((data) => {
         const tenants = (data.tenants || []) as TenantSummary[];
         setTenantChoices(tenants);
@@ -2135,7 +2156,7 @@ function WorkspacePageInner() {
     let active = true;
     (async () => {
       try {
-        await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+        await cacheAllTenantTemplates(accessToken, tenantSlug);
         if (!active) return;
         const now = new Date().toISOString();
         localStorage.setItem("offlineModeEnabled", "1");
@@ -2160,7 +2181,7 @@ function WorkspacePageInner() {
       workspace.capabilities?.canAccessSettings ?? (role === "ADMIN" || role === "MANAGER");
     if (!canAccessSettings) return;
 
-    router.prefetch(`/${workspace.tenant.slug}/settings`);
+    router.prefetch(buildTenantHref(workspace.tenant.slug, "settings"));
   }, [
     workspace?.tenant.slug,
     workspace?.capabilities?.canAccessSettings,
@@ -2174,7 +2195,7 @@ function WorkspacePageInner() {
     if (!workspace || offlineFromHook) return;
     const toPrefetch = workspace.templates.slice(0, 8);
     for (const t of toPrefetch) {
-      router.prefetch(`/${workspace.tenant.slug}/audits/new?templateId=${t.id}`);
+      router.prefetch(tenantRouteHref(workspace.tenant.slug, "audits/new", { templateId: t.id }));
     }
   }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook]);
 
@@ -3018,7 +3039,7 @@ function WorkspacePageInner() {
                                   prefetchTemplateSchema(t.id).catch(() => {
                                     // best-effort prefetch
                                   });
-                                  router.prefetch(`/${tenant.slug}/audits/new?templateId=${t.id}`);
+                                  router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                                 }}
                                 onFocus={() => {
                                   prefetchTemplateSchema(t.id).catch(() => {

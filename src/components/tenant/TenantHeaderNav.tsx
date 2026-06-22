@@ -11,6 +11,7 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
 import { HeaderKebabMenu, HeaderMenuItem } from "@/components/ui/HeaderKebabMenu";
 import { buildTenantHref } from "@/lib/client/tenantHref";
+import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 
 const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms: false };
 
@@ -34,7 +35,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const activityBase = buildTenantHref(tenantSlug, "activity");
   const templatesBase = buildTenantHref(tenantSlug, "templates");
   const categoriesBase = buildTenantHref(tenantSlug, "categories");
-  const workspaceHref = `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`;
+  const workspaceHref = buildWorkspaceFormsHref(tenantSlug);
 
   const onAudits = pathname?.includes("/audits") ?? false;
   const onSettings = pathname?.includes("/settings") ?? false;

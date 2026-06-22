@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { hasPersistedAuthCredentials } from "@/lib/auth";
 import {
   hardNavigate,
   isAppRootPath,
@@ -11,28 +10,36 @@ import {
 } from "@/lib/client/appEntryNavigation";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
-function redirectFromEntryIfNeeded() {
-  if (!isCapacitorNativeApp()) return;
+const RESUME_REDIRECT_DELAY_MS = 4000;
 
-  const path = normalizeAppPathname(window.location.pathname);
-  const search = window.location.search;
-
-  if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) {
-    hardNavigate(resolvePostAuthDestination());
-  }
-}
-
-/** Static Capacitor bundle: avoid an empty `/` shell before client routing runs. */
+/**
+ * Static Capacitor bundle: recover entry shells after resume only.
+ * Do NOT hard-navigate on cold start — that races React boot and causes
+ * "This page could not load" before login renders.
+ */
 export function CapacitorEntryRedirect() {
   useEffect(() => {
-    redirectFromEntryIfNeeded();
+    if (!isCapacitorNativeApp()) return;
+
+    let resumeTimer: number | undefined;
+
+    function scheduleResumeRedirect() {
+      window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(() => {
+        const path = normalizeAppPathname(window.location.pathname);
+        const search = window.location.search;
+        if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) {
+          hardNavigate(resolvePostAuthDestination());
+        }
+      }, RESUME_REDIRECT_DELAY_MS);
+    }
 
     let removeAppListener: (() => void) | undefined;
 
     void import("@capacitor/app")
       .then(({ App }) =>
         App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) redirectFromEntryIfNeeded();
+          if (isActive) scheduleResumeRedirect();
         })
       )
       .then((handle) => {
@@ -45,15 +52,13 @@ export function CapacitorEntryRedirect() {
       });
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") redirectFromEntryIfNeeded();
+      if (document.visibilityState === "visible") scheduleResumeRedirect();
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", (event) => {
-      if (event.persisted) redirectFromEntryIfNeeded();
-    });
 
     return () => {
+      window.clearTimeout(resumeTimer);
       document.removeEventListener("visibilitychange", onVisible);
       removeAppListener?.();
     };

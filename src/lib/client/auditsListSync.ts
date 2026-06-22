@@ -1,12 +1,14 @@
 "use client";
 
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import {
   mergeAuditsRows,
   readAuditsListCache,
   writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
+import { fetchAuditsListViaSupabase } from "@/lib/data/fetchAuditsListViaSupabase";
 
 export type FetchAuditsListOptions = {
   /** Max rows from server (default: server cap when omitted). */
@@ -36,6 +38,30 @@ export async function fetchAndCacheAuditsList(
   tenantSlug: string,
   options: FetchAuditsListOptions = {}
 ): Promise<FetchAuditsListResult> {
+  if (isCapacitorNativeApp()) {
+    const { createClient } = await import("@/lib/auth");
+    const data = await fetchAuditsListViaSupabase(createClient(), tenantSlug, {
+      limit: options.limit,
+      offset: options.offset,
+      status: options.status,
+      since: options.since,
+    });
+    const incoming = data.rows;
+    const maxUpdatedAt = data.maxUpdatedAt;
+    const nextOffset = data.nextOffset;
+    const hasMore = data.hasMore;
+
+    if (options.merge !== false) {
+      const existing = readAuditsListCache(userId, tenantSlug);
+      const merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
+      writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
+      return { rows: merged, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
+    }
+
+    writeAuditsListCache(userId, tenantSlug, incoming, maxUpdatedAt);
+    return { rows: incoming, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
+  }
+
   const url = new URL(apiUrl("/api/audit/list"));
   url.searchParams.set("tenantSlug", tenantSlug);
   if (options.limit) url.searchParams.set("limit", String(options.limit));

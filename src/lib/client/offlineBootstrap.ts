@@ -1,9 +1,12 @@
 "use client";
 
+import { createClient } from "@/lib/auth";
 import { fetchNavCapabilities } from "@/lib/client/navCapabilities";
-import { cacheAllTenantTemplatesFromApi, markTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
+import { cacheAllTenantTemplates, markTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { type WorkspaceData, writeWorkspaceCache } from "@/lib/client/workspaceCache";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 
 const BOOTSTRAP_KEY_PREFIX = "offline-full-bootstrap:v1:";
 
@@ -65,6 +68,11 @@ export function clearOfflineBootstrapComplete(userId: string | null, tenantSlug:
 }
 
 async function fetchWorkspace(accessToken: string, tenantSlug: string, categoryId: string | null) {
+  if (isCapacitorNativeApp()) {
+    const supabase = createClient();
+    return (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
+  }
+
   const url = new URL(apiUrl("/api/workspace"));
   url.searchParams.set("tenantSlug", tenantSlug);
   if (categoryId) url.searchParams.set("categoryId", categoryId);
@@ -129,7 +137,7 @@ export async function runOfflineBootstrap({
   }
 
   report("schemas", "Downloading form schemas & checklists…", 52);
-  const templateCount = await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+  const templateCount = await cacheAllTenantTemplates(accessToken, tenantSlug);
   report("schemas", "Form schemas saved on device", 78, `${templateCount} form${templateCount === 1 ? "" : "s"}`);
 
   report("permissions", "Finishing setup…", 88);

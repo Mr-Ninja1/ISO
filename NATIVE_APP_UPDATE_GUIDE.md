@@ -4,6 +4,8 @@ This guide explains **two ways** users get updates, when you must ship a **new A
 
 For OTA-only details (manifest, zip, channels), see [OTA_SETUP.md](./OTA_SETUP.md).
 
+**Something broken in the app but the website is fine?** Start with [NATIVE_APP_TROUBLESHOOTING.md](./NATIVE_APP_TROUBLESHOOTING.md) (symptom → file map).
+
 ---
 
 ## Quick answers

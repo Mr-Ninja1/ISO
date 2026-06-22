@@ -393,7 +393,12 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
 
       const assistantContent = navigateTo
         ? `${String(data.message || "Here's what I found.")}\n\n**Taking you there…** (${navigateLabel})`
-        : String(data.message || "Here's what I found.");
+        : String(
+            data.message ||
+              (Array.isArray(data.actions) && data.actions.length
+                ? "Here are some options that might help."
+                : "Here's what I found."),
+          );
 
       const assistantMsg = {
         id: `a-${Date.now()}`,
