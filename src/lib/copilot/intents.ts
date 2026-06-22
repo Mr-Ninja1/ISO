@@ -347,89 +347,144 @@ const HELP_TOPICS: Array<{ keywords: string[]; title: string; body: string }> = 
   },
 ];
 
-export function resolveCopilotIntent(
+export type CopilotResolutionTier =
+  | "empty"
+  | "support"
+  | "off_topic"
+  | "unsupported"
+  | "playbook"
+  | "intent"
+  | "help_topic"
+  | "fuzzy"
+  | "unclear"
+  | "contextual_fallback";
+
+export type CopilotResolution = {
+  response: CopilotResponse;
+  tier: CopilotResolutionTier;
+};
+
+export function resolveCopilotIntentDetailed(
   message: string,
   ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities; brandName?: string },
-): CopilotResponse {
+): CopilotResolution {
   const trimmed = message.trim();
 
   if (!trimmed) {
-    return buildUnclearResponse(ctx.tenantSlug, ctx.caps, "What would you like help with?");
+    return {
+      tier: "empty",
+      response: buildUnclearResponse(ctx.tenantSlug, ctx.caps, "What would you like help with?"),
+    };
   }
 
   if (isSupportRequestMessage(trimmed)) {
-    return buildSupportContactResponse({
-      tenantSlug: ctx.tenantSlug,
-      brandName: ctx.brandName,
-      message: trimmed,
-    });
+    return {
+      tier: "support",
+      response: buildSupportContactResponse({
+        tenantSlug: ctx.tenantSlug,
+        brandName: ctx.brandName,
+        message: trimmed,
+      }),
+    };
   }
 
   const guard = classifyCopilotMessage(trimmed);
   if (guard.kind === "off_topic") {
-    return withSupportEscalation(buildOffTopicResponse(ctx.caps), trimmed);
+    return {
+      tier: "off_topic",
+      response: withSupportEscalation(buildOffTopicResponse(ctx.caps), trimmed),
+    };
   }
   if (guard.kind === "unsupported" && guard.reason) {
-    return withSupportEscalation(buildUnsupportedResponse(guard.reason, ctx.caps), trimmed, {
-      always: true,
-    });
+    return {
+      tier: "unsupported",
+      response: withSupportEscalation(buildUnsupportedResponse(guard.reason, ctx.caps), trimmed, {
+        always: true,
+      }),
+    };
   }
 
   const playbook = resolvePlaybook(trimmed, ctx);
-  if (playbook) return withSupportEscalation(playbook, trimmed);
+  if (playbook) {
+    return { tier: "playbook", response: withSupportEscalation(playbook, trimmed) };
+  }
 
   for (const intent of INTENTS) {
     if (intent.patterns.some((p) => p.test(trimmed))) {
       const response = intent.build(ctx);
       if (guard.kind === "unclear" && response.actions.length !== 1) {
-        return withSupportEscalation(buildUnclearResponse(ctx.tenantSlug, ctx.caps), trimmed);
+        return {
+          tier: "unclear",
+          response: withSupportEscalation(buildUnclearResponse(ctx.tenantSlug, ctx.caps), trimmed),
+        };
       }
-      return withSupportEscalation(response, trimmed);
+      return { tier: "intent", response: withSupportEscalation(response, trimmed) };
     }
   }
 
   const lower = trimmed.toLowerCase();
   for (const topic of HELP_TOPICS) {
     if (topic.keywords.some((k) => lower.includes(k))) {
-      return withSupportEscalation(
-        {
-          message: `**${topic.title}**\n\n${topic.body}`,
-          actions: [],
-          suggestions: ["How do I create a form?", "Where are saved forms?", "How do I export a PDF?"],
-        },
-        trimmed,
-      );
+      return {
+        tier: "help_topic",
+        response: withSupportEscalation(
+          {
+            message: `**${topic.title}**\n\n${topic.body}`,
+            actions: [],
+            suggestions: ["How do I create a form?", "Where are saved forms?", "How do I export a PDF?"],
+          },
+          trimmed,
+        ),
+      };
     }
   }
 
   const fuzzy = resolveFuzzyIntent(trimmed, ctx);
-  if (fuzzy) return withSupportEscalation(fuzzy, trimmed);
+  if (fuzzy) {
+    return { tier: "fuzzy", response: withSupportEscalation(fuzzy, trimmed) };
+  }
 
   if (guard.kind === "unclear") {
-    return withSupportEscalation(
-      buildUnclearResponse(
-        ctx.tenantSlug,
-        ctx.caps,
-        `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+    return {
+      tier: "unclear",
+      response: withSupportEscalation(
+        buildUnclearResponse(
+          ctx.tenantSlug,
+          ctx.caps,
+          `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+        ),
+        trimmed,
+        { always: true },
       ),
-      trimmed,
-      { always: true },
-    );
+    };
   }
 
   if (!IN_SCOPE_FALLBACK.test(trimmed)) {
-    return withSupportEscalation(
-      buildUnclearResponse(
-        ctx.tenantSlug,
-        ctx.caps,
-        `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+    return {
+      tier: "unclear",
+      response: withSupportEscalation(
+        buildUnclearResponse(
+          ctx.tenantSlug,
+          ctx.caps,
+          `I'm not sure what you mean yet. I only help with **this brand's workspace** — forms, submissions, staff, and settings.`,
+        ),
+        trimmed,
+        { always: true },
       ),
-      trimmed,
-      { always: true },
-    );
+    };
   }
 
-  return withSupportEscalation(buildContextualFallback(trimmed, ctx), trimmed);
+  return {
+    tier: "contextual_fallback",
+    response: withSupportEscalation(buildContextualFallback(trimmed, ctx), trimmed),
+  };
+}
+
+export function resolveCopilotIntent(
+  message: string,
+  ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities; brandName?: string },
+): CopilotResponse {
+  return resolveCopilotIntentDetailed(message, ctx).response;
 }
 
 /** Loose in-scope check for fallback (mirrors guardrails). */

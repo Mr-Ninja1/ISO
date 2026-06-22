@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
-import { resolveCopilotIntent, screenContextLabel } from "@/lib/copilot/intents";
+import { resolveCopilotIntentDetailed, screenContextLabel } from "@/lib/copilot/intents";
 import { pickAutoNavigateHref, autoNavigateLabel } from "@/lib/copilot/autoNavigate";
+import { generateGeminiCopilotAnswer, shouldUseGeminiCopilot } from "@/lib/ai/copilotGemini";
 import { hasPermission, normalizeRole } from "@/lib/roleGate";
-import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus } from "@/lib/tenantPlan";
+import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus, recordAiUsage } from "@/lib/tenantPlan";
 import { DC_AI_NAME } from "@/lib/ai/deepControl";
+import { getGeminiModelName } from "@/lib/ai/gemini";
 
 function getBearerToken(req: Request) {
   const header =
@@ -90,12 +92,26 @@ export async function POST(req: Request) {
       canAccessSettings: hasPermission(role, "settings.view"),
     };
 
-    const result = resolveCopilotIntent(message, {
+    const knowledgeCtx = {
       tenantSlug,
       pathname,
       caps,
       brandName: tenant.name as string,
-    });
+      role,
+    };
+
+    const { response: ruleResult, tier } = resolveCopilotIntentDetailed(message, knowledgeCtx);
+
+    let result = ruleResult;
+    if (shouldUseGeminiCopilot(tier)) {
+      result = await generateGeminiCopilotAnswer(message, knowledgeCtx, ruleResult);
+      await recordAiUsage(sb, {
+        tenantId: tenant.id as string,
+        userId: user.id,
+        usageKind: "copilot_chat",
+        metadata: { tier, model: getGeminiModelName() },
+      });
+    }
 
     const navigateTo = pickAutoNavigateHref(message, result.actions);
 

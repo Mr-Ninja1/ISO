@@ -4,6 +4,7 @@ type GenerateContentOptions = {
   parts: GeminiPart[];
   json?: boolean;
   temperature?: number;
+  systemInstruction?: string;
 };
 
 function getGeminiConfig() {
@@ -35,6 +36,9 @@ export async function geminiGenerateContent(options: GenerateContentOptions): Pr
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      ...(options.systemInstruction
+        ? { systemInstruction: { parts: [{ text: options.systemInstruction }] } }
+        : {}),
       contents: [{ role: "user", parts: options.parts }],
       generationConfig: {
         temperature: options.temperature ?? 0.2,
