@@ -10,7 +10,7 @@ import { MOBILE_APP_BANNER_DISMISS_KEY } from "@/lib/client/mobileAndroidWeb";
 const ENV_APK_URL = (process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
 
 type Placement = "login" | "workspace";
-type Variant = "banner" | "slim";
+type Variant = "banner" | "slim" | "inline";
 
 type Props = {
   placement?: Placement;
@@ -22,7 +22,8 @@ type Props = {
  * Never shown inside the Capacitor native app.
  */
 export function MobileAppInstallBanner({ placement = "login", variant }: Props) {
-  const resolvedVariant: Variant = variant ?? (placement === "login" ? "slim" : "banner");
+  const resolvedVariant: Variant =
+    variant ?? (placement === "login" ? "slim" : "inline");
   const [eligible, setEligible] = useState(false);
   const [dismissed, setDismissed] = useState(true);
   const [apkUrl, setApkUrl] = useState(ENV_APK_URL);
@@ -74,6 +75,33 @@ export function MobileAppInstallBanner({ placement = "login", variant }: Props) 
   if (!eligible || dismissed || !apkUrl) return null;
 
   const isLogin = placement === "login";
+
+  if (resolvedVariant === "inline") {
+    return (
+      <div className="mobile-app-install-inline" role="region" aria-label="Download ISO Grid Android app">
+        <a
+          href={apkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mobile-app-install-inline__anchor"
+        >
+          <Smartphone className="h-3 w-3 shrink-0" aria-hidden />
+          Download Android app
+        </a>
+        <span className="mobile-app-install-inline__sep" aria-hidden>
+          ·
+        </span>
+        <button
+          type="button"
+          onClick={dismiss}
+          className="mobile-app-install-inline__dismiss"
+          aria-label="Dismiss download app link"
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
 
   if (resolvedVariant === "slim") {
     return (

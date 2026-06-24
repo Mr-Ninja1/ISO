@@ -11,6 +11,7 @@ import {
   buildUnsupportedResponse,
   buildUnclearResponse,
 } from "@/lib/copilot/guardrails";
+import type { CopilotLiveSnapshot } from "@/lib/copilot/fetchLiveSnapshot";
 
 export type CopilotAction = {
   type: "navigate" | "open_url";
@@ -31,13 +32,17 @@ export type CopilotCapabilities = {
   canAccessSettings: boolean;
 };
 
+export type CopilotIntentContext = {
+  tenantSlug: string;
+  pathname: string;
+  caps: CopilotCapabilities;
+  brandName?: string;
+  live?: CopilotLiveSnapshot | null;
+};
+
 type IntentMatch = {
   patterns: RegExp[];
-  build: (ctx: {
-    tenantSlug: string;
-    pathname: string;
-    caps: CopilotCapabilities;
-  }) => CopilotResponse;
+  build: (ctx: CopilotIntentContext) => CopilotResponse;
 };
 
 const INTENTS: IntentMatch[] = [
@@ -216,6 +221,53 @@ const INTENTS: IntentMatch[] = [
     }),
   },
   {
+    patterns: [
+      /\b(tour|onboard|getting started|get started|new here|exploring|trying out|test(ing)? the app)\b/i,
+      /what can i do/i,
+      /what are all the things/i,
+      /show me around/i,
+      /quick tour/i,
+    ],
+    build: ({ tenantSlug, caps }) => {
+      const actions: CopilotAction[] = [
+        {
+          type: "navigate",
+          label: "Fill a form",
+          href: `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`,
+        },
+        { type: "navigate", label: "Saved forms", href: `/${tenantSlug}/audits` },
+      ];
+      if (caps.canCreateForms) {
+        actions.push({
+          type: "navigate",
+          label: "Create with AI",
+          href: `/${tenantSlug}/templates/new`,
+        });
+      }
+      if (caps.canAccessSettings) {
+        actions.push({
+          type: "navigate",
+          label: "HSE dashboard",
+          href: `/${tenantSlug}/dashboard`,
+        });
+      }
+
+      const adminBlock = caps.canAccessSettings
+        ? "\n\n**As a manager/admin** you also have the **HSE console** — staff, settings, activity log, corrective actions, and compliance dashboard."
+        : "";
+      const fieldBlock =
+        "\n\n**For everyone:** fill checklists on the workspace, submit evidence (photos/signatures), find records in **Saved forms**, and export PDFs. The **Android app** works offline in the field.";
+
+      return {
+        message: `Welcome to **ISO Grid** — here's your personalised map:${fieldBlock}${adminBlock}\n\nPick a shortcut below or ask a follow-up.`,
+        actions: actions.slice(0, 4),
+        suggestions: caps.canCreateForms
+          ? ["How does AI form creation work?", "How does offline mode work?", "How do I invite staff?"]
+          : ["How do I export a PDF?", "How does offline mode work?", "Where are saved forms?"],
+      };
+    },
+  },
+  {
     patterns: [/help/i, /what can you do/i, /how do i/i, /show me how/i, /where (is|are)/i],
     build: (ctx) => {
       const screen = screenContextLabel(ctx.pathname);
@@ -244,6 +296,51 @@ const INTENTS: IntentMatch[] = [
           ]
         : [],
     }),
+  },
+  {
+    patterns: [
+      /who (logged|signed|was).*(in|today|system)/i,
+      /logged in today/i,
+      /system logs?/i,
+      /activity (log|today|summary)/i,
+      /what happened today/i,
+      /show.*(logs?|activity)/i,
+      /recent activity/i,
+    ],
+    build: ({ tenantSlug, caps, live }) => {
+      if (!caps.canAccessSettings) {
+        return {
+          message:
+            "The **activity log** is available to **managers and admins**. It shows form edits, submissions, staff changes, and settings — not every browser login.",
+          actions: [],
+          suggestions: ["Where are saved forms?", "Open workspace"],
+        };
+      }
+
+      const activity = live?.activityToday;
+      if (!activity) {
+        return {
+          message:
+            "Open the **Activity log** for the full compliance trail. I can summarize today's events when live data is available — try again in a moment.",
+          actions: [{ type: "navigate", label: "Activity log", href: `/${tenantSlug}/activity` }],
+          suggestions: ["Who submitted forms today?", "Forms submitted today?"],
+        };
+      }
+
+      const summary =
+        activity.summaryLines.length > 0
+          ? activity.summaryLines.map((l: string) => `- ${l}`).join("\n")
+          : "- No events yet today (UTC).";
+
+      return {
+        message: `**Today's activity summary** (${activity.eventCount} events, ${activity.activeActorCount} people active):\n\n${summary}\n\n_Note: logs track brand actions (forms, staff, settings). Staff **PIN** switches on shared tablets may appear as auth.login — regular browser sign-ins are not always logged._`,
+        actions: [
+          { type: "navigate", label: "Full activity log", href: `/${tenantSlug}/activity` },
+          { type: "navigate", label: "Dashboard", href: `/${tenantSlug}/dashboard` },
+        ],
+        suggestions: ["Forms submitted today?", "Open saved forms"],
+      };
+    },
   },
   {
     patterns: [/activity/i, /audit trail/i, /who changed/i, /history/i],
@@ -326,9 +423,24 @@ const INTENTS: IntentMatch[] = [
 
 const HELP_TOPICS: Array<{ keywords: string[]; title: string; body: string }> = [
   {
+    keywords: ["cache", "stale", "not showing", "missing", "refresh"],
+    title: "Stale workspace / cache",
+    body: "After changes, refresh the workspace (?refresh=1), confirm category assignment, or sign out and in. The app caches workspace data for offline use.",
+  },
+  {
     keywords: ["offline", "internet", "sync"],
     title: "Offline mode",
     body: "Some actions need internet once (loading workspace, creating forms). Submitted forms can sync when connection returns.",
+  },
+  {
+    keywords: ["delete", "remove"],
+    title: "Deleting items",
+    body: "Categories: Categories page (managers+). Forms: Settings → Template management (admins, no submissions). Saved submissions: Saved forms select mode (managers+).",
+  },
+  {
+    keywords: ["password", "email", "credentials", "login"],
+    title: "Account credentials",
+    body: "Password: Forgot password on login. Email: brand admin updates under Settings → Staff.",
   },
   {
     keywords: ["column", "table", "wide", "pdf clip"],
@@ -366,7 +478,7 @@ export type CopilotResolution = {
 
 export function resolveCopilotIntentDetailed(
   message: string,
-  ctx: { tenantSlug: string; pathname: string; caps: CopilotCapabilities; brandName?: string },
+  ctx: CopilotIntentContext,
 ): CopilotResolution {
   const trimmed = message.trim();
 

@@ -10,19 +10,14 @@ export type GuardrailVerdict = {
 
 /** Topics Deep Control can help with in this app. */
 const IN_SCOPE =
-  /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|iso|hse|inspection|checklist|corrective|storage|quota|usage|plan|trial|copilot|deep control|pin|role|admin|manager|auditor|offline|sync|logo|library|import|report|table|column|photo|evidence|signature|temp|fridge|haccp|navigate|open|create|add|delete submission|upgrade|limit|activity|message|inbox|share|due|reminder|find|looking|need|want|check|show|tell|where|how|help me|get to|take me)\b/i;
+  /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|iso|hse|inspection|checklist|corrective|storage|quota|usage|plan|trial|copilot|deep control|pin|role|admin|manager|auditor|offline|sync|logo|library|import|report|table|column|photo|evidence|signature|temp|fridge|haccp|navigate|open|create|add|delete|remove|upgrade|limit|activity|message|inbox|share|due|reminder|find|looking|need|want|check|show|tell|where|how|help me|get to|take me|cache|stale|refresh|password|email|credentials|log|logged|login)\b/i;
 
 const OFF_TOPIC =
   /\b(weather|forecast|joke|poem|recipe|cook|movie|sport|football|politics|election|stock|crypto|bitcoin|homework|essay|write me a|tell me about(?! the (form|brand|app|workspace|system))|\bwho is\b|\bwhat is the capital\b|translate this|code this|python|javascript|sql query|medical advice|legal advice|relationship|dating)\b/i;
 
 const UNSUPPORTED: Array<{ pattern: RegExp; message: string }> = [
   {
-    pattern: /\b(reset|change|update).*(password|email)\b/i,
-    message:
-      "I can't change passwords or emails from chat. Use **Settings → Staff** (admins) or ask your brand admin to update your account.",
-  },
-  {
-    pattern: /\b(delete|remove).*(brand|tenant|account|user|staff member)\b/i,
+    pattern: /\b(delete|remove).*(brand|tenant|organisation|organization|company account)\b/i,
     message:
       "I can't delete brands or user accounts from chat. Brand admins can manage staff in **Settings → Staff**.",
   },
@@ -175,7 +170,7 @@ export function buildUnclearResponse(
     : "I want to help, but I need a bit more detail. What are you trying to do?";
 
   return {
-    message: `${lead}\n\nPick the closest option below, or describe your goal in a full sentence (e.g. *show saved forms from today* or *how do I create a fridge log*).`,
+    message: `${lead}\n\nI can help with forms, categories, staff, saved submissions, PDF export, cache issues, and activity summaries. If I am not sure, I will say so — try a full sentence like *my new form is not showing* or *how do I delete a category*.`,
     actions: clarifyActions(tenantSlug, caps),
     suggestions: [
       "How do I create a form?",

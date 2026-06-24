@@ -908,6 +908,67 @@ body {
     color: var(--hse-charcoal);
 }
 
+.mobile-app-install-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--hse-teal) 8%, transparent);
+    padding: 0.65rem 1rem 0.85rem;
+    text-align: center;
+}
+
+.mobile-app-install-inline__anchor {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--hse-teal);
+    text-decoration: none;
+}
+
+.mobile-app-install-inline__anchor:hover {
+    text-decoration: underline;
+}
+
+.mobile-app-install-inline__sep {
+    font-size: 0.75rem;
+    color: var(--accent-soft);
+}
+
+.mobile-app-install-inline__dismiss {
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--accent-soft);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.mobile-app-install-inline__dismiss:hover {
+    color: var(--hse-charcoal);
+}
+
+@keyframes copilot-spotlight-enter {
+    from {
+        opacity: 0;
+        transform: scale(0.94) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.copilot-spotlight-enter {
+    animation: copilot-spotlight-enter 0.35s ease-out both;
+}
+
 .mobile-app-install-banner {
     border-radius: 1rem;
     border: 1px solid color-mix(in srgb, var(--hse-teal) 18%, transparent);

@@ -10,6 +10,9 @@ import { apiUrl } from "@/lib/client/apiBase";
 import { resolveWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { Z_COPILOT_FAB, Z_COPILOT_HINT, Z_COPILOT_PANEL } from "@/lib/ui/zIndex";
 import { getContextualWelcome, pickRotatingHint } from "@/lib/copilot/hints";
+import { buildSpotlightWelcome } from "@/lib/copilot/welcomeSpotlight";
+import { CopilotWelcomeSpotlight } from "@/components/copilot/CopilotWelcomeSpotlight";
+import type { SpotlightAction } from "@/lib/copilot/welcomeSpotlight";
 import { COPILOT_OPEN_EVENT } from "@/lib/copilot/events";
 import {
   dcAiDisplayTitle,
@@ -47,17 +50,18 @@ const DEFAULT_CAPS: CopilotCapabilities = {
   canAccessSettings: false,
 };
 
-/** Bubble timing — keeps the FAB unobtrusive until the user has settled in */
+/** First-run spotlight + corner tips timing */
 const COPILOT_TIMING = {
-  /** Wait before showing the one-time greeting */
-  GREETING_DELAY_MS: 6_000,
-  /** Auto-hide greeting if ignored */
+  /** Centre welcome card — show soon after load */
+  SPOTLIGHT_DELAY_MS: 2_000,
+  /** Auto-hide spotlight if ignored */
+  SPOTLIGHT_AUTO_HIDE_MS: 28_000,
+  /** Corner greeting (returning users who already saw spotlight) */
+  GREETING_DELAY_MS: 8_000,
   GREETING_AUTO_HIDE_MS: 11_000,
-  /** Wait after page load before rotating tips appear */
-  HINTS_START_DELAY_MS: 28_000,
-  /** Auto-hide each tip if ignored */
+  /** Rotating tips after spotlight / greeting */
+  HINTS_START_DELAY_MS: 14_000,
   HINT_AUTO_HIDE_MS: 9_000,
-  /** Rotate to the next tip */
   HINT_ROTATE_MS: 16_000,
 } as const;
 
@@ -176,6 +180,9 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   const [hintsHidden, setHintsHidden] = useState(false);
   const [greetingDismissed, setGreetingDismissed] = useState(false);
   const [greetingReady, setGreetingReady] = useState(false);
+  const [spotlightDismissed, setSpotlightDismissed] = useState(false);
+  const [spotlightReady, setSpotlightReady] = useState(false);
+  const [spotlightSeen, setSpotlightSeen] = useState(true);
   const [hintsReady, setHintsReady] = useState(false);
   const [currentHintDismissed, setCurrentHintDismissed] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -187,21 +194,39 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   const [portalReady, setPortalReady] = useState(false);
   const userId = session?.user?.id || null;
 
+  const spotlightWelcome = useMemo(
+    () => buildSpotlightWelcome({ tenantSlug, pathname, caps, brandName }),
+    [tenantSlug, pathname, caps, brandName],
+  );
+
+  const showSpotlight =
+    spotlightReady &&
+    !spotlightDismissed &&
+    !spotlightSeen &&
+    !hintsHidden &&
+    !open &&
+    (!copilotAccess || copilotAccess.allowed);
+
   const activeHint = useMemo(
     () =>
-      hintsReady && !open && !hintsHidden && greetingDismissed && (!copilotAccess || copilotAccess.allowed)
+      hintsReady && !open && !hintsHidden && (spotlightSeen || spotlightDismissed) && greetingDismissed && (!copilotAccess || copilotAccess.allowed)
         ? pickRotatingHint(pathname, caps, hintIndex)
         : null,
-    [hintsReady, open, hintsHidden, greetingDismissed, copilotAccess, pathname, caps, hintIndex],
+    [hintsReady, open, hintsHidden, spotlightSeen, spotlightDismissed, greetingDismissed, copilotAccess, pathname, caps, hintIndex],
   );
 
   const showGreeting =
-    greetingReady && !greetingDismissed && !hintsHidden && !open && (!copilotAccess || copilotAccess.allowed);
+    spotlightSeen &&
+    greetingReady &&
+    !greetingDismissed &&
+    !hintsHidden &&
+    !open &&
+    (!copilotAccess || copilotAccess.allowed);
 
   const showHintBubble = Boolean(activeHint && !currentHintDismissed);
 
-  /** Attention animation only when a bubble is visible — not on the bare FAB */
-  const showAttentionAnim = showGreeting || showHintBubble;
+  /** Attention animation when a bubble is visible — not on the bare FAB */
+  const showAttentionAnim = showSpotlight || showGreeting || showHintBubble;
 
   useEffect(() => {
     setPortalReady(true);
@@ -211,17 +236,39 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     const prefs = readLocalCopilotPrefs(tenantSlug);
     const hidden = prefs.hintsHidden === true;
     setHintsHidden(hidden);
+    setSpotlightSeen(prefs.spotlightSeen === true);
     if (hidden || prefs.greetingSeen) {
       setGreetingDismissed(true);
     }
+    if (hidden || prefs.spotlightSeen) {
+      setSpotlightDismissed(true);
+    }
   }, [tenantSlug]);
 
-  // Delay greeting — don't pop up immediately on page load
+  // Centre spotlight — first impression for new testers
   useEffect(() => {
-    if (hintsHidden || open || greetingDismissed) return;
+    if (hintsHidden || open || spotlightSeen || spotlightDismissed) return;
+    const id = window.setTimeout(() => setSpotlightReady(true), COPILOT_TIMING.SPOTLIGHT_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [hintsHidden, open, spotlightSeen, spotlightDismissed, tenantSlug]);
+
+  useEffect(() => {
+    if (!spotlightReady || spotlightDismissed || spotlightSeen || open) return;
+    const id = window.setTimeout(() => {
+      setSpotlightDismissed(true);
+      setGreetingDismissed(true);
+      setSpotlightSeen(true);
+      writeLocalCopilotPrefs(tenantSlug, { spotlightSeen: true, greetingSeen: true });
+    }, COPILOT_TIMING.SPOTLIGHT_AUTO_HIDE_MS);
+    return () => window.clearTimeout(id);
+  }, [spotlightReady, spotlightDismissed, spotlightSeen, open, tenantSlug]);
+
+  // Corner greeting — returning users only
+  useEffect(() => {
+    if (!spotlightSeen || hintsHidden || open || greetingDismissed) return;
     const id = window.setTimeout(() => setGreetingReady(true), COPILOT_TIMING.GREETING_DELAY_MS);
     return () => window.clearTimeout(id);
-  }, [hintsHidden, open, greetingDismissed, tenantSlug]);
+  }, [spotlightSeen, hintsHidden, open, greetingDismissed, tenantSlug]);
 
   // Auto-hide greeting after a while if user ignores it
   useEffect(() => {
@@ -494,6 +541,13 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     setCurrentHintDismissed(true);
   }
 
+  function dismissSpotlight() {
+    setSpotlightDismissed(true);
+    setGreetingDismissed(true);
+    setSpotlightSeen(true);
+    writeLocalCopilotPrefs(tenantSlug, { spotlightSeen: true, greetingSeen: true });
+  }
+
   function dismissGreeting() {
     setGreetingDismissed(true);
     writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true });
@@ -502,12 +556,16 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   function dismissHints() {
     setHintsHidden(true);
     setGreetingDismissed(true);
-    writeLocalCopilotPrefs(tenantSlug, { hintsHidden: true, greetingSeen: true });
+    setSpotlightDismissed(true);
+    setSpotlightSeen(true);
+    writeLocalCopilotPrefs(tenantSlug, { hintsHidden: true, greetingSeen: true, spotlightSeen: true });
   }
 
-  function handleOpenCopilot() {
-    writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true });
+  function handleOpenCopilot(prefill?: string) {
+    writeLocalCopilotPrefs(tenantSlug, { greetingSeen: true, spotlightSeen: true });
     setGreetingDismissed(true);
+    setSpotlightDismissed(true);
+    setSpotlightSeen(true);
     if (copilotAccess && !copilotAccess.allowed) {
       setPlanLimitKind(
         copilotAccess.reason === "disabled" ? "copilot_disabled" : "copilot_trial_expired",
@@ -516,6 +574,21 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
       return;
     }
     setOpen(true);
+    if (prefill?.trim()) {
+      window.setTimeout(() => void sendMessage(prefill.trim()), 120);
+    }
+  }
+
+  function handleSpotlightAction(action: SpotlightAction) {
+    dismissSpotlight();
+    if (action.prompt) {
+      handleOpenCopilot(action.prompt);
+      return;
+    }
+    if (action.href) {
+      setOpen(false);
+      router.push(action.href);
+    }
   }
 
   if (!tenantSlug) return null;
@@ -653,12 +726,12 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
           style={{ zIndex: Z_COPILOT_FAB }}
         >
           {showGreeting ? (
-            <CopilotGreetingBubble onOpen={handleOpenCopilot} onDismiss={dismissGreeting} />
+            <CopilotGreetingBubble onOpen={() => handleOpenCopilot()} onDismiss={dismissGreeting} />
           ) : null}
           {showHintBubble && activeHint ? (
             <CopilotHintBubble
               text={activeHint.text}
-              onOpen={handleOpenCopilot}
+              onOpen={() => handleOpenCopilot()}
               onDismiss={dismissCurrentHint}
             />
           ) : null}
@@ -678,7 +751,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
             ) : null}
             <button
               type="button"
-              onClick={handleOpenCopilot}
+              onClick={() => handleOpenCopilot()}
               className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-full bg-[var(--hse-teal)] text-white shadow-[0_8px_32px_rgba(15,118,110,0.45)] ring-4 ring-white transition hover:scale-105 hover:shadow-[0_12px_40px_rgba(15,118,110,0.55)] sm:h-[4.5rem] sm:w-[4.5rem]"
               aria-label={`Open ${DC_AI_NAME}`}
               title={DC_AI_NAME}
@@ -701,6 +774,18 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
           ) : null}
         </div>
       ) : null}
+
+      {portalReady && showSpotlight
+        ? createPortal(
+            <CopilotWelcomeSpotlight
+              welcome={spotlightWelcome}
+              onAction={handleSpotlightAction}
+              onOpenChat={() => handleOpenCopilot()}
+              onDismiss={dismissSpotlight}
+            />,
+            document.body,
+          )
+        : null}
 
       {portalReady && copilotPanel
         ? createPortal(copilotPanel, document.body)

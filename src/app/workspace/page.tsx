@@ -2372,7 +2372,6 @@ function WorkspacePageInner() {
   if (showTenantPicker) {
     return (
       <div className="workspace-shell min-h-dvh">
-        <MobileAppInstallBanner placement="workspace" />
         <div className="mx-auto max-w-7xl p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -2522,7 +2521,6 @@ function WorkspacePageInner() {
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} accessToken={accessToken} />
       <div className="ws-header-accent" />
-      <MobileAppInstallBanner placement="workspace" />
       <div className="ws-header sticky top-0 isolate backdrop-blur-xl" style={{ zIndex: Z_STICKY_HEADER }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
@@ -2960,6 +2958,8 @@ function WorkspacePageInner() {
                 </button>
               ) : null}
             </div>
+
+            <MobileAppInstallBanner placement="workspace" variant="inline" />
           </section>
         ) : null}
 

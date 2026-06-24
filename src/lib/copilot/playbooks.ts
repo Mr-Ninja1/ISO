@@ -1,9 +1,12 @@
 import type { CopilotAction, CopilotCapabilities, CopilotResponse } from "@/lib/copilot/intents";
+import type { CopilotLiveSnapshot } from "@/lib/copilot/fetchLiveSnapshot";
+import { DC_AI_NAME } from "@/lib/ai/deepControl";
 
 export type PlaybookContext = {
   tenantSlug: string;
   pathname: string;
   caps: CopilotCapabilities;
+  live?: CopilotLiveSnapshot | null;
 };
 
 type Playbook = {
@@ -226,16 +229,142 @@ const PLAYBOOKS: Playbook[] = [
       suggestions: ["Add a staff member", "Create a form"],
     }),
   },
+  {
+    triggers: [
+      /how (do|can|should) i (delete|remove).*(categor)/i,
+      /delete.*categor/i,
+      /remove.*categor/i,
+    ],
+    build: ({ tenantSlug, caps }) => {
+      if (!caps.canManageCategories) {
+        return {
+          message: "Only **managers and admins** can delete categories.",
+          actions: [],
+        };
+      }
+      return {
+        message: `**Delete a category — step by step**\n\n${steps([
+          "Open **Categories** from the workspace menu or HSE console.",
+          "Move any forms out of the category first if you still need them (use **Move forms**).",
+          "Tap **Delete** on the category and confirm.",
+          "If the workspace still looks wrong, refresh with **?refresh=1** on the workspace URL or sign out and back in.",
+        ])}`,
+        actions: [{ type: "navigate", label: "Open categories", href: `/${tenantSlug}/categories` }],
+        suggestions: ["How do I add a category?", "My new form is not showing"],
+      };
+    },
+  },
+  {
+    triggers: [
+      /how (do|can|should) i (delete|remove).*(form|template)/i,
+      /delete.*(form|template)/i,
+      /remove.*(form|template)/i,
+    ],
+    build: ({ tenantSlug, caps }) => {
+      if (!caps.canCreateForms) {
+        return {
+          message: "Deleting forms is restricted to **admins** (forms with no submissions only). Ask your brand admin.",
+          actions: [],
+        };
+      }
+      return {
+        message: `**Delete a form (template) — step by step**\n\n${steps([
+          "Only **admins** can delete forms, and only if there are **no submissions** yet.",
+          "Open **Settings → Template management** (or **Templates**).",
+          "Find the form and tap **Delete**, then confirm.",
+          "If the form has saved submissions, deletion is blocked — hide fields in the builder instead.",
+          "After deleting, refresh the workspace (?refresh=1) if the card still appears.",
+        ])}`,
+        actions: [
+          { type: "navigate", label: "Template management", href: `/${tenantSlug}/settings` },
+          { type: "navigate", label: "Templates", href: `/${tenantSlug}/templates` },
+        ],
+        suggestions: ["How do I hide a field?", "Delete a saved submission"],
+      };
+    },
+  },
+  {
+    triggers: [
+      /(change|update|reset).*(password|credentials)/i,
+      /forgot.*password/i,
+      /new password/i,
+    ],
+    build: () => ({
+      message: `**Change your password**\n\n${steps([
+        "Sign out if you are still logged in.",
+        "On the login page, tap **Forgot password**.",
+        "Enter your email — you will receive a reset link (check spam).",
+        "Open the link and set a new password, then sign in again.",
+      ])}\n\n${DC_AI_NAME} cannot change passwords from chat.`,
+      actions: [{ type: "navigate", label: "Forgot password", href: "/forgot-password" }],
+      suggestions: ["How do I change my email?", "Verify my email"],
+    }),
+  },
+  {
+    triggers: [/(change|update).*(email)/i, /wrong email/i, /login email/i],
+    build: ({ tenantSlug, caps }) => ({
+      message: `**Change login email**\n\n${steps([
+        "Your sign-in email is managed by your **brand admin** — there is no self-service email change in the app today.",
+        "Ask an admin to open **Settings → Staff**, find your user, and update the email.",
+        "Admins can also set a temporary password when inviting staff.",
+        "For your own admin account, use the same Staff section or contact platform support.",
+      ])}`,
+      actions: caps.canManageStaff
+        ? [{ type: "navigate", label: "Staff settings", href: `/${tenantSlug}/settings?focus=staff` }]
+        : [],
+      suggestions: ["Forgot password", "Add a staff member"],
+    }),
+  },
+  {
+    triggers: [
+      /(not showing|don't see|cannot see|can't see|missing|stale|out of date|old data|cache|refresh)/i,
+      /created.*(form|category).*(not|doesn't|don't)/i,
+      /form.*(not appear|not visible|nowhere)/i,
+    ],
+    build: ({ tenantSlug, live }) => {
+      const dbHint = live
+        ? `\n\n**Live check:** this brand currently has **${live.templateCount}** form(s) and **${live.categoryCount}** categor${live.categoryCount === 1 ? "y" : "ies"} in the database.${
+            live.recentTemplateTitles.length
+              ? ` Latest updates: ${live.recentTemplateTitles.slice(0, 3).join(", ")}.`
+              : ""
+          }`
+        : "";
+
+      return {
+        message: `**Form or category not showing?** This is usually **workspace cache** — the app keeps a snapshot for speed and offline use.${dbHint}\n\n${steps([
+          "Open the workspace with a forced refresh: add **?refresh=1** to the URL.",
+          "Confirm the form is assigned to a **category** (Settings → Templates or Categories).",
+          "Try **sign out and sign in** again.",
+          "Hard-refresh the browser (Ctrl+Shift+R) or clear site data once.",
+          "On Android: force-close the app and reopen.",
+        ])}`,
+        actions: [
+          {
+            type: "navigate",
+            label: "Refresh workspace",
+            href: `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}&refresh=1`,
+          },
+          { type: "navigate", label: "Categories", href: `/${tenantSlug}/categories` },
+        ],
+        suggestions: ["How do I create a category?", "How do I create a form?"],
+      };
+    },
+  },
 ];
 
 const HOW_TO_PATTERN = /how (do|can|should|to)|step by step|walk me through|explain how|show me how|what('s| is) the process/i;
+
+/** Playbooks that should run without "how do I" phrasing */
+const DIRECT_PLAYBOOK_PATTERN =
+  /(not showing|don't see|cannot see|can't see|missing|stale|out of date|cache|forgot.*password|delete.*(categor|form|template)|remove.*(categor|form|template)|(change|update).*(password|email))/i;
 
 export function resolvePlaybook(message: string, ctx: PlaybookContext): CopilotResponse | null {
   const trimmed = message.trim();
   if (!trimmed) return null;
 
   const looksHowTo = HOW_TO_PATTERN.test(trimmed);
-  if (!looksHowTo) return null;
+  const directPlaybook = DIRECT_PLAYBOOK_PATTERN.test(trimmed);
+  if (!looksHowTo && !directPlaybook) return null;
 
   for (const playbook of PLAYBOOKS) {
     if (playbook.triggers.some((p) => p.test(trimmed))) {

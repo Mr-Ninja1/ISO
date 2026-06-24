@@ -79,6 +79,8 @@ export type LocalCopilotPrefs = {
   hintsHidden?: boolean;
   /** User has seen or dismissed the one-time greeting bubble */
   greetingSeen?: boolean;
+  /** User has seen the centre welcome spotlight */
+  spotlightSeen?: boolean;
 };
 
 /** Lightweight prefs — no server round-trip */

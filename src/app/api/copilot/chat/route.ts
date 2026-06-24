@@ -8,6 +8,7 @@ import { hasPermission, normalizeRole } from "@/lib/roleGate";
 import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus, recordAiUsage } from "@/lib/tenantPlan";
 import { DC_AI_NAME } from "@/lib/ai/deepControl";
 import { getGeminiModelName } from "@/lib/ai/gemini";
+import { fetchCopilotLiveSnapshot } from "@/lib/copilot/fetchLiveSnapshot";
 
 function getBearerToken(req: Request) {
   const header =
@@ -92,12 +93,16 @@ export async function POST(req: Request) {
       canAccessSettings: hasPermission(role, "settings.view"),
     };
 
+    const live = await fetchCopilotLiveSnapshot(sb, tenant.id as string, role, caps);
+
     const knowledgeCtx = {
       tenantSlug,
       pathname,
       caps,
       brandName: tenant.name as string,
       role,
+      live,
+      brandDomainContext: aiProfile.domain_context,
     };
 
     const { response: ruleResult, tier } = resolveCopilotIntentDetailed(message, knowledgeCtx);
