@@ -2,31 +2,37 @@
 
 Deep Control answers workspace questions using a **hybrid**:
 
-1. **Rule-based** — fast paths for navigation (“open saved forms”), playbooks (“how do I create a form step by step”), and guardrails (off-topic, unsupported actions).
-2. **Gemini** — everything else, with a full **system knowledge** prompt so users get proper guidance even when their wording does not match a regex.
+1. **Rule-based** — playbooks, intents, guardrails (instant, no API cost).
+2. **Grep retrieval** — keyword search over `knowledgeIndex.ts` (like searching docs).
+3. **Live snapshot** — small DB counts + today's activity summary.
+4. **Gemini** — harder questions, with retrieved docs + snapshot in context (not the whole app in one prompt).
 
 ## Where to edit product knowledge
 
 | File | Purpose |
 |------|---------|
-| [`src/lib/copilot/systemKnowledge.ts`](../src/lib/copilot/systemKnowledge.ts) | **Main knowledge doc** — terminology, navigation URLs, workflows, limits. Update when you ship features. |
-| [`src/lib/copilot/playbooks.ts`](../src/lib/copilot/playbooks.ts) | Step-by-step “how to” playbooks (rule-only, no API cost). |
-| [`src/lib/copilot/intents.ts`](../src/lib/copilot/intents.ts) | Quick navigation intents + `HELP_TOPICS` snippets. |
-| [`src/lib/copilot/guardrails.ts`](../src/lib/copilot/guardrails.ts) | Off-topic / unsupported / vague message handling. |
-| [`src/lib/ai/copilotGemini.ts`](../src/lib/ai/copilotGemini.ts) | Gemini call, JSON parsing, action sanitization. |
+| [`src/lib/copilot/knowledgeIndex.ts`](../src/lib/copilot/knowledgeIndex.ts) | **Searchable doc chunks** — add one entry per feature/workflow. Retrieved per question. |
+| [`src/lib/copilot/retrieveKnowledge.ts`](../src/lib/copilot/retrieveKnowledge.ts) | Grep-style scoring over the index. |
+| [`src/lib/copilot/systemKnowledge.ts`](../src/lib/copilot/systemKnowledge.ts) | Core AI instructions + terminology (keep lean). |
+| [`src/lib/copilot/playbooks.ts`](../src/lib/copilot/playbooks.ts) | Step-by-step “how do I …” (rule-only). |
+| [`src/lib/copilot/intents.ts`](../src/lib/copilot/intents.ts) | Quick navigation + `HELP_TOPICS`. |
+| [`src/lib/copilot/fetchLiveSnapshot.ts`](../src/lib/copilot/fetchLiveSnapshot.ts) | Live form/category counts + activity today. |
+
+Validate index: `node tools/build-copilot-knowledge.mjs`
 
 ## When Gemini runs
 
-Gemini is used when the message passes guardrails but does **not** match a high-confidence **playbook** or **intent** pattern.
+Gemini runs when the message is in-scope but does **not** match a high-confidence playbook, intent, fuzzy, or **knowledge** retrieval hit. It receives **top 3–4 retrieved chunks** only — not the full codebase.
 
-Requires `GEMINI_API_KEY` on the server (Azure). If missing, the app falls back to fuzzy/rule responses only.
+Requires `GEMINI_API_KEY` on the server (Azure).
 
 ## Adding a new feature to the assistant
 
-1. Add navigation row to the catalog in `systemKnowledge.ts`.
-2. Add a playbook in `playbooks.ts` if users often ask “how do I … step by step”.
-3. Add an intent pattern if users say “open X” / “take me to X”.
-4. Deploy website (API route change) — OTA updates the UI; copilot logic runs on **Azure**.
+1. Add a chunk to `knowledgeIndex.ts` (title, tags, body, hrefs).
+2. Optionally add a playbook for “how do I … step by step”.
+3. Optionally add an intent for “open X” / “take me to X”.
+4. Run `node tools/build-copilot-knowledge.mjs`.
+5. Deploy website (API route) — OTA updates UI only; copilot runs on **Azure**.
 
 ## API
 

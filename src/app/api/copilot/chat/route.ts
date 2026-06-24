@@ -9,6 +9,10 @@ import { ensureTenantPlan, ensureTenantAiProfile, getCopilotAccessStatus, record
 import { DC_AI_NAME } from "@/lib/ai/deepControl";
 import { getGeminiModelName } from "@/lib/ai/gemini";
 import { fetchCopilotLiveSnapshot } from "@/lib/copilot/fetchLiveSnapshot";
+import {
+  formatRetrievedKnowledge,
+  retrieveCopilotKnowledge,
+} from "@/lib/copilot/retrieveKnowledge";
 
 function getBearerToken(req: Request) {
   const header =
@@ -95,6 +99,9 @@ export async function POST(req: Request) {
 
     const live = await fetchCopilotLiveSnapshot(sb, tenant.id as string, role, caps);
 
+    const retrieved = retrieveCopilotKnowledge(message, { caps });
+    const retrievedDocs = formatRetrievedKnowledge(retrieved);
+
     const knowledgeCtx = {
       tenantSlug,
       pathname,
@@ -103,6 +110,8 @@ export async function POST(req: Request) {
       role,
       live,
       brandDomainContext: aiProfile.domain_context,
+      retrievedDocs,
+      retrieved,
     };
 
     const { response: ruleResult, tier } = resolveCopilotIntentDetailed(message, knowledgeCtx);

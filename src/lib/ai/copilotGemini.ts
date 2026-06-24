@@ -19,6 +19,7 @@ const RULE_ONLY_TIERS = new Set([
   "unsupported",
   "playbook",
   "intent",
+  "knowledge",
 ]);
 
 export function shouldUseGeminiCopilot(tier: string): boolean {

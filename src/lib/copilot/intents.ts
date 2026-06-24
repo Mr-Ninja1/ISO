@@ -12,6 +12,8 @@ import {
   buildUnclearResponse,
 } from "@/lib/copilot/guardrails";
 import type { CopilotLiveSnapshot } from "@/lib/copilot/fetchLiveSnapshot";
+import type { RetrievedChunk } from "@/lib/copilot/retrieveKnowledge";
+import { buildKnowledgeRetrievalResponse } from "@/lib/copilot/retrieveKnowledge";
 
 export type CopilotAction = {
   type: "navigate" | "open_url";
@@ -38,6 +40,7 @@ export type CopilotIntentContext = {
   caps: CopilotCapabilities;
   brandName?: string;
   live?: CopilotLiveSnapshot | null;
+  retrieved?: RetrievedChunk[];
 };
 
 type IntentMatch = {
@@ -468,6 +471,7 @@ export type CopilotResolutionTier =
   | "intent"
   | "help_topic"
   | "fuzzy"
+  | "knowledge"
   | "unclear"
   | "contextual_fallback";
 
@@ -554,6 +558,16 @@ export function resolveCopilotIntentDetailed(
   const fuzzy = resolveFuzzyIntent(trimmed, ctx);
   if (fuzzy) {
     return { tier: "fuzzy", response: withSupportEscalation(fuzzy, trimmed) };
+  }
+
+  const knowledgeHit = buildKnowledgeRetrievalResponse(
+    trimmed,
+    ctx.tenantSlug,
+    ctx.caps,
+    ctx.retrieved || [],
+  );
+  if (knowledgeHit) {
+    return { tier: "knowledge", response: withSupportEscalation(knowledgeHit.response, trimmed) };
   }
 
   if (guard.kind === "unclear") {

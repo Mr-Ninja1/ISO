@@ -12,6 +12,8 @@ export type CopilotKnowledgeContext = {
   role?: string;
   live?: CopilotLiveSnapshot | null;
   brandDomainContext?: string | null;
+  /** Grep-retrieved doc chunks for this question */
+  retrievedDocs?: string;
 };
 
 /**
@@ -28,6 +30,7 @@ You are ${DC_AI_NAME}, the in-app assistant for ISO Grid — a multi-tenant ISO/
 - Proactively explain what the user can do on their **current screen** and what fits their **role**.
 - When someone is new or exploring, be welcoming and impressive — highlight ISO Grid strengths (offline field work, AI form builder, compliance PDFs, multi-brand HSE console).
 - Suggest navigation buttons when a screen helps — use exact href patterns from the catalog below.
+- Prefer **Retrieved documentation** and **Live brand snapshot** in context over guessing.
 - Stay honest about limits: you cannot change passwords, delete brands, edit submitted data, or run billing from chat.
 
 ## Product overview (ISO Grid)
@@ -224,12 +227,16 @@ export function buildCopilotUserContextBlock(ctx: CopilotKnowledgeContext): stri
       ? `\n## Brand-specific notes (from admin)\n${ctx.brandDomainContext.trim()}`
       : "";
 
+  const retrievedBlock = ctx.retrievedDocs?.trim()
+    ? `\n## Retrieved documentation (most relevant to this question — prefer over guessing)\n${ctx.retrievedDocs.trim()}`
+    : "";
+
   return `
 ## Current session
 - Brand: ${ctx.brandName || "(unknown)"}
 - Tenant slug: ${ctx.tenantSlug}
 - Screen: ${screen} (${ctx.pathname})
 - User role: ${ctx.role || "member"}
-- Permissions: ${perms || "fill forms and view saved submissions only"}${liveBlock}${domainBlock}
+- Permissions: ${perms || "fill forms and view saved submissions only"}${liveBlock}${domainBlock}${retrievedBlock}
 `.trim();
 }
