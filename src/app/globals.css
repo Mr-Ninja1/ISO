@@ -854,7 +854,60 @@ body {
     color: var(--hse-teal-mid);
 }
 
-/* Android mobile web — install app banner (not shown in Capacitor) */
+/* Web — install Android app (not shown in Capacitor) */
+.mobile-app-install-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--hse-teal) 14%, transparent);
+    background: color-mix(in srgb, var(--hse-sky) 55%, white);
+    padding: 0.5rem 0.65rem;
+}
+
+.mobile-app-install-link--login {
+    margin-bottom: 1rem;
+}
+
+.mobile-app-install-link--workspace {
+    margin: 0 auto 0.75rem;
+    max-width: 80rem;
+}
+
+.mobile-app-install-link__anchor {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--hse-teal);
+    text-decoration: none;
+}
+
+.mobile-app-install-link__anchor:hover {
+    text-decoration: underline;
+}
+
+.mobile-app-install-link__close {
+    display: flex;
+    height: 1.5rem;
+    width: 1.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--hse-teal-mid);
+    cursor: pointer;
+}
+
+.mobile-app-install-link__close:hover {
+    background: color-mix(in srgb, var(--hse-teal) 8%, transparent);
+    color: var(--hse-charcoal);
+}
+
 .mobile-app-install-banner {
     border-radius: 1rem;
     border: 1px solid color-mix(in srgb, var(--hse-teal) 18%, transparent);

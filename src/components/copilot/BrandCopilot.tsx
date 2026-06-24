@@ -7,6 +7,7 @@ import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
 import { apiUrl } from "@/lib/client/apiBase";
+import { resolveWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import { Z_COPILOT_FAB, Z_COPILOT_HINT, Z_COPILOT_PANEL } from "@/lib/ui/zIndex";
 import { getContextualWelcome, pickRotatingHint } from "@/lib/copilot/hints";
 import { COPILOT_OPEN_EVENT } from "@/lib/copilot/events";
@@ -248,19 +249,26 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   }, [hintsReady, hintsHidden, open, greetingDismissed, hintIndex, currentHintDismissed]);
 
   useEffect(() => {
-    const token = session?.access_token;
-    if (!token || !tenantSlug) return;
-    fetch(apiUrl(`/api/workspace/storage?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.copilotAccess) {
-          setCopilotAccess(data.copilotAccess as CopilotAccessStatus);
-        }
+    if (!tenantSlug) return;
+    let cancelled = false;
+    (async () => {
+      const token = await resolveWorkspaceAccessToken(session);
+      if (!token || cancelled) return;
+      fetch(apiUrl(`/api/workspace/storage?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .catch(() => undefined);
-  }, [session?.access_token, tenantSlug]);
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.copilotAccess) {
+            setCopilotAccess(data.copilotAccess as CopilotAccessStatus);
+          }
+        })
+        .catch(() => undefined);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, tenantSlug]);
 
   useEffect(() => {
     if (!open) {
@@ -314,26 +322,33 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   }, [hintIndex]);
 
   useEffect(() => {
-    const token = session?.access_token;
-    if (!token || !tenantSlug) return;
-    fetch(apiUrl(`/api/workspace/capabilities?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) return;
-        const c = data.capabilities;
-        if (c) {
-          setCaps({
-            canCreateForms: Boolean(c.canCreateForms),
-            canManageCategories: Boolean(c.canManageCategories),
-            canManageStaff: Boolean(c.canManageStaff),
-            canAccessSettings: Boolean(c.canAccessSettings),
-          });
-        }
+    if (!tenantSlug) return;
+    let cancelled = false;
+    (async () => {
+      const token = await resolveWorkspaceAccessToken(session);
+      if (!token || cancelled) return;
+      fetch(apiUrl(`/api/workspace/capabilities?tenantSlug=${encodeURIComponent(tenantSlug)}`), {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      .catch(() => undefined);
-  }, [session?.access_token, tenantSlug]);
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) return;
+          const c = data.capabilities;
+          if (c) {
+            setCaps({
+              canCreateForms: Boolean(c.canCreateForms),
+              canManageCategories: Boolean(c.canManageCategories),
+              canManageStaff: Boolean(c.canManageStaff),
+              canAccessSettings: Boolean(c.canAccessSettings),
+            });
+          }
+        })
+        .catch(() => undefined);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, tenantSlug]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -351,8 +366,18 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
-    const token = session?.access_token;
-    if (!token) return;
+    const token = await resolveWorkspaceAccessToken(session);
+    if (!token) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `e-${Date.now()}`,
+          role: "assistant",
+          content: "Please sign in again to use the AI assistant.",
+        },
+      ]);
+      return;
+    }
 
     appendLocalCopilotMessage(tenantSlug, userId, {
       id: `u-${Date.now()}`,
@@ -364,7 +389,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     setLoading(true);
 
     try {
-      const res = await fetch(apiUrl("/api/copilot/chat"), {
+      let res = await fetch(apiUrl("/api/copilot/chat"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -372,6 +397,21 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
         },
         body: JSON.stringify({ message: trimmed, tenantSlug, pathname }),
       });
+
+      if (res.status === 401) {
+        const refreshed = await resolveWorkspaceAccessToken(session);
+        if (refreshed) {
+          res = await fetch(apiUrl("/api/copilot/chat"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${refreshed}`,
+            },
+            body: JSON.stringify({ message: trimmed, tenantSlug, pathname }),
+          });
+        }
+      }
+
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 403 && (data?.code === "copilot_disabled" || String(data.message || "").includes("not enabled"))) {

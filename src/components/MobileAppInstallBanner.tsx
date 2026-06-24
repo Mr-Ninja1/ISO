@@ -2,33 +2,33 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { Download, X } from "lucide-react";
+import { Download, Smartphone, X } from "lucide-react";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { apiUrl } from "@/lib/client/apiBase";
-import {
-  isAndroidMobileWeb,
-  MOBILE_APP_BANNER_DISMISS_KEY,
-} from "@/lib/client/mobileAndroidWeb";
+import { MOBILE_APP_BANNER_DISMISS_KEY } from "@/lib/client/mobileAndroidWeb";
 
 const ENV_APK_URL = (process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
 
 type Placement = "login" | "workspace";
+type Variant = "banner" | "slim";
 
 type Props = {
   placement?: Placement;
+  variant?: Variant;
 };
 
 /**
- * Android mobile web only — prompts users to install the sideload APK.
+ * Prompts users to install the Android sideload APK on web (any platform).
  * Never shown inside the Capacitor native app.
  */
-export function MobileAppInstallBanner({ placement = "login" }: Props) {
+export function MobileAppInstallBanner({ placement = "login", variant }: Props) {
+  const resolvedVariant: Variant = variant ?? (placement === "login" ? "slim" : "banner");
   const [eligible, setEligible] = useState(false);
   const [dismissed, setDismissed] = useState(true);
   const [apkUrl, setApkUrl] = useState(ENV_APK_URL);
 
   useEffect(() => {
-    if (isCapacitorNativeApp() || !isAndroidMobileWeb()) {
+    if (isCapacitorNativeApp()) {
       setEligible(false);
       return;
     }
@@ -74,6 +74,34 @@ export function MobileAppInstallBanner({ placement = "login" }: Props) {
   if (!eligible || dismissed || !apkUrl) return null;
 
   const isLogin = placement === "login";
+
+  if (resolvedVariant === "slim") {
+    return (
+      <div
+        className={`mobile-app-install-link ${isLogin ? "mobile-app-install-link--login" : "mobile-app-install-link--workspace"}`}
+        role="region"
+        aria-label="Download ISO Grid Android app"
+      >
+        <a
+          href={apkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mobile-app-install-link__anchor"
+        >
+          <Smartphone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Download Android app
+        </a>
+        <button
+          type="button"
+          onClick={dismiss}
+          className="mobile-app-install-link__close"
+          aria-label="Dismiss download app link"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
