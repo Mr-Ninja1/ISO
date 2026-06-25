@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { MoreVertical } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
@@ -103,7 +104,7 @@ export function HeaderKebabMenu({
         ref={btnRef}
         type="button"
         className={
-          "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface text-foreground/80 shadow-sm transition-colors hover:border-border-strong hover:bg-surface-muted " +
+          "nav-pressable inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface text-foreground/80 shadow-sm transition-colors hover:border-border-strong hover:bg-surface-muted " +
           triggerClassName
         }
         aria-label={label}
@@ -134,7 +135,7 @@ export function HeaderMenuItem({
 }) {
   const closeMenu = useContext(MenuCloseContext);
   const base =
-    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-foreground/8 disabled:opacity-50";
+    "nav-pressable flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-foreground/8 disabled:opacity-50";
 
   const handleClick = (e: MouseEvent<HTMLButtonElement | HTMLAnchorElement>) => {
     onClick?.(e);
@@ -142,10 +143,21 @@ export function HeaderMenuItem({
   };
 
   if (href) {
+    const isExternal =
+      /^https?:\/\//i.test(href) ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:");
+    if (isExternal) {
+      return (
+        <a href={href} className={base + " " + className} onClick={handleClick}>
+          {children}
+        </a>
+      );
+    }
     return (
-      <a href={href} className={base + " " + className} onClick={handleClick}>
+      <Link href={href} className={base + " " + className} onClick={handleClick}>
         {children}
-      </a>
+      </Link>
     );
   }
 

@@ -151,7 +151,7 @@ function CopilotGreetingBubble({
               <Sparkles className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-sm font-bold text-foreground">Hi! I&apos;m DC</div>
+              <div className="text-sm font-bold text-foreground">Hi! I&apos;m ISO Grid AI</div>
               <div className="text-[11px] font-medium text-[var(--hse-teal)]">Your AI assistant</div>
             </div>
           </div>
@@ -758,7 +758,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
             >
               <Sparkles className="h-7 w-7" />
               <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-white px-1 text-[9px] font-bold text-[var(--hse-teal)] shadow-md">
-                DC
+                AI
               </span>
             </button>
           </div>

@@ -17,7 +17,7 @@ export type CopilotKnowledgeContext = {
 };
 
 /**
- * Product knowledge for Deep Control (Gemini system prompt).
+ * Product knowledge for ISO Grid AI (Gemini system prompt).
  * Update this file when shipping major features so the assistant stays accurate.
  */
 export function buildCopilotSystemKnowledge(): string {
@@ -134,7 +134,7 @@ Reusable starting points for common HSE forms (fridge logs, site inspections, et
 ### AI form credits
 Monthly quota per brand; shown in Settings → Usage. **Create with AI** in the builder consumes credits; this ${DC_AI_NAME} chat does not.
 
-### Deep Control (this chat)
+### ISO Grid AI (this chat)
 ${DC_AI_NAME} is the in-app guide — navigation, how-to, and product questions. Separate from **Create with AI** in the form builder.
 
 ## Troubleshooting — stale UI / cache (very common)

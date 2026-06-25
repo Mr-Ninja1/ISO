@@ -51,6 +51,26 @@ type IntentMatch = {
 const INTENTS: IntentMatch[] = [
   {
     patterns: [
+      /^(hi|hello|hey|heya|yo|hola|howzit|sup|good (morning|afternoon|evening))[!. ]*$/i,
+      /^(thanks|thank you|ok|okay|cool)[!. ]*$/i,
+    ],
+    build: ({ tenantSlug, caps }) => ({
+      message:
+        "Hi! I can help with forms, categories, staff, settings, cache issues, and activity summaries. Tell me what you want to do in plain language.",
+      actions: [
+        {
+          type: "navigate",
+          label: "Open workspace",
+          href: `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`,
+        },
+      ],
+      suggestions: caps.canCreateForms
+        ? ["Create a new form", "Why is my form not showing?", "How is the brand performing today?"]
+        : ["Where are saved forms?", "Why is data not updating?", "What happened today?"],
+    }),
+  },
+  {
+    patterns: [
       /forms?.*(saved|submitted).*today/i,
       /today.*(saved|submitted).*forms?/i,
       /forms? that were (saved|submitted).*today/i,
@@ -299,6 +319,64 @@ const INTENTS: IntentMatch[] = [
           ]
         : [],
     }),
+  },
+  {
+    patterns: [
+      /brand.*(perform|performance|health|doing)/i,
+      /how.*brand.*(doing|perform)/i,
+      /performance summary/i,
+      /system performance/i,
+      /today.*summary/i,
+      /quick summary/i,
+    ],
+    build: ({ tenantSlug, caps, live }) => {
+      if (!caps.canAccessSettings) {
+        return {
+          message:
+            "Brand performance summaries are available to **managers and admins**. I can still help with forms and workspace guidance.",
+          actions: [{ type: "navigate", label: "Workspace", href: `/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}` }],
+        };
+      }
+
+      const activity = live?.activityToday;
+      if (!activity) {
+        return {
+          message:
+            "I cannot load live performance counters right now. Open **Dashboard** for compliance metrics and **Activity log** for the event trail.",
+          actions: [
+            { type: "navigate", label: "Dashboard", href: `/${tenantSlug}/dashboard` },
+            { type: "navigate", label: "Activity log", href: `/${tenantSlug}/activity` },
+          ],
+        };
+      }
+
+      const trend =
+        activity.submissions >= 10
+          ? "high submission activity"
+          : activity.submissions >= 3
+            ? "steady submission activity"
+            : "light submission activity";
+
+      return {
+        message:
+          `**Brand performance today (UTC)**\n\n` +
+          `- Events recorded: **${activity.eventCount}**\n` +
+          `- Active people: **${activity.activeActorCount}**\n` +
+          `- Login stream events: **${activity.loginEvents}**\n` +
+          `- Submissions: **${activity.submissions}**\n` +
+          `- Draft saves: **${activity.drafts}**\n` +
+          `- Form changes: **${activity.formChanges}**\n` +
+          `- Category changes: **${activity.categoryChanges}**\n` +
+          `- Staff changes: **${activity.staffChanges}**\n\n` +
+          `Current signal: **${trend}**.` +
+          `\n\nFor deeper detail, open dashboard trends and the full activity log.`,
+        actions: [
+          { type: "navigate", label: "Dashboard", href: `/${tenantSlug}/dashboard` },
+          { type: "navigate", label: "Activity log", href: `/${tenantSlug}/activity` },
+        ],
+        suggestions: ["Who logged in today?", "Show recent activity", "Forms submitted today?"],
+      };
+    },
   },
   {
     patterns: [

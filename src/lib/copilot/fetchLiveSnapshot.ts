@@ -10,6 +10,12 @@ export type CopilotLiveSnapshot = {
   activityToday: {
     eventCount: number;
     activeActorCount: number;
+    loginEvents: number;
+    submissions: number;
+    drafts: number;
+    formChanges: number;
+    categoryChanges: number;
+    staffChanges: number;
     summaryLines: string[];
   } | null;
 };
@@ -61,12 +67,38 @@ function summarizeTodayActivity(
   }>,
 ): CopilotLiveSnapshot["activityToday"] {
   if (!rows.length) {
-    return { eventCount: 0, activeActorCount: 0, summaryLines: ["No brand activity recorded yet today (UTC)."] };
+    return {
+      eventCount: 0,
+      activeActorCount: 0,
+      loginEvents: 0,
+      submissions: 0,
+      drafts: 0,
+      formChanges: 0,
+      categoryChanges: 0,
+      staffChanges: 0,
+      summaryLines: ["No brand activity recorded yet today (UTC)."],
+    };
   }
 
   const actors = new Set(rows.map((r) => r.user_id));
   const lines: string[] = [];
   const seen = new Set<string>();
+  let loginEvents = 0;
+  let submissions = 0;
+  let drafts = 0;
+  let formChanges = 0;
+  let categoryChanges = 0;
+  let staffChanges = 0;
+
+  for (const row of rows) {
+    const action = row.action;
+    if (action === "auth.login") loginEvents += 1;
+    if (action === "audit.submit") submissions += 1;
+    if (action === "audit.saveDraft") drafts += 1;
+    if (action.startsWith("template.")) formChanges += 1;
+    if (action.startsWith("category.")) categoryChanges += 1;
+    if (action.startsWith("staff.")) staffChanges += 1;
+  }
 
   for (const row of rows.slice(0, 12)) {
     const actor = actorFromDetails(row.details) || "A team member";
@@ -85,6 +117,12 @@ function summarizeTodayActivity(
   return {
     eventCount: rows.length,
     activeActorCount: actors.size,
+    loginEvents,
+    submissions,
+    drafts,
+    formChanges,
+    categoryChanges,
+    staffChanges,
     summaryLines: lines,
   };
 }
@@ -166,6 +204,9 @@ export function formatLiveSnapshotBlock(snapshot: CopilotLiveSnapshot): string {
   if (snapshot.activityToday) {
     lines.push(
       `Today's activity (UTC): ${snapshot.activityToday.eventCount} events, ${snapshot.activityToday.activeActorCount} people`,
+    );
+    lines.push(
+      `Key counts: logins ${snapshot.activityToday.loginEvents}, submissions ${snapshot.activityToday.submissions}, drafts ${snapshot.activityToday.drafts}, form changes ${snapshot.activityToday.formChanges}, category changes ${snapshot.activityToday.categoryChanges}, staff changes ${snapshot.activityToday.staffChanges}`,
     );
     for (const s of snapshot.activityToday.summaryLines) {
       lines.push(`- ${s}`);

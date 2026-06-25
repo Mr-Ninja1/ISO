@@ -150,7 +150,7 @@ export function BrandOversightPanel() {
 
     const parts: string[] = [];
     if (options.resetFormAiUsage) parts.push("form AI credits for all brands (this month)");
-    if (options.resetDcTrial) parts.push("Deep Control trials for all unpaid brands");
+    if (options.resetDcTrial) parts.push("ISO Grid AI trials for all unpaid brands");
     const label = parts.join(" and ");
     if (!window.confirm(`Reset ${label}? This cannot be undone.`)) return;
 
@@ -179,7 +179,7 @@ export function BrandOversightPanel() {
       messages.push(`cleared ${result.data.formAiRowsDeleted ?? 0} form AI record(s)`);
     }
     if (options.resetDcTrial) {
-      messages.push(`restarted DC trial on ${result.data.brandsDcTrialReset ?? 0} brand(s)`);
+      messages.push(`restarted AI trial on ${result.data.brandsDcTrialReset ?? 0} brand(s)`);
     }
     setBusyMessage(`AI reset complete: ${messages.join("; ")}.`);
   }
@@ -629,7 +629,7 @@ export function BrandOversightPanel() {
               }
             >
               {aiResetBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Reset all DC trials
+              Reset all AI trials
             </button>
           </div>
         </div>

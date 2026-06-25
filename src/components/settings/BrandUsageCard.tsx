@@ -158,7 +158,7 @@ export function BrandUsageCard({ tenantSlug }: { tenantSlug: string }) {
           ) : null}
         </div>
         <div>
-          <div className="text-xs text-foreground/55">Deep Control chat</div>
+          <div className="text-xs text-foreground/55">ISO Grid AI chat</div>
           <div className="mt-1 text-sm font-medium">
             {data.copilotAccess?.paid
               ? "Unlimited (paid)"

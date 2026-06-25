@@ -174,7 +174,7 @@ export function getContextualWelcome(
       : "filling forms, saved submissions, and offline field work";
 
   return {
-    message: `Hi — I'm **Deep Control**, your ISO Grid guide${name}. I know ${roleHint}. What would you like to do first?`,
+    message: `Hi — I'm **ISO Grid AI**, your ISO Grid guide${name}. I know ${roleHint}. What would you like to do first?`,
     suggestions: caps.canCreateForms
       ? ["Give me a quick product tour", "Create a form with AI", "Where are saved forms?"]
       : ["What can I do here?", "Fill a form", "Where are saved forms?"],

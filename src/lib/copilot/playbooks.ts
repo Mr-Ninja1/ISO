@@ -198,7 +198,7 @@ const PLAYBOOKS: Playbook[] = [
       return {
         message: `**Create with AI — step by step**\n\n${steps([
           "Open the **form builder** (Create form) — AI needs an internet connection.",
-          "Tap **Create with AI** (not the DC chat button — that's for navigation elsewhere).",
+          "Tap **Create with AI** (not the ISO Grid AI chat button — that's for navigation elsewhere).",
           "Describe the form: type, number of rows, column names, signatures, photo fields.",
           "Optional: attach a photo of a paper form — AI reads the layout.",
           "Answer any clarifying questions, then review and edit the draft.",

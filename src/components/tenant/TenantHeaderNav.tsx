@@ -17,7 +17,7 @@ const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms
 
 function navLinkClass(active: boolean) {
   return (
-    "rounded-xl border px-4 py-2 font-medium transition-all " +
+    "nav-pressable rounded-xl border px-4 py-2 font-medium transition-all " +
     (active
       ? "border-foreground bg-foreground text-background shadow-md"
       : "border-border bg-surface/90 text-foreground hover:border-border-strong hover:bg-surface hover:shadow-sm")

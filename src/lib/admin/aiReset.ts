@@ -36,7 +36,7 @@ export async function resetAllBrandsFormAiUsageThisMonth(sb: SupabaseClient): Pr
   return data?.length ?? 0;
 }
 
-/** Restarts Deep Control trial clock for one brand. */
+/** Restarts ISO Grid AI trial clock for one brand. */
 export async function resetTenantDcTrial(sb: SupabaseClient, tenantId: string) {
   const { error } = await sb
     .from("tenant_storage_plans")

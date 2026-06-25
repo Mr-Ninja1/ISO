@@ -53,17 +53,17 @@ function formatShortDate(iso: string | null) {
 
 function copilotStatusLabel(access: CopilotAccess) {
   if (!access.allowed) {
-    if (access.reason === "disabled") return "Deep Control is disabled for this brand.";
+    if (access.reason === "disabled") return "ISO Grid AI is disabled for this brand.";
     if (access.reason === "trial_expired") {
       return `Trial expired on ${formatShortDate(access.trialEndsAt)}. Increasing trial days alone does not reopen access — reset the trial start date or enable paid.`;
     }
-    return "Deep Control is blocked.";
+    return "ISO Grid AI is blocked.";
   }
-  if (access.paid) return "Unlimited Deep Control (paid or Pro/Enterprise plan).";
+  if (access.paid) return "Unlimited ISO Grid AI (paid or Pro/Enterprise plan).";
   if (access.daysRemaining >= 0) {
     return `Trial active — ${access.daysRemaining} day(s) left (ends ${formatShortDate(access.trialEndsAt)}).`;
   }
-  return "Deep Control is available.";
+  return "ISO Grid AI is available.";
 }
 
 export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: Props) {
@@ -197,7 +197,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
       return;
     }
     setCopilotAccess(result.data.copilotAccess);
-    setResetMessage("Deep Control trial restarted from today.");
+    setResetMessage("ISO Grid AI trial restarted from today.");
     onSaved?.();
     void loadPlan();
   }
@@ -269,7 +269,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
                 }
               >
                 <div className="text-xs font-medium uppercase tracking-wide opacity-70">
-                  Deep Control status
+                  ISO Grid AI status
                 </div>
                 <p className="mt-1">{copilotStatusLabel(copilotAccess)}</p>
                 <p className="mt-1 text-xs opacity-75">
@@ -339,7 +339,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span className="font-medium">Deep Control trial (days)</span>
+                <span className="font-medium">ISO Grid AI trial (days)</span>
                 <input
                   type="number"
                   min={0}
@@ -358,7 +358,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
                   checked={copilotEnabled}
                   onChange={(e) => setCopilotEnabled(e.target.checked)}
                 />
-                <span>Deep Control enabled</span>
+                <span>ISO Grid AI enabled</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -366,7 +366,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
                   checked={copilotPaid}
                   onChange={(e) => setCopilotPaid(e.target.checked)}
                 />
-                <span>Deep Control paid (unlimited chat)</span>
+                <span>ISO Grid AI paid (unlimited chat)</span>
               </label>
 
               <div className="rounded-xl border border-dashed border-foreground/15 p-3">
@@ -380,7 +380,7 @@ export function BrandPlanModal({ brandId, brandName, open, onClose, onSaved }: P
                     className="rounded-full border border-foreground/15 px-3 py-1.5 text-xs font-medium hover:bg-foreground/5 disabled:opacity-50"
                     onClick={() => void resetDcTrial()}
                   >
-                    Reset DC trial to today
+                    Reset AI trial to today
                   </button>
                   <button
                     type="button"

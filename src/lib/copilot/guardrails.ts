@@ -8,7 +8,7 @@ export type GuardrailVerdict = {
   reason?: string;
 };
 
-/** Topics Deep Control can help with in this app. */
+/** Topics ISO Grid AI can help with in this app. */
 const IN_SCOPE =
   /\b(form|template|audit|saved|submitted|submission|categor|staff|setting|workspace|dashboard|pdf|export|brand|iso|hse|inspection|checklist|corrective|storage|quota|usage|plan|trial|copilot|deep control|pin|role|admin|manager|auditor|offline|sync|logo|library|import|report|table|column|photo|evidence|signature|temp|fridge|haccp|navigate|open|create|add|delete|remove|upgrade|limit|activity|message|inbox|share|due|reminder|find|looking|need|want|check|show|tell|where|how|help me|get to|take me|cache|stale|refresh|password|email|credentials|log|logged|login)\b/i;
 
@@ -24,7 +24,7 @@ const UNSUPPORTED: Array<{ pattern: RegExp; message: string }> = [
   {
     pattern: /\b(send|email|sms|text message|notify).*(everyone|all staff|broadcast)\b/i,
     message:
-      "Mass messaging isn't available in Deep Control chat. Admins can send alerts from the developer console or message inbox where configured.",
+      "Mass messaging isn't available in ISO Grid AI chat. Admins can send alerts from the developer console or message inbox where configured.",
   },
   {
     pattern: /\b(pay|payment|invoice|stripe|subscribe|billing)\b/i,
@@ -146,7 +146,7 @@ function clarifyActions(tenantSlug: string, caps: CopilotCapabilities) {
 export function buildOffTopicResponse(caps: CopilotCapabilities): CopilotResponse {
   return {
     message:
-      "I'm **Deep Control** — I only help with this brand's ISO/HSE workspace: forms, submissions, categories, staff, settings, and PDF export.\n\nWhat would you like to do in the app? Be specific (e.g. *open saved forms from today* or *how do I add staff*).",
+      "I'm **ISO Grid AI** — I only help with this brand's ISO/HSE workspace: forms, submissions, categories, staff, settings, and PDF export.\n\nWhat would you like to do in the app? Be specific (e.g. *open saved forms from today* or *how do I add staff*).",
     actions: [],
     suggestions: playbookSuggestions(caps),
   };

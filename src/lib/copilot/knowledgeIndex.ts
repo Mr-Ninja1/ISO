@@ -1,7 +1,7 @@
 import type { CopilotCapabilities } from "@/lib/copilot/intents";
 
 /**
- * Searchable product documentation for Deep Control.
+ * Searchable product documentation for ISO Grid AI.
  * Add a chunk when you ship a feature — retrieval picks the top matches per question.
  */
 export type KnowledgeChunk = {
@@ -76,7 +76,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     title: "Create a form / template",
     tags: ["create", "new", "form", "template", "builder", "checklist", "design"],
     requires: "canCreateForms",
-    body: "Open **Create form** (/templates/new). Pick a form type, use **Create with AI** or build manually, assign a **category**, then **Save**. The form appears on the workspace. AI builder uses monthly credits; Deep Control chat does not.",
+    body: "Open **Create form** (/templates/new). Pick a form type, use **Create with AI** or build manually, assign a **category**, then **Save**. The form appears on the workspace. AI builder uses monthly credits; ISO Grid AI chat does not.",
     hrefs: [
       h("Form builder", "/{tenantSlug}/templates/new"),
       h("Templates", "/{tenantSlug}/templates"),
@@ -103,7 +103,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     title: "Create with AI (form builder)",
     tags: ["ai", "gemini", "generate", "describe", "photo", "ocr", "import", "paper"],
     requires: "canCreateForms",
-    body: "In the **form builder**, tap **Create with AI** (not the DC chat button). Describe rows/columns/signatures/photos or attach a picture of a paper form. Answer follow-ups, review fields, save. Uses **monthly AI credits** (Settings → Plan & usage). Needs internet.",
+    body: "In the **form builder**, tap **Create with AI** (not the ISO Grid AI chat button). Describe rows/columns/signatures/photos or attach a picture of a paper form. Answer follow-ups, review fields, save. Uses **monthly AI credits** (Settings → Plan & usage). Needs internet.",
     hrefs: [h("Form builder", "/{tenantSlug}/templates/new")],
   },
   {
@@ -168,7 +168,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     id: "password-reset",
     title: "Change / reset password",
     tags: ["password", "reset", "forgot", "credentials", "login"],
-    body: "Use **Forgot password** on the login screen. DC cannot reset passwords from chat. After reset, sign in with the new password.",
+    body: "Use **Forgot password** on the login screen. ISO Grid AI cannot reset passwords from chat. After reset, sign in with the new password.",
     hrefs: [h("Forgot password", "/forgot-password")],
   },
   {
@@ -217,7 +217,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     title: "Plan, storage & AI credits",
     tags: ["plan", "usage", "storage", "quota", "limit", "upgrade", "credits", "trial"],
     requires: "canAccessSettings",
-    body: "Settings → **Plan & usage**: storage used/limit, monthly **AI form credits**, Deep Control trial status. Contact platform developer to upgrade.",
+    body: "Settings → **Plan & usage**: storage used/limit, monthly **AI form credits**, ISO Grid AI trial status. Contact platform developer to upgrade.",
     hrefs: [h("Plan & usage", "/{tenantSlug}/settings?focus=usage")],
   },
   {
@@ -259,9 +259,9 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
   },
   {
     id: "deep-control-vs-ai",
-    title: "Deep Control vs Create with AI",
+    title: "ISO Grid AI vs Create with AI",
     tags: ["deep control", "dc", "copilot", "chat", "assistant", "difference"],
-    body: "**Deep Control** (DC chat) = navigation and how-to for the app. **Create with AI** = inside the form builder only; drafts form layouts and uses monthly credits.",
+    body: "**ISO Grid AI** (assistant chat) = navigation and how-to for the app. **Create with AI** = inside the form builder only; drafts form layouts and uses monthly credits.",
   },
   {
     id: "form-field-types",
@@ -283,7 +283,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     id: "deactivated-brand",
     title: "Brand deactivated",
     tags: ["deactivated", "suspended", "blocked", "cannot access"],
-    body: "If a brand is deactivated by the platform developer, workspace shows a deactivation screen. Contact your platform developer or support — not fixable from DC chat.",
+    body: "If a brand is deactivated by the platform developer, workspace shows a deactivation screen. Contact your platform developer or support — not fixable from ISO Grid AI chat.",
   },
   {
     id: "unknown-fallback",

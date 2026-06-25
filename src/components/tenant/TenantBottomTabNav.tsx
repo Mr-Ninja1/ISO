@@ -11,7 +11,7 @@ const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms
 
 function tabClass(active: boolean, loading: boolean) {
   return (
-    "inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md text-xs font-medium transition-all " +
+    "nav-pressable inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md text-xs font-medium transition-all " +
     (active ? "bg-[var(--hse-teal)] text-white shadow-sm" : "text-[var(--hse-teal-mid)] hover:bg-[var(--hse-sky)]")
   );
 }

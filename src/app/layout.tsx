@@ -19,6 +19,7 @@ import { NativeUpdateGate } from '@/components/NativeUpdateGate';
 import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
 import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
+import { NavigationProgressBar } from '@/components/NavigationProgressBar';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
 
 export const metadata: Metadata = {
@@ -69,6 +70,7 @@ export default function RootLayout({
       </head>
       <body className='min-h-full flex flex-col'>
         <ThemeBootstrap />
+        <NavigationProgressBar />
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />

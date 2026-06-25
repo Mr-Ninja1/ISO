@@ -1,6 +1,6 @@
-# Deep Control (copilot) knowledge base
+# ISO Grid AI (copilot) knowledge base
 
-Deep Control answers workspace questions using a **hybrid**:
+ISO Grid AI answers workspace questions using a **hybrid**:
 
 1. **Rule-based** — playbooks, intents, guardrails (instant, no API cost).
 2. **Grep retrieval** — keyword search over `knowledgeIndex.ts` (like searching docs).
