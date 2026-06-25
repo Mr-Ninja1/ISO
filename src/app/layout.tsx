@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import './globals.css';
 import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
@@ -70,7 +71,9 @@ export default function RootLayout({
       </head>
       <body className='min-h-full flex flex-col'>
         <ThemeBootstrap />
-        <NavigationProgressBar />
+        <Suspense fallback={null}>
+          <NavigationProgressBar />
+        </Suspense>
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
