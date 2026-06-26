@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, RefreshCw, Search, Settings, Users2, X } from "lucide-react";
@@ -15,7 +15,14 @@ import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/s
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { pushTenantRoute, tenantRouteHref } from "@/lib/client/tenantNavigation";
-import { buildWorkspaceFormsHref, buildWorkspaceAdminHref } from "@/lib/client/workspaceNavigation";
+import {
+  buildWorkspaceFormsHref,
+  buildWorkspaceAdminHref,
+  buildWorkspaceEntryHref,
+  preserveWorkspaceViewInParams,
+  rememberWorkspaceViewPref,
+  type WorkspaceSurfaceView,
+} from "@/lib/client/workspaceNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
@@ -764,8 +771,11 @@ function WorkspacePageInner() {
   const [openingAudits, setOpeningAudits] = useState(false);
   const [openingFormsNav, setOpeningFormsNav] = useState(false);
   const [openingAdminNav, setOpeningAdminNav] = useState(false);
+  const [optimisticView, setOptimisticView] = useState<WorkspaceSurfaceView | null>(null);
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const workspaceRetryTimerRef = useRef<number | null>(null);
+  const revalidateContextRef = useRef({ tenantSlug, categoryId, cacheUserId });
+  const lastBackgroundRevalidateRef = useRef(0);
   /** Limits infinite skeleton when /api/workspace keeps returning 503 (e.g. dev DB pool saturated). */
   const workspaceBusyRetriesRef = useRef(0);
   const workspaceBusyRetriesSlugRef = useRef<string | null>(null);
@@ -777,7 +787,14 @@ function WorkspacePageInner() {
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
   const canSeeAdminHub = workspaceRole === "ADMIN" || workspaceRole === "MANAGER";
-  const activeView = canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
+  const urlView: WorkspaceSurfaceView =
+    canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
+
+  useEffect(() => {
+    setOptimisticView(null);
+  }, [requestedView]);
+
+  const activeView = optimisticView ?? urlView;
   const isAdminView = activeView === "admin";
   const isFormsView = activeView === "forms";
 
@@ -1099,15 +1116,23 @@ function WorkspacePageInner() {
   function handleOpenFormsWorkspace() {
     if (!workspace) return;
     if (openingFormsNav) return;
+    setOptimisticView("forms");
+    rememberWorkspaceViewPref("forms");
     setOpeningFormsNav(true);
-    navigateWithFeedback(router, buildWorkspaceFormsHref(workspace.tenant.slug), "replace");
+    startTransition(() => {
+      navigateWithFeedback(router, buildWorkspaceFormsHref(workspace.tenant.slug), "replace");
+    });
   }
 
   function handleOpenAdminView() {
     if (!workspace) return;
     if (openingAdminNav) return;
+    setOptimisticView("admin");
+    rememberWorkspaceViewPref("admin");
     setOpeningAdminNav(true);
-    navigateWithFeedback(router, buildWorkspaceAdminHref(workspace.tenant.slug), "replace");
+    startTransition(() => {
+      navigateWithFeedback(router, buildWorkspaceAdminHref(workspace.tenant.slug), "replace");
+    });
   }
 
   function handleSwitchBrand() {
@@ -1727,7 +1752,7 @@ function WorkspacePageInner() {
       localStorage.removeItem("lastTenantSlug");
     }
     if (last) {
-      const url = `/workspace?tenantSlug=${encodeURIComponent(last)}`;
+      const url = buildWorkspaceEntryHref(last);
       if (isCapacitorNativeApp()) {
         hardNavigate(url);
       } else {
@@ -1768,7 +1793,7 @@ function WorkspacePageInner() {
         if (tenants.length === 1) {
           const slug = tenants[0].slug;
           localStorage.setItem("lastTenantSlug", slug);
-          const url = `/workspace?tenantSlug=${encodeURIComponent(slug)}`;
+          const url = buildWorkspaceEntryHref(slug);
           if (isCapacitorNativeApp()) {
             hardNavigate(url);
           } else {
@@ -1942,12 +1967,16 @@ function WorkspacePageInner() {
           const next = new URLSearchParams(searchParams.toString());
           next.set("tenantSlug", data.tenant.slug);
           next.set("categoryId", data.selectedCategoryId);
-          next.set("view", activeView);
+          const viewFallback: WorkspaceSurfaceView =
+            data.role === "ADMIN" || data.role === "MANAGER" || data.isAdmin ? "admin" : "forms";
+          preserveWorkspaceViewInParams(next, viewFallback);
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         } else if (forceRefresh) {
           const next = new URLSearchParams(searchParams.toString());
-          next.set("view", activeView);
+          const viewFallback: WorkspaceSurfaceView =
+            data.role === "ADMIN" || data.role === "MANAGER" || data.isAdmin ? "admin" : "forms";
+          preserveWorkspaceViewInParams(next, viewFallback);
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         }
@@ -2201,13 +2230,32 @@ function WorkspacePageInner() {
   }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook]);
 
   useEffect(() => {
+    revalidateContextRef.current = { tenantSlug, categoryId, cacheUserId };
+  }, [tenantSlug, categoryId, cacheUserId]);
+
+  useEffect(() => {
+    const maybeRevalidateFromBackground = () => {
+      if (isAppOffline()) return;
+      const now = Date.now();
+      if (now - lastBackgroundRevalidateRef.current < 45_000) return;
+      const ctx = revalidateContextRef.current;
+      if (
+        ctx.tenantSlug &&
+        isWorkspaceCacheFresh(ctx.cacheUserId, ctx.tenantSlug, ctx.categoryId, 90_000)
+      ) {
+        return;
+      }
+      lastBackgroundRevalidateRef.current = now;
+      setRevalidateTick((x) => x + 1);
+    };
+
     const onOnline = () => setRevalidateTick((x) => x + 1);
     const onFocus = () => {
-      if (!isAppOffline()) setRevalidateTick((x) => x + 1);
+      maybeRevalidateFromBackground();
     };
     const onVisible = () => {
-      if (document.visibilityState === "visible" && !isAppOffline()) {
-        setRevalidateTick((x) => x + 1);
+      if (document.visibilityState === "visible") {
+        maybeRevalidateFromBackground();
       }
     };
 
@@ -2398,10 +2446,7 @@ function WorkspacePageInner() {
                 onClick={() => {
                   clearTenantDeactivatedBlocked(t.slug);
                   localStorage.setItem("lastTenantSlug", t.slug);
-                  navigateWithFeedback(
-                    router,
-                    `/workspace?tenantSlug=${encodeURIComponent(t.slug)}`,
-                  );
+                  navigateWithFeedback(router, buildWorkspaceEntryHref(t.slug));
                 }}
                 className="ui-card p-4 text-left transition hover:-translate-y-0.5"
               >
@@ -2807,7 +2852,7 @@ function WorkspacePageInner() {
                       const next = new URLSearchParams(searchParams.toString());
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
-                      next.set("view", activeView);
+                      preserveWorkspaceViewInParams(next, canSeeAdminHub ? "admin" : "forms");
                       navigateWithFeedback(router, `/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}
