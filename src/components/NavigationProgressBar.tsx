@@ -1,5 +1,6 @@
 "use client";
 
+import { NAVIGATION_START_EVENT } from "@/lib/client/navigationLoading";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -77,8 +78,16 @@ export function NavigationProgressBar() {
       begin();
     }
 
+    function onProgrammaticStart() {
+      begin();
+    }
+
     document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    window.addEventListener(NAVIGATION_START_EVENT, onProgrammaticStart);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener(NAVIGATION_START_EVENT, onProgrammaticStart);
+    };
   }, [active]);
 
   useEffect(() => {
@@ -95,10 +104,18 @@ export function NavigationProgressBar() {
   );
 
   return (
-    <div
-      aria-hidden
-      className={`route-progress ${active ? "route-progress--active" : ""} ${done ? "route-progress--done" : ""}`}
-    />
+    <>
+      <div
+        aria-hidden
+        className={`route-progress ${active ? "route-progress--active" : ""} ${done ? "route-progress--done" : ""}`}
+      />
+      {active ? (
+        <div className="route-pending-chip" role="status" aria-live="polite">
+          <span className="route-pending-chip__dot" aria-hidden />
+          Loading…
+        </div>
+      ) : null}
+    </>
   );
 }
 

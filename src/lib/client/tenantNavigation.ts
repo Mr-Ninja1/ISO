@@ -1,3 +1,4 @@
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { buildAuditReportHref, buildTenantHref } from "@/lib/client/tenantHref";
 
 type AppRouterLike = {
@@ -14,7 +15,7 @@ export function pushTenantRoute(
   method: "push" | "replace" = "push"
 ) {
   const href = buildTenantHref(tenantSlug, pathAfterTenant, query);
-  router[method](href);
+  navigateWithFeedback(router, href, method);
 }
 
 export function tenantRouteHref(

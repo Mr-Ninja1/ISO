@@ -6,7 +6,7 @@
     position: fixed;
     top: 0;
     left: 0;
-    height: 3px;
+    height: 4px;
     width: 0;
     opacity: 0;
     pointer-events: none;
@@ -16,23 +16,75 @@
         var(--hse-teal),
         color-mix(in srgb, var(--hse-copper) 55%, var(--hse-teal))
     );
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--hse-teal) 18%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--hse-teal) 35%, transparent);
 }
 
 .route-progress--active {
     opacity: 1;
-    width: 72%;
+    width: 68%;
     transition:
-        width 560ms cubic-bezier(0.18, 0.82, 0.22, 1),
-        opacity 120ms linear;
+        width 480ms cubic-bezier(0.18, 0.82, 0.22, 1),
+        opacity 80ms linear;
 }
 
 .route-progress--active.route-progress--done {
     width: 100%;
     transition:
-        width 220ms ease-out,
-        opacity 180ms linear;
+        width 200ms ease-out,
+        opacity 160ms linear;
     opacity: 0;
+}
+
+.route-pending-chip {
+    position: fixed;
+    top: 0.65rem;
+    left: 50%;
+    z-index: 9998;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--hse-teal) 22%, transparent);
+    background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--hse-teal);
+    box-shadow: 0 4px 18px rgba(0, 61, 51, 0.12);
+    pointer-events: none;
+    animation: route-pending-chip-in 140ms ease-out;
+}
+
+.route-pending-chip__dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: var(--hse-teal);
+    animation: route-pending-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes route-pending-chip-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@keyframes route-pending-pulse {
+    0%,
+    100% {
+        opacity: 0.45;
+        transform: scale(0.92);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
 }
 
 .nav-pressable {
@@ -521,17 +573,25 @@ body {
     color: var(--foreground);
     border-radius: 1rem;
     box-shadow: var(--shadow-card);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition:
         transform 0.2s ease,
         box-shadow 0.2s ease,
         border-color 0.2s ease,
-        background 0.2s ease;
+        background 0.2s ease,
+        filter 0.14s ease;
 }
 
 .iso-app-card:hover,
 .ws-action-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-card-hover);
+}
+
+.ws-action-card:active:not(:disabled) {
+    transform: scale(0.985);
+    filter: brightness(0.98);
 }
 
 .ws-icon-indigo {
@@ -1201,14 +1261,23 @@ body {
     font-weight: 600;
     color: var(--hse-teal);
     box-shadow: 0 1px 4px rgba(0, 61, 51, 0.1);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition:
         background 0.15s ease,
-        border-color 0.15s ease;
+        border-color 0.15s ease,
+        transform 110ms ease,
+        filter 140ms ease;
 }
 
 .wayfinder-btn:hover {
     background: var(--hse-sky);
     border-color: var(--hse-copper);
+}
+
+.wayfinder-btn:active:not(:disabled) {
+    transform: scale(0.97);
+    filter: brightness(0.97);
 }
 
 .wayfinder-btn-home {

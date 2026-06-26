@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
 import { apiUrl } from "@/lib/client/apiBase";
 import { resolveWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { Z_COPILOT_FAB, Z_COPILOT_HINT, Z_COPILOT_PANEL } from "@/lib/ui/zIndex";
 import { getContextualWelcome, pickRotatingHint } from "@/lib/copilot/hints";
 import { buildSpotlightWelcome } from "@/lib/copilot/welcomeSpotlight";
@@ -187,6 +188,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   const [currentHintDismissed, setCurrentHintDismissed] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const welcomedRef = useRef(false);
+  const sendInFlightRef = useRef(false);
   const [planLimitOpen, setPlanLimitOpen] = useState(false);
   const [planLimitKind, setPlanLimitKind] = useState<PlanLimitKind>("copilot_trial_expired");
   const [copilotAccess, setCopilotAccess] = useState<CopilotAccessStatus | null>(null);
@@ -411,31 +413,33 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed || loading || sendInFlightRef.current) return;
 
-    const token = await resolveWorkspaceAccessToken(session);
-    if (!token) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `e-${Date.now()}`,
-          role: "assistant",
-          content: "Please sign in again to use the AI assistant.",
-        },
-      ]);
-      return;
-    }
-
+    sendInFlightRef.current = true;
+    const userMsgId = `u-${Date.now()}`;
+    setInput("");
+    setLoading(true);
+    setMessages((prev) => [...prev, { id: userMsgId, role: "user", content: trimmed }]);
     appendLocalCopilotMessage(tenantSlug, userId, {
-      id: `u-${Date.now()}`,
+      id: userMsgId,
       role: "user",
       content: trimmed,
     });
-    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", content: trimmed }]);
-    setInput("");
-    setLoading(true);
 
     try {
+      const token = await resolveWorkspaceAccessToken(session);
+      if (!token) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `e-${Date.now()}`,
+            role: "assistant",
+            content: "Please sign in again to use the AI assistant.",
+          },
+        ]);
+        return;
+      }
+
       let res = await fetch(apiUrl("/api/copilot/chat"), {
         method: "POST",
         headers: {
@@ -520,6 +524,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
       ]);
     } finally {
       setLoading(false);
+      sendInFlightRef.current = false;
     }
   }
 
@@ -534,7 +539,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
   function handleNavigate(href: string) {
     setNavigatingTo(null);
     setOpen(false);
-    router.push(href);
+    navigateWithFeedback(router, href);
   }
 
   function dismissCurrentHint() {
@@ -587,7 +592,7 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
     }
     if (action.href) {
       setOpen(false);
-      router.push(action.href);
+      navigateWithFeedback(router, action.href);
     }
   }
 
@@ -667,7 +672,8 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
                       <button
                         key={`${msg.id}-${s}`}
                         type="button"
-                        className="max-w-full truncate rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] text-foreground/70 hover:bg-foreground/10"
+                        className="max-w-full truncate rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] text-foreground/70 hover:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={loading}
                         onClick={() => void sendMessage(s)}
                       >
                         {s}
@@ -680,8 +686,9 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
           ))}
           {loading ? (
             <div className="flex justify-start">
-              <div className="rounded-2xl rounded-bl-md border border-foreground/10 bg-foreground/[0.04] px-3 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--hse-teal)]" />
+              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md border border-foreground/10 bg-foreground/[0.04] px-3 py-2 text-xs text-foreground/65">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--hse-teal)]" />
+                <span>{DC_AI_NAME} is thinking…</span>
               </div>
             </div>
           ) : null}
@@ -692,8 +699,8 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
       <div className="shrink-0 border-t border-foreground/10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-2">
           <input
-            className="h-10 min-w-0 flex-1 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-sm focus:border-[var(--hse-teal)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]"
-            placeholder="Ask me anything…"
+            className="h-10 min-w-0 flex-1 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-sm transition disabled:opacity-70 focus:border-[var(--hse-teal)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]"
+            placeholder={loading ? "Waiting for reply…" : "Ask me anything…"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -703,17 +710,28 @@ export function BrandCopilot({ tenantSlug, brandName }: Props) {
               }
             }}
             disabled={loading || Boolean(navigatingTo)}
+            aria-busy={loading}
           />
           <button
             type="button"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--hse-teal)] text-white disabled:opacity-50"
+            className="nav-pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--hse-teal)] text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50"
             disabled={loading || !input.trim() || Boolean(navigatingTo)}
             onClick={() => void sendMessage(input)}
-            aria-label="Send"
+            aria-label={loading ? "Sending message" : "Send message"}
+            aria-busy={loading}
           >
-            <Send className="h-4 w-4" />
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </button>
         </div>
+        {loading ? (
+          <p className="mt-2 text-center text-[11px] font-medium text-[var(--hse-teal-mid)]" role="status" aria-live="polite">
+            Sending your message…
+          </p>
+        ) : null}
       </div>
     </div>
   ) : null;

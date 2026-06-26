@@ -2,7 +2,8 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { ChevronLeft, Home, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { resolvePageWayfinder } from "@/lib/client/resolvePageWayfinder";
 
 type Props = {
@@ -21,12 +22,16 @@ export function PageWayfinder({ tenantSlug, variant = "compact" }: Props) {
   const [loading, setLoading] = useState<"back" | "home" | null>(null);
   const config = resolvePageWayfinder(pathname, tenantSlug);
 
+  useEffect(() => {
+    setLoading(null);
+  }, [pathname]);
+
   if (!config) return null;
 
   function go(target: "back" | "home", href: string) {
+    if (loading) return;
     setLoading(target);
-    router.push(href);
-    window.setTimeout(() => setLoading(null), 500);
+    navigateWithFeedback(router, href);
   }
 
   const labeled = variant === "labeled";

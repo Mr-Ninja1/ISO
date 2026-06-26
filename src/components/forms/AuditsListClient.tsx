@@ -24,6 +24,7 @@ import {
   loadDeviceAuditsRows,
 } from "@/lib/client/deviceAuditsRows";
 import { auditReportHref } from "@/lib/client/tenantNavigation";
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 
 function actionButtonClass(busy: boolean) {
   return (
@@ -64,7 +65,7 @@ function SavedFormRowActions({
     if (busy) return;
     setBusy(true);
     setOpen(false);
-    router.push(reportPath);
+    navigateWithFeedback(router, reportPath);
   }
 
   const viewLabel = busy ? "Opening…" : "View report";

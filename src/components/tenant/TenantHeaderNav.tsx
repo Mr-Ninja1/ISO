@@ -69,9 +69,12 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
     };
   }, [session?.access_token, tenantSlug]);
 
+  useEffect(() => {
+    setLoadingPath(null);
+  }, [pathname]);
+
   const handleLinkClick = (path: string) => {
     setLoadingPath(path);
-    setTimeout(() => setLoadingPath(null), 500);
   };
 
   const blockOffline = (label: string, e?: React.MouseEvent) => {

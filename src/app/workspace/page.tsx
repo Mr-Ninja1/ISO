@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard, Loader2, MoreVertical, Plus, RefreshCw, Search, Settings, Users2, X } from "lucide-react";
 import { checkForOtaUpdate } from "@/lib/capacitor/otaManualCheck";
@@ -15,7 +15,8 @@ import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/s
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { pushTenantRoute, tenantRouteHref } from "@/lib/client/tenantNavigation";
-import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
+import { buildWorkspaceFormsHref, buildWorkspaceAdminHref } from "@/lib/client/workspaceNavigation";
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
@@ -691,6 +692,7 @@ function TemplateQuickSettingsModal({
 
 function WorkspacePageInner() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, session, loading: authLoading, signOut } = useAuth();
 
@@ -778,6 +780,23 @@ function WorkspacePageInner() {
   const activeView = canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
   const isAdminView = activeView === "admin";
   const isFormsView = activeView === "forms";
+
+  useEffect(() => {
+    setOpeningSettings(false);
+    setOpeningStaff(false);
+    setOpeningActivity(false);
+    setOpeningAdminDashboard(false);
+    setOpeningAudits(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!openingAdminNav && !openingFormsNav) return;
+    const timer = window.setTimeout(() => {
+      setOpeningAdminNav(false);
+      setOpeningFormsNav(false);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [activeView, openingAdminNav, openingFormsNav]);
 
   const workspaceTemplatesPrefetchKey = useMemo(() => {
     const tpls = workspace?.templates;
@@ -1077,32 +1096,18 @@ function WorkspacePageInner() {
     }
   }
 
-  function clearNavLoading(delayMs = 600) {
-    window.setTimeout(() => {
-      setOpeningSettings(false);
-      setOpeningStaff(false);
-      setOpeningActivity(false);
-      setOpeningAdminDashboard(false);
-      setOpeningAudits(false);
-      setOpeningFormsNav(false);
-      setOpeningAdminNav(false);
-    }, delayMs);
-  }
-
   function handleOpenFormsWorkspace() {
     if (!workspace) return;
     if (openingFormsNav) return;
     setOpeningFormsNav(true);
-    router.replace(buildWorkspaceFormsHref(workspace.tenant.slug));
-    clearNavLoading(400);
+    navigateWithFeedback(router, buildWorkspaceFormsHref(workspace.tenant.slug), "replace");
   }
 
   function handleOpenAdminView() {
     if (!workspace) return;
     if (openingAdminNav) return;
     setOpeningAdminNav(true);
-    router.replace(`/workspace?tenantSlug=${encodeURIComponent(workspace.tenant.slug)}&view=admin`);
-    clearNavLoading(400);
+    navigateWithFeedback(router, buildWorkspaceAdminHref(workspace.tenant.slug), "replace");
   }
 
   function handleSwitchBrand() {
@@ -1113,7 +1118,7 @@ function WorkspacePageInner() {
     } catch {
       // ignore
     }
-    router.push("/workspace");
+    navigateWithFeedback(router, "/workspace");
   }
 
   function handleOpenSettings(targetTenantSlug: string) {
@@ -1121,7 +1126,6 @@ function WorkspacePageInner() {
     setMenuOpen(false);
     setOpeningSettings(true);
     pushTenantRoute(router, targetTenantSlug, "settings");
-    clearNavLoading();
   }
 
   function handleOpenStaffManagement(targetTenantSlug: string) {
@@ -1129,28 +1133,24 @@ function WorkspacePageInner() {
     setMenuOpen(false);
     setOpeningStaff(true);
     pushTenantRoute(router, targetTenantSlug, "settings", { focus: "staff" });
-    clearNavLoading();
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
     setOpeningActivity(true);
     pushTenantRoute(router, targetTenantSlug, "activity");
-    clearNavLoading();
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
     setOpeningAdminDashboard(true);
     pushTenantRoute(router, targetTenantSlug, "dashboard");
-    clearNavLoading();
   }
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
     setOpeningAudits(true);
     pushTenantRoute(router, targetTenantSlug, "audits");
-    clearNavLoading();
   }
 
   function handleAddFromTemplates(selectedCategoryId: string | null) {
@@ -1169,10 +1169,11 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (blockIfOffline("Create custom form")) return;
     setAddFormOpen(false);
-    router.push(
+    navigateWithFeedback(
+      router,
       buildTenantHref(workspace.tenant.slug, "templates/new", {
         categoryId: selectedCategoryId || undefined,
-      })
+      }),
     );
   }
 
@@ -2397,7 +2398,10 @@ function WorkspacePageInner() {
                 onClick={() => {
                   clearTenantDeactivatedBlocked(t.slug);
                   localStorage.setItem("lastTenantSlug", t.slug);
-                  router.push(`/workspace?tenantSlug=${encodeURIComponent(t.slug)}`);
+                  navigateWithFeedback(
+                    router,
+                    `/workspace?tenantSlug=${encodeURIComponent(t.slug)}`,
+                  );
                 }}
                 className="ui-card p-4 text-left transition hover:-translate-y-0.5"
               >
@@ -2466,7 +2470,13 @@ function WorkspacePageInner() {
             <button
               type="button"
               className="h-10 rounded-md bg-foreground px-4 text-background"
-              onClick={() => router.replace(`/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`)}
+              onClick={() =>
+                navigateWithFeedback(
+                  router,
+                  `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`,
+                  "replace",
+                )
+              }
             >
               Retry
             </button>
@@ -2630,10 +2640,11 @@ function WorkspacePageInner() {
                           onClick={() => {
                             setMenuOpen(false);
                             if (blockIfOffline("Create custom form")) return;
-                            router.push(
+                            navigateWithFeedback(
+                              router,
                               buildTenantHref(tenant.slug, "templates/new", {
                                 categoryId: workspaceForRender.selectedCategoryId || undefined,
-                              })
+                              }),
                             );
                           }}
                         >
@@ -2651,7 +2662,10 @@ function WorkspacePageInner() {
                       onClick={() => {
                         setMenuOpen(false);
                         if (blockIfOffline("Staff training")) return;
-                        router.push(`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`);
+                        navigateWithFeedback(
+                          router,
+                          `/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`,
+                        );
                       }}
                     >
                       <GraduationCap className="h-4 w-4" />
@@ -2794,7 +2808,7 @@ function WorkspacePageInner() {
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
                       next.set("view", activeView);
-                      router.push(`/workspace?${next.toString()}`);
+                      navigateWithFeedback(router, `/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}
                     className={
@@ -2852,7 +2866,7 @@ function WorkspacePageInner() {
                   type="button"
                   onClick={handleOpenFormsWorkspace}
                   disabled={openingFormsNav}
-                  className="ws-btn-primary inline-flex h-11 items-center justify-center gap-2 px-4 text-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-btn-primary nav-pressable inline-flex h-11 items-center justify-center gap-2 px-4 text-sm transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {openingFormsNav ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   {openingFormsNav ? "Opening forms…" : "Open forms workspace"}
@@ -2871,7 +2885,7 @@ function WorkspacePageInner() {
                 type="button"
                 onClick={() => handleOpenAudits(tenant.slug)}
                 disabled={openingAudits}
-                className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                className="ws-action-card nav-pressable group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="flex items-start gap-3">
                   <span className="ws-icon-indigo inline-flex h-11 w-11 items-center justify-center rounded-2xl">
@@ -2888,7 +2902,7 @@ function WorkspacePageInner() {
                 type="button"
                 onClick={() => handleOpenActivity(tenant.slug)}
                 disabled={openingActivity}
-                className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                className="ws-action-card nav-pressable group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="flex items-start gap-3">
                   <span className="ws-icon-sky inline-flex h-11 w-11 items-center justify-center rounded-2xl">
@@ -2906,7 +2920,7 @@ function WorkspacePageInner() {
                   type="button"
                   onClick={() => handleOpenSettings(tenant.slug)}
                   disabled={openingSettings}
-                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-action-card nav-pressable group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="flex items-start gap-3">
                     <span className="ws-icon-violet inline-flex h-11 w-11 items-center justify-center rounded-2xl">
@@ -2925,7 +2939,7 @@ function WorkspacePageInner() {
                   type="button"
                   onClick={() => handleOpenAdminDashboard(tenant.slug)}
                   disabled={openingAdminDashboard}
-                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-action-card nav-pressable group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="flex items-start gap-3">
                     <span className="ws-icon-violet inline-flex h-11 w-11 items-center justify-center rounded-2xl">
@@ -2944,7 +2958,7 @@ function WorkspacePageInner() {
                   type="button"
                   onClick={() => handleOpenStaffManagement(tenant.slug)}
                   disabled={openingStaff}
-                  className="ws-action-card group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-action-card nav-pressable group p-4 text-left disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <div className="flex items-start gap-3">
                     <span className="ws-icon-emerald inline-flex h-11 w-11 items-center justify-center rounded-2xl">
@@ -2975,7 +2989,7 @@ function WorkspacePageInner() {
                   type="button"
                   onClick={() => handleOpenAudits(tenant.slug)}
                   disabled={openingAudits}
-                  className="ws-btn-ghost inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ws-btn-ghost nav-pressable inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {openingAudits ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   {openingAudits ? "Opening…" : "Submitted forms"}
@@ -2985,7 +2999,7 @@ function WorkspacePageInner() {
                     type="button"
                     onClick={handleOpenAdminView}
                     disabled={openingAdminNav}
-                    className="ws-btn-ghost inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:opacity-60"
+                    className="ws-btn-ghost nav-pressable inline-flex h-9 items-center justify-center gap-2 px-4 text-sm disabled:opacity-60"
                   >
                     {openingAdminNav ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                     HSE console
@@ -3299,11 +3313,12 @@ function WorkspacePageInner() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setCardMenuTemplateId(null);
-                                    router.push(
+                                    navigateWithFeedback(
+                                      router,
                                       buildTenantHref(tenant.slug, "templates/new", {
                                         editTemplateId: t.id,
                                         categoryId: t.categoryId || undefined,
-                                      })
+                                      }),
                                     );
                                   }}
                                 >
