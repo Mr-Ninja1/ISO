@@ -38,6 +38,27 @@ export function dispatchOtaPending(pending: { bundleId: string; releaseNotes?: s
 
 let manualCheckInFlight: Promise<OtaCheckResult> | null = null;
 
+function formatOtaError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Update check failed.";
+}
+
+function isBundleAlreadyOnDevice(error: unknown): boolean {
+  const message = formatOtaError(error).toLowerCase();
+  return message.includes("bundle already exists");
+}
+
+async function bundleDownloadedOnDevice(bundleId: string): Promise<boolean> {
+  try {
+    const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
+    const result = await LiveUpdate.getDownloadedBundles();
+    return (result.bundleIds || []).includes(bundleId);
+  } catch {
+    return false;
+  }
+}
+
 function pendingToResult(pending: OtaPendingBundle, message: string): OtaCheckResult {
   const payload = { bundleId: pending.bundleId, releaseNotes: pending.releaseNotes };
   dispatchOtaPending(payload);
@@ -75,6 +96,27 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
       return pending;
     }
 
+    // Download finished but setNextBundle was never called (e.g. manual check hit "bundle already exists").
+    try {
+      const { bundleIds } = await LiveUpdate.getDownloadedBundles();
+      const pendingId = (bundleIds || []).find((id) => id && id !== current);
+      if (pendingId) {
+        const pending: OtaPendingBundle =
+          storedPending?.bundleId === pendingId
+            ? storedPending
+            : {
+                bundleId: pendingId,
+                downloadedAt: new Date().toISOString(),
+              };
+        if (!storedPending || storedPending.bundleId !== pendingId) {
+          writePendingOtaBundle(pending);
+        }
+        return pending;
+      }
+    } catch {
+      // ignore
+    }
+
     return storedPending;
   } catch {
     return readPendingOtaBundle();
@@ -95,6 +137,12 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
     const currentNativeBuild = parseNativeBuild();
     try {
       const configRes = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+      if (!configRes.ok) {
+        return {
+          status: "error",
+          message: `Could not reach the update server (${configRes.status}).`,
+        };
+      }
       const config = (await configRes.json().catch(() => ({}))) as ClientConfig;
 
       const minRequired =
@@ -150,9 +198,13 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
             message: "This update is for a different release channel.",
           };
         }
+        const required = manifest.minNativeBuild ?? minRequired;
         return {
           status: "error",
-          message: "Install a newer APK to receive this update.",
+          message:
+            decision.reason === "native_build_too_old" && required != null && currentNativeBuild > 0
+              ? `Install a newer APK (app build ${currentNativeBuild}, update requires ${required}).`
+              : "Install a newer APK to receive this update.",
         };
       }
 
@@ -165,27 +217,42 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
         return { status: "error", message: "Live update is not available on this device." };
       }
 
+      const pending: OtaPendingBundle = {
+        bundleId: manifest.bundleId,
+        releaseNotes: manifest.releaseNotes,
+        downloadedAt: new Date().toISOString(),
+      };
+
+      const alreadyDownloaded = await bundleDownloadedOnDevice(manifest.bundleId);
+      if (alreadyDownloaded) {
+        writePendingOtaBundle(pending);
+        return pendingToResult(pending, "Update already downloaded. Restart to apply.");
+      }
+
       const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
       const channel = (config.liveUpdateChannel || manifest.channel || OTA_CHANNEL_ENV).trim();
       if (channel) {
         await LiveUpdate.setChannel({ channel }).catch(() => undefined);
       }
 
-      await LiveUpdate.downloadBundle({
-        url: manifest.bundleUrl,
-        bundleId: manifest.bundleId,
-      });
+      try {
+        await LiveUpdate.downloadBundle({
+          url: manifest.bundleUrl,
+          bundleId: manifest.bundleId,
+        });
+      } catch (error) {
+        if (isBundleAlreadyOnDevice(error)) {
+          writePendingOtaBundle(pending);
+          return pendingToResult(pending, "Update already downloaded. Restart to apply.");
+        }
+        throw error;
+      }
 
-      const pending: OtaPendingBundle = {
-        bundleId: manifest.bundleId,
-        releaseNotes: manifest.releaseNotes,
-        downloadedAt: new Date().toISOString(),
-      };
       writePendingOtaBundle(pending);
 
       return pendingToResult(pending, "Update downloaded. Restart to apply.");
-    } catch {
-      return { status: "error", message: "Update check failed." };
+    } catch (error) {
+      return { status: "error", message: formatOtaError(error) };
     } finally {
       manualCheckInFlight = null;
     }
