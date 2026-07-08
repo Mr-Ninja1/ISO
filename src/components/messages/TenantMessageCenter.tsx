@@ -18,7 +18,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
 import { appendTenantAlertsClientParams } from "@/lib/platformAudience";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
-import { clearTenantDeactivatedBlocked, dispatchTenantDeactivated } from "@/lib/client/brandAccess";
+import { clearTenantDeactivatedBlocked, dispatchTenantDeactivated, isTenantDeactivatedBlocked } from "@/lib/client/brandAccess";
+import { readTenantMetaFromWorkspaceCache } from "@/lib/client/resolveTenantSlug";
 import {
   filterInboxMessages,
   markMessageAcked,
@@ -92,8 +93,9 @@ type Props = {
 export function TenantMessageProvider({ children }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const accessToken = getWorkspaceAccessToken(session);
+  const userId = user?.id || session?.user?.id || null;
 
   const tenantSlug = useMemo(
     () => tenantSlugFromRoute(pathname, searchParams.get("tenantSlug")),
@@ -209,6 +211,7 @@ export function TenantMessageProvider({ children }: Props) {
 
   const loadMessages = useCallback(async () => {
     if (!tenantSlug || !accessToken) return;
+    if (isTenantDeactivatedBlocked(tenantSlug)) return;
     setLoading(true);
     setInboxError("");
     try {
@@ -222,9 +225,11 @@ export function TenantMessageProvider({ children }: Props) {
       const json = (await res.json().catch(() => ({}))) as TenantAlertsResponse;
 
       if (res.status === 403 && json.code === "TENANT_DEACTIVATED") {
+        const cachedMeta = readTenantMetaFromWorkspaceCache(userId, tenantSlug);
         dispatchTenantDeactivated(
           tenantSlug,
-          typeof json.deactivationReason === "string" ? json.deactivationReason : null
+          typeof json.deactivationReason === "string" ? json.deactivationReason : null,
+          cachedMeta?.name || null,
         );
         return;
       }
@@ -252,10 +257,18 @@ export function TenantMessageProvider({ children }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, tenantSlug, processNewMessages]);
+  }, [accessToken, tenantSlug, userId, processNewMessages]);
 
   useEffect(() => {
     if (!tenantSlug || !accessToken) {
+      setMessages([]);
+      setModalQueue([]);
+      setActiveModal(null);
+      setToasts([]);
+      setNudgeBanner(null);
+      return;
+    }
+    if (isTenantDeactivatedBlocked(tenantSlug)) {
       setMessages([]);
       setModalQueue([]);
       setActiveModal(null);

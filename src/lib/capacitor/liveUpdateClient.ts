@@ -1,3 +1,5 @@
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+
 /** OTA manifest hosted at platform_settings.live_update_bundle_url (HTTPS JSON). */
 export type OtaManifest = {
   bundleId: string;
@@ -43,6 +45,7 @@ function migrateLegacyOtaStorage() {
 }
 
 export function parseNativeBuild(): number {
+  if (typeof window !== "undefined" && !isCapacitorNativeApp()) return 0;
   const raw = process.env.NEXT_PUBLIC_NATIVE_BUILD;
   if (!raw) return 0;
   const n = parseInt(String(raw).replace(/\D/g, ""), 10);

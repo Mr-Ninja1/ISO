@@ -11,8 +11,14 @@ import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { PageWayfinder } from "@/components/PageWayfinder";
 import { BrandCopilotHost } from "@/components/copilot/BrandCopilotHost";
 import { CopilotHeaderButton } from "@/components/copilot/CopilotHeaderButton";
+import { TenantDeactivatedScreen } from "@/components/TenantDeactivatedScreen";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { readWorkspaceCacheResolved } from "@/lib/client/workspaceCache";
+import {
+  getTenantDeactivationBrandName,
+  getTenantDeactivationReason,
+  isTenantDeactivatedBlocked,
+} from "@/lib/client/brandAccess";
 import { useAuth } from "@/components/AuthProvider";
 
 function displayNameFromSlug(slug: string) {
@@ -37,6 +43,16 @@ export function TenantLayoutClient({
   const userId = user?.id || session?.user?.id || null;
   const cached = tenantSlug ? readWorkspaceCacheResolved(userId, tenantSlug, null) : null;
   const name = cached?.tenant?.name || displayNameFromSlug(tenantSlug);
+
+  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
+    return (
+      <TenantDeactivatedScreen
+        tenantSlug={tenantSlug}
+        brandName={getTenantDeactivationBrandName(tenantSlug) || name}
+        reason={getTenantDeactivationReason(tenantSlug)}
+      />
+    );
+  }
 
   return (
     <div className="tenant-shell">

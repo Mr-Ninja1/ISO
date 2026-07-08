@@ -55,6 +55,7 @@ import {
   clearTenantDeactivatedBlocked,
   deactivationReasonFromError,
   getTenantDeactivationReason,
+  getTenantDeactivationBrandName,
   isTenantDeactivatedBlocked,
   isTenantDeactivatedError,
   setTenantDeactivatedBlocked,
@@ -886,10 +887,13 @@ function WorkspacePageInner() {
     }
   }
 
-  function handleTenantDeactivatedExit(reason?: string | null) {
+  function lockDeactivatedTenant(reason?: string | null, brandName?: string | null) {
     if (!tenantSlug) return;
+    const cachedBrand = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
+    const resolvedBrandName =
+      brandName?.trim() || workspace?.tenant?.name || cachedBrand?.tenant?.name || null;
     clearTenantLocalCache({ showToast: false });
-    setTenantDeactivatedBlocked(tenantSlug, reason);
+    setTenantDeactivatedBlocked(tenantSlug, reason, resolvedBrandName);
     try {
       if (localStorage.getItem("lastTenantSlug") === tenantSlug) {
         localStorage.removeItem("lastTenantSlug");
@@ -902,15 +906,32 @@ function WorkspacePageInner() {
     setWorkspaceLoading(false);
     setSwitchingCategory(false);
     setError("");
-    router.replace("/workspace");
+    setOpeningSettings(false);
+    setOpeningStaff(false);
+    setOpeningActivity(false);
+    setOpeningAdminDashboard(false);
+    setOpeningAudits(false);
+    setOpeningFormsNav(false);
+    setOpeningAdminNav(false);
+
+    const urlSlug = normalizeTenantSlug(searchParams.get("tenantSlug"));
+    if (urlSlug !== tenantSlug) {
+      startTransition(() => {
+        navigateWithFeedback(
+          router,
+          `/workspace?tenantSlug=${encodeURIComponent(tenantSlug)}`,
+          "replace",
+        );
+      });
+    }
   }
 
   useEffect(() => {
     function onTenantDeactivated(ev: Event) {
-      const detail = (ev as CustomEvent<{ tenantSlug?: string; reason?: string | null }>).detail;
+      const detail = (ev as CustomEvent<{ tenantSlug?: string; reason?: string | null; brandName?: string | null }>).detail;
       const slug = detail?.tenantSlug;
       if (!slug || slug !== tenantSlug) return;
-      handleTenantDeactivatedExit(detail?.reason);
+      lockDeactivatedTenant(detail?.reason, detail?.brandName);
     }
     window.addEventListener("iso-tenant-deactivated", onTenantDeactivated);
     return () => window.removeEventListener("iso-tenant-deactivated", onTenantDeactivated);
@@ -1668,6 +1689,7 @@ function WorkspacePageInner() {
   // Hydrate instantly from local cache, independent of auth/network timing.
   useEffect(() => {
     if (!tenantSlug) return;
+    if (isTenantDeactivatedBlocked(tenantSlug)) return;
     const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
     if (!cached) return;
 
@@ -1683,6 +1705,7 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     const onWorkspaceCacheUpdated = (event: Event) => {
+      if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) return;
       const custom = event as CustomEvent<{ tenantSlug?: string; categoryId?: string | null }>;
       if (custom.detail?.tenantSlug !== tenantSlug) return;
       const currentCategoryId = categoryId || null;
@@ -1815,7 +1838,8 @@ function WorkspacePageInner() {
     if (!tenantSlug) return;
 
     if (isTenantDeactivatedBlocked(tenantSlug)) {
-      handleTenantDeactivatedExit();
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
       return;
     }
 
@@ -1985,7 +2009,10 @@ function WorkspacePageInner() {
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
         if (isTenantDeactivatedError(err)) {
           keepLoading = false;
-          handleTenantDeactivatedExit(deactivationReasonFromError(err));
+          lockDeactivatedTenant(
+            deactivationReasonFromError(err),
+            workspace?.tenant?.name || readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId)?.tenant?.name || null,
+          );
           return;
         }
         const authOrAccess =
@@ -2129,6 +2156,7 @@ function WorkspacePageInner() {
   // Recover from stuck loading after visiting online-only routes (e.g. settings) without cache.
   useEffect(() => {
     if (!tenantSlug) return;
+    if (isTenantDeactivatedBlocked(tenantSlug)) return;
     const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
     if (!cached) return;
     setWorkspace((prev) => prev ?? cached);
@@ -2392,6 +2420,16 @@ function WorkspacePageInner() {
     workspaceTourSeenKey,
   ]);
 
+  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
+    return (
+      <TenantDeactivatedScreen
+        tenantSlug={tenantSlug}
+        brandName={getTenantDeactivationBrandName(tenantSlug)}
+        reason={getTenantDeactivationReason(tenantSlug)}
+      />
+    );
+  }
+
   if (authLoading && !cachedWorkspaceForUi && !hasWorkspaceAccessToken(session)) {
     return <WorkspaceSkeleton />;
   }
@@ -2401,16 +2439,6 @@ function WorkspacePageInner() {
       <WorkspaceLoadingShell
         title="Restoring session"
         subtitle="Verifying your sign-in before opening the workspace…"
-      />
-    );
-  }
-
-  // Only show the full skeleton for first paint / initial checks.
-  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
-    return (
-      <TenantDeactivatedScreen
-        tenantSlug={tenantSlug}
-        reason={getTenantDeactivationReason(tenantSlug)}
       />
     );
   }
@@ -2545,15 +2573,6 @@ function WorkspacePageInner() {
           setRevalidateTick((x) => x + 1);
         }}
         onSwitchBrand={handleSwitchBrand}
-      />
-    );
-  }
-
-  if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) {
-    return (
-      <TenantDeactivatedScreen
-        tenantSlug={tenantSlug}
-        reason={getTenantDeactivationReason(tenantSlug)}
       />
     );
   }

@@ -95,7 +95,13 @@ export default async function TenantLayout({
   }
 
   if (tenant.isActive === false) {
-    return <TenantDeactivatedScreen reason={tenant.deactivationReason} />;
+    return (
+      <TenantDeactivatedScreen
+        tenantSlug={tenant.slug}
+        brandName={tenant.name}
+        reason={tenant.deactivationReason}
+      />
+    );
   }
 
   return (
