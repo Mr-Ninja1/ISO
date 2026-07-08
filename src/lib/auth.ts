@@ -7,10 +7,131 @@ export const ISO_MOBILE_SHELL_LS_KEY = "__ISO_MOBILE_SHELL__";
 
 export const LAST_AUTH_USER_KEY = "iso-last-auth-user:v1";
 
+const AUTH_STORAGE_PREFIX = "sb-";
+const QUOTA_PRUNE_PREFIXES = [
+  "workspace-cache:v2:",
+  "dc-ai-context:v1:",
+  "activity-cache:v1:",
+  "audits-list-cache:v1:",
+  "audit-template-cache:v1:",
+  "audit-report-snapshot:v1:",
+  "audit-report-last:v1:",
+  "tenant-messages:v1:",
+  "tenant-alert-seen:v1:",
+  "recent-templates:v1:",
+  "template-sync-queue:v1",
+  "background-mutation-queue:v1",
+];
+
 export type CachedAuthUser = {
   id: string;
   email: string;
 };
+
+function isQuotaExceededError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("quota") || message.includes("storage");
+}
+
+function localStorageKeys(): string[] {
+  if (typeof window === "undefined") return [];
+  const keys: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (key) keys.push(key);
+  }
+  return keys;
+}
+
+function pruneKeysByPrefix(prefix: string) {
+  if (typeof window === "undefined") return 0;
+  let removed = 0;
+  for (const key of localStorageKeys()) {
+    if (!key.startsWith(prefix)) continue;
+    try {
+      window.localStorage.removeItem(key);
+      removed += 1;
+    } catch {
+      // ignore
+    }
+  }
+  return removed;
+}
+
+function reclaimStorageForAuth() {
+  if (typeof window === "undefined") return false;
+  let removed = 0;
+  for (const prefix of QUOTA_PRUNE_PREFIXES) {
+    removed += pruneKeysByPrefix(prefix);
+  }
+
+  // Last resort: remove lightweight per-device UI hints, but never auth keys.
+  if (removed === 0) {
+    for (const key of localStorageKeys()) {
+      if (key === LAST_AUTH_USER_KEY || key === ISO_MOBILE_SHELL_LS_KEY) continue;
+      if (key.startsWith(AUTH_STORAGE_PREFIX)) continue;
+      if (
+        key === "lastTenantSlug" ||
+        key === "active-staff-profile:v1" ||
+        key === "offlineModeEnabled" ||
+        key === "offlinePreparedAt" ||
+        key.startsWith("iso-native-build-dismissed:v1:")
+      ) {
+        try {
+          window.localStorage.removeItem(key);
+          removed += 1;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  return removed > 0;
+}
+
+function safeLocalStorageSetItem(key: string, value: string) {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    if (!isQuotaExceededError(error) || !reclaimStorageForAuth()) return false;
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function authStorageAdapter(storageKey: string): Storage {
+  return {
+    get length() {
+      return window.localStorage.length;
+    },
+    clear() {
+      window.localStorage.clear();
+    },
+    getItem(key) {
+      return window.localStorage.getItem(key);
+    },
+    key(index) {
+      return window.localStorage.key(index);
+    },
+    removeItem(key) {
+      window.localStorage.removeItem(key);
+    },
+    setItem(key, value) {
+      const ok = safeLocalStorageSetItem(key, value);
+      if (!ok && key === storageKey) {
+        throw new Error("Local storage is full. Clear site data and try again.");
+      }
+    },
+  };
+}
 
 export function readCachedAuthUser(): CachedAuthUser | null {
   if (typeof window === "undefined") return null;
@@ -43,7 +164,7 @@ export function writeCachedAuthUser(user: CachedAuthUser | null) {
       return;
     }
 
-    localStorage.setItem(LAST_AUTH_USER_KEY, JSON.stringify(user));
+    safeLocalStorageSetItem(LAST_AUTH_USER_KEY, JSON.stringify(user));
   } catch {
     // ignore storage failures
   }
@@ -63,8 +184,8 @@ export function writeBrowserSupabaseSession(session: Session) {
 
   try {
     markCapacitorShell();
-    localStorage.setItem(browserSupabaseAuthStorageKey(), JSON.stringify(session));
-    localStorage.setItem(ISO_MOBILE_SHELL_LS_KEY, "1");
+    safeLocalStorageSetItem(browserSupabaseAuthStorageKey(), JSON.stringify(session));
+    safeLocalStorageSetItem(ISO_MOBILE_SHELL_LS_KEY, "1");
   } catch {
     // ignore storage failures
   }
@@ -101,13 +222,14 @@ export function createClient() {
       }
       const shell = window.localStorage.getItem(ISO_MOBILE_SHELL_LS_KEY);
       if (shell === "1" || shell === "capacitor") {
+        const storageKey = browserSupabaseAuthStorageKey();
         return createSupabaseClient(url, anon, {
           auth: {
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: true,
-            storage: window.localStorage,
-            storageKey: browserSupabaseAuthStorageKey(),
+            storage: authStorageAdapter(storageKey),
+            storageKey,
             flowType: "pkce",
           },
         });
