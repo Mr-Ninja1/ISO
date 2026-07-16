@@ -24,7 +24,8 @@ const minNativeBuild = parseInt(process.env.OTA_MIN_NATIVE_BUILD || "1", 10);
 const releaseNotes = (process.env.OTA_RELEASE_NOTES || "").trim();
 
 const distDir = path.join(root, "ota-dist", channel);
-const zipName = `bundle-${bundleId}.zip`;
+// Use .ota (still a zip archive) so Azure ZipDeploy does not drop nested *.zip files.
+const zipName = `bundle-${bundleId}.ota`;
 const zipPath = path.join(distDir, zipName);
 
 function defaultBundleId() {

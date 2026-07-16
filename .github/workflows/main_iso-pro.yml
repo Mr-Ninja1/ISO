@@ -48,7 +48,7 @@ jobs:
           npm run release:ota:ci
           ls -la public/ota/production/
           test -f public/ota/production/manifest.json
-          test -f public/ota/production/bundle-ci.${{ github.run_number }}.zip
+          test -f public/ota/production/bundle-ci.${{ github.run_number }}.ota
 
           echo "=== Building hosted website (standalone) ==="
           npm run build

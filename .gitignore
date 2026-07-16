@@ -19,8 +19,9 @@
 /ota-dist/
 /.ota-staging/
 
-# OTA zips are large — manifest.json may be committed
+# OTA bundles are large — manifest.json may be committed
 /public/ota/**/*.zip
+/public/ota/**/*.ota
 
 # production
 /build

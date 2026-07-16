@@ -18,7 +18,8 @@ function removeStalePublicOtaZips(keepZipName) {
   if (!fs.existsSync(destDir)) return;
   let removed = 0;
   for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".zip")) continue;
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".zip") && !entry.name.endsWith(".ota")) continue;
     if (keepZipName && entry.name === keepZipName) continue;
     fs.rmSync(path.join(destDir, entry.name), { force: true });
     removed += 1;
