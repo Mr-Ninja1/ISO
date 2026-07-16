@@ -1,9 +1,9 @@
 {
-  "bundleId": "golden.9.1782119256809",
-  "version": "golden.9.1782119256809",
+  "bundleId": "20260716.ota-retest",
+  "version": "20260716.ota-retest",
   "channel": "production",
   "minNativeBuild": 9,
-  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-golden.9.1782119256809.zip",
-  "publishedAt": "2026-06-22T09:15:13.561Z",
-  "releaseNotes": "Golden baseline build 9 — stable shell; ship web fixes via OTA after this."
+  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260716.ota-retest.zip",
+  "publishedAt": "2026-07-16T11:47:40.852Z",
+  "releaseNotes": "OTA retest 16 Jul — tap Restart if prompted"
 }
