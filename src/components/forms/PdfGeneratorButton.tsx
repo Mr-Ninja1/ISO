@@ -83,7 +83,11 @@ export function PdfGeneratorButton({
         await runExport(false, defaultOrientation);
       } catch (error) {
         console.error("Failed to generate PDF:", error);
-        alert("Failed to generate PDF. Please try again.");
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to generate PDF. Please try again.";
+        alert(message);
       } finally {
         setGenerating(false);
       }
