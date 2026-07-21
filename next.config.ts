@@ -21,6 +21,8 @@ runtimeCaching.unshift({
   urlPattern: /\/api\/platform\/client-config/i,
   handler: "NetworkOnly",
   method: "GET",
+  // next-pwa assumes every runtimeCaching entry has options when injecting fallbacks
+  options: {},
 });
 
 const withPWA = nextPWA({
