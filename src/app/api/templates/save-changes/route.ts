@@ -10,6 +10,7 @@ import {
 } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -137,6 +138,13 @@ export async function POST(req: Request) {
         details: { title, categoryId: categoryId ?? null, version: currentVersion },
       });
 
+      scheduleBrandSyncChange({
+        sourceTenantId: tenant.id as string,
+        entityType: "form_template",
+        entityId: current.id as string,
+        changeType: "update",
+      });
+
       return NextResponse.json({
         mode: "overwrite",
         templateId: current.id,
@@ -200,6 +208,13 @@ export async function POST(req: Request) {
         categoryId: categoryId ?? null,
         version: nextVersion,
       },
+    });
+
+    scheduleBrandSyncChange({
+      sourceTenantId: tenant.id as string,
+      entityType: "form_template",
+      entityId: created.id as string,
+      changeType: "update",
     });
 
     return NextResponse.json({

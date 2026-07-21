@@ -6,6 +6,7 @@ import { hasPermission } from "@/lib/roleGate";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { recordActivity } from "@/lib/activityTracker";
 import { persistPhotoEvidenceToBucket } from "@/lib/photoEvidenceStorage";
+import { readClientSubmissionId } from "@/lib/submissionMeta";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -19,6 +20,7 @@ const bodySchema = z.object({
   payload: z.record(z.string(), z.any()),
   mode: z.enum(["submit", "draft"]).optional(),
   auditId: z.string().uuid().optional(),
+  clientSubmissionId: z.string().min(8).max(120).optional(),
 });
 
 function draftUserIdFromPayload(payload: unknown): string | null {
@@ -254,6 +256,25 @@ export async function POST(req: Request) {
         submittedByEmail: actorEmail,
       },
     };
+
+    const clientSubmissionId =
+      parsed.data.clientSubmissionId?.trim() || readClientSubmissionId(submitPayload) || null;
+
+    if (!auditId && clientSubmissionId) {
+      const { data: priorRows } = await sb
+        .from("audit_logs")
+        .select("id")
+        .eq("tenant_id", tenant.id)
+        .eq("template_id", template.id)
+        .eq("status", "SUBMITTED")
+        .filter("payload->__submissionMeta->>clientSubmissionId", "eq", clientSubmissionId)
+        .limit(1);
+
+      const prior = priorRows?.[0];
+      if (prior?.id) {
+        return NextResponse.json({ auditId: prior.id as string, status: "SUBMITTED", deduplicated: true });
+      }
+    }
 
     if (auditId) {
       const { data: existing } = await sb

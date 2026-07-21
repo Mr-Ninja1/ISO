@@ -63,9 +63,15 @@ const manifestUploadPath = path.join(srcDir, "manifest.json");
 fs.writeFileSync(manifestUploadPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const notes = manifest.releaseNotes || `OTA bundle ${manifest.bundleId}`;
+const notesFile = path.join(srcDir, ".release-notes.txt");
+fs.writeFileSync(notesFile, `${notes}\n`);
 
 function runGh(args) {
-  const result = spawnSync("gh", args, { stdio: "inherit", shell: process.platform === "win32" });
+  const result = spawnSync("gh", args, {
+    stdio: "inherit",
+    shell: false,
+    env: process.env,
+  });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
@@ -92,6 +98,7 @@ async function updateSupabaseManifestUrl() {
     body: JSON.stringify({
       live_update_bundle_url: manifestUrl,
       live_update_channel: channel,
+      ota_latest_bundle_id: manifest.bundleId,
       updated_at: new Date().toISOString(),
     }),
   });
@@ -101,14 +108,30 @@ async function updateSupabaseManifestUrl() {
     console.warn(`[upload-ota-github] Supabase update failed (${res.status}): ${text}`);
     return;
   }
-  console.log("[upload-ota-github] Supabase live_update_bundle_url updated.");
+  console.log("[upload-ota-github] Supabase live_update_bundle_url + ota_latest_bundle_id updated.");
 }
 
 console.log("[upload-ota-github] Creating release", tag);
-runGh(["release", "create", tag, "--repo", repo, "--title", `OTA ${manifest.bundleId}`, "--notes", notes]);
+runGh([
+  "release",
+  "create",
+  tag,
+  "--repo",
+  repo,
+  "--title",
+  `OTA ${manifest.bundleId}`,
+  "--notes-file",
+  notesFile,
+]);
 
 console.log("[upload-ota-github] Uploading manifest + zip…");
 runGh(["release", "upload", tag, "--repo", repo, manifestUploadPath, zipPath, "--clobber"]);
+
+try {
+  fs.rmSync(notesFile, { force: true });
+} catch {
+  // ignore
+}
 
 await updateSupabaseManifestUrl();
 

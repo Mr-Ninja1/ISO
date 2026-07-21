@@ -26,7 +26,8 @@ export function MobileAppInstallBanner({ placement = "login", variant }: Props) 
     variant ?? (placement === "login" ? "slim" : "inline");
   const [eligible, setEligible] = useState(false);
   const [dismissed, setDismissed] = useState(true);
-  const [apkUrl, setApkUrl] = useState(ENV_APK_URL);
+  const [apkUrl, setApkUrl] = useState("");
+  const [apkUrlReady, setApkUrlReady] = useState(false);
 
   useEffect(() => {
     if (isCapacitorNativeApp()) {
@@ -48,13 +49,18 @@ export function MobileAppInstallBanner({ placement = "login", variant }: Props) 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+        const res = await fetch(
+          apiUrl(`/api/platform/client-config?_=${Date.now()}`),
+          { cache: "no-store" }
+        );
         const json = (await res.json().catch(() => ({}))) as { latestApkUrl?: string | null };
         if (cancelled) return;
         const url = (json.latestApkUrl || ENV_APK_URL || "").trim();
         if (url) setApkUrl(url);
       } catch {
-        // keep env fallback
+        if (!cancelled && ENV_APK_URL) setApkUrl(ENV_APK_URL);
+      } finally {
+        if (!cancelled) setApkUrlReady(true);
       }
     })();
 
@@ -72,7 +78,7 @@ export function MobileAppInstallBanner({ placement = "login", variant }: Props) 
     setDismissed(true);
   }, []);
 
-  if (!eligible || dismissed || !apkUrl) return null;
+  if (!eligible || dismissed || !apkUrlReady || !apkUrl) return null;
 
   const isLogin = placement === "login";
 

@@ -29,13 +29,14 @@ import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/
 import { buildDefaultValues, buildZodSchema, mergeDraftValuesIntoDefaults } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
-import { addOfflineSubmittedForm, enqueueAuditSync } from "@/lib/client/auditSyncQueue";
+import { addOfflineSubmittedForm } from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
+import { createClientSubmissionId, withClientSubmissionId } from "@/lib/submissionMeta";
 import { isDraftPayloadDirty } from "@/lib/client/draftPayloadDirty";
 import { pushTenantRoute } from "@/lib/client/tenantNavigation";
 
@@ -477,14 +478,18 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
 
     const normalizedCorrectiveAction = correctiveAction.trim();
-    const payloadWithMeta: FormValues = {
-      ...values,
-      __temperatureMeta: {
-        alerts: temperatureAlerts,
-        correctiveAction: normalizedCorrectiveAction || null,
-        capturedAt: new Date().toISOString(),
+    const clientSubmissionId = createClientSubmissionId();
+    const payloadWithMeta: FormValues = withClientSubmissionId(
+      {
+        ...values,
+        __temperatureMeta: {
+          alerts: temperatureAlerts,
+          correctiveAction: normalizedCorrectiveAction || null,
+          capturedAt: new Date().toISOString(),
+        },
       },
-    };
+      clientSubmissionId
+    );
 
     if (mode === "submit" && temperatureAlerts.length > 0 && !normalizedCorrectiveAction) {
       if (!silent) {
@@ -514,7 +519,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
     try {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 8000);
+      const timeout = window.setTimeout(() => controller.abort(), 30_000);
 
       const res = await fetch(apiUrl("/api/audit/submit"), {
         method: "POST",
@@ -522,7 +527,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tenantSlug, templateId, payload: payloadWithMeta, mode, auditId: draftAuditId ?? undefined }),
+        body: JSON.stringify({
+          tenantSlug,
+          templateId,
+          payload: payloadWithMeta,
+          mode,
+          auditId: draftAuditId ?? undefined,
+          clientSubmissionId,
+        }),
         signal: controller.signal,
       });
 
@@ -556,6 +568,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         title: effectiveSchema.title || "Form",
         status: "SUBMITTED",
         tenantName: tenantName || tenantSlug,
+        templateId,
         payload: payloadWithMeta as Record<string, unknown>,
       });
       clearLocalDraft(currentUserId, tenantSlug, templateId);
@@ -580,22 +593,25 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return false;
       }
 
-      const queued = enqueueAuditSync({
+      const outboxItem = await dbEnqueueOutbox({
         tenantSlug,
         templateId,
-        payload: payloadWithMeta,
         mode,
         auditId: draftAuditId ?? undefined,
+        payload: payloadWithMeta as Record<string, unknown>,
       });
 
-      // Durable outbox copy (IndexedDB) so refresh/localStorage cleanup won't lose queued work.
-      void dbEnqueueOutbox({
-        tenantSlug,
-        templateId,
-        mode,
-        auditId: draftAuditId ?? undefined,
-        payload: payloadWithMeta,
-      });
+      if (!outboxItem) {
+        if (!silent) {
+          setNotification({
+            title: "Submission failed",
+            message: "Could not queue this submission on the device. Please try again.",
+            tone: "error",
+          });
+        }
+        return false;
+      }
+
       if (!silent) {
         setNotification({
           title: "Submission queued",
@@ -605,15 +621,16 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       }
 
       {
-        const pendingId = `pending:${queued.id}`;
+        const pendingId = `pending:${outboxItem.id}`;
         writeAuditReportSnapshot(tenantSlug, pendingId, {
           title: effectiveSchema.title || "Form",
           status: "SUBMITTED",
           tenantName: tenantName || tenantSlug,
+          templateId,
           payload: payloadWithMeta as Record<string, unknown>,
         });
         addOfflineSubmittedForm({
-          queueId: queued.id,
+          queueId: outboxItem.id,
           tenantSlug,
           templateId,
           templateTitle: effectiveSchema.title || "Form",
@@ -621,7 +638,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         });
         const queuedAt = new Date().toISOString();
         upsertCachedAuditRow(currentUserId, tenantSlug, {
-          id: `pending:${queued.id}`,
+          id: `pending:${outboxItem.id}`,
           status: "SUBMITTED",
           templateId,
           createdAt: queuedAt,

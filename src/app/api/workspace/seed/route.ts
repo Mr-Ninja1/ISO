@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -94,10 +95,22 @@ export async function POST(req: Request) {
       sort_order: baseOrder + idx,
     }));
 
-    const { error: insErr } = await sb.from("categories").insert(rows);
+    const { data: inserted, error: insErr } = await sb
+      .from("categories")
+      .insert(rows)
+      .select("id");
 
     if (insErr) {
       return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
+
+    for (const row of inserted || []) {
+      scheduleBrandSyncChange({
+        sourceTenantId: tenant.id as string,
+        entityType: "category",
+        entityId: row.id as string,
+        changeType: "create",
+      });
     }
 
     return NextResponse.json({ createdCount: toAdd.length });

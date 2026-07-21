@@ -5,6 +5,7 @@ import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { normalizeTemplateSchema, withTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -121,6 +122,13 @@ export async function POST(req: Request) {
       entityType: "FormTemplate",
       entityId: first.id as string,
       details: { title, categoryId: categoryId ?? null },
+    });
+
+    scheduleBrandSyncChange({
+      sourceTenantId: tenant.id as string,
+      entityType: "form_template",
+      entityId: first.id as string,
+      changeType: "create",
     });
 
     return NextResponse.json({ templateId: first.id });

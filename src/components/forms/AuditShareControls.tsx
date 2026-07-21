@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { generatePdfBlobFromElement } from "@/lib/pdfGenerator";
+import { deliverPdfBlob, generatePdfBlobFromElement, resolvePdfScale } from "@/lib/pdfGenerator";
 
 type Props = {
   title: string;
@@ -42,30 +42,12 @@ export async function shareAuditPdf(title: string) {
     throw new Error("Report content not found");
   }
 
-  const pdfBlob = await generatePdfBlobFromElement(element, { scale: 2, orientation: "portrait" });
-  const file = new File([pdfBlob], `${title.replace(/[^a-z0-9]/gi, '-')}.pdf`, { type: "application/pdf" });
-
-  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({
-        title: `ISO Audit - ${title}`,
-        files: [file],
-      });
-      return;
-    } catch {
-      // user cancelled or share failed, fallback to download
-    }
-  }
-
-  // Fallback: download the file
-  const url = URL.createObjectURL(pdfBlob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${title.replace(/[^a-z0-9]/gi, '-')}.pdf`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  const pdfBlob = await generatePdfBlobFromElement(element, {
+    scale: resolvePdfScale(),
+    orientation: "portrait",
+  });
+  const safeTitle = title.replace(/[^a-z0-9]/gi, "-");
+  await deliverPdfBlob(pdfBlob, `${safeTitle}.pdf`);
 }
 
 export function AuditShareControls({ title, url, enablePdfShare = false }: Props) {

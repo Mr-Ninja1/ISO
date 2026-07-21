@@ -13,6 +13,7 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
+import { BrandSyncSection } from "@/components/settings/BrandSyncSection";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -245,6 +246,10 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
 
         <DeferredDetailsSection title="Category tools">
           <TenantCategoriesSeedSection tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Linked brand sync">
+          <BrandSyncSection tenantSlug={tenantSlug} tenantId={tenant?.id} />
         </DeferredDetailsSection>
 
         <SearchParamsBoundary>

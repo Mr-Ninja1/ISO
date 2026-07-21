@@ -5,6 +5,7 @@ import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { getTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -93,6 +94,15 @@ export async function POST(req: Request) {
         { error: "Cannot delete this form because it has submissions. Archive/hide fields instead." },
         { status: 409 }
       );
+    }
+
+    for (const id of lineageTemplateIds) {
+      scheduleBrandSyncChange({
+        sourceTenantId: tenant.id as string,
+        entityType: "form_template",
+        entityId: id,
+        changeType: "delete",
+      });
     }
 
     for (const id of lineageTemplateIds) {

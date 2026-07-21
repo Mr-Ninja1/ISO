@@ -1,9 +1,17 @@
 "use client";
 
 import type { AuditReportData } from "@/types/auditReport";
+import { readAuditsListCache } from "@/lib/client/auditsListCache";
 import { getOfflineSubmittedForms } from "@/lib/client/auditSyncQueue";
+import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import { dbGetTemplate, dbListOutbox } from "@/lib/client/formsDb";
 import type { FormSchemaV1 } from "@/types/forms";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isServerAuditId(auditId: string) {
+  return UUID_RE.test(auditId);
+}
 
 /** Parse cached full-page snapshot written when a report was viewed or submitted. */
 export function parseReportSnapshotFromLocalStorage(tenantSlug: string, auditId: string): AuditReportData | null {
@@ -16,6 +24,7 @@ export function parseReportSnapshotFromLocalStorage(tenantSlug: string, auditId:
       status?: string;
       createdAt?: string;
       tenantName?: string;
+      templateId?: string | null;
       payload?: Record<string, unknown>;
     };
     if (!parsed?.payload || typeof parsed.payload !== "object" || Array.isArray(parsed.payload)) return null;
@@ -26,23 +35,44 @@ export function parseReportSnapshotFromLocalStorage(tenantSlug: string, auditId:
       payload: parsed.payload as Record<string, unknown>,
       tenant: { name: parsed.tenantName || tenantSlug, slug: tenantSlug, logoUrl: null },
       template: { title: parsed.title || "Form", schema: null },
+      templateId: typeof parsed.templateId === "string" ? parsed.templateId : undefined,
     };
   } catch {
     return null;
   }
 }
 
+export function buildReportFromListCache(
+  userId: string | null,
+  tenantSlug: string,
+  auditId: string
+): AuditReportData | null {
+  const cache = readAuditsListCache(userId, tenantSlug);
+  const row = cache?.rows.find((entry) => entry.id === auditId);
+  if (!row) return null;
+
+  return {
+    id: auditId,
+    status: row.status,
+    createdAt: row.createdAt,
+    payload: {},
+    tenant: { name: tenantSlug, slug: tenantSlug, logoUrl: null },
+    template: { title: row.template.title || "Form", schema: null },
+    templateId: row.templateId,
+  };
+}
+
 /** Queued / offline-only submission payloads keyed by server audit id or draft id. */
 export async function buildReportFromDeviceStores(tenantSlug: string, auditId: string): Promise<AuditReportData | null> {
   if (!tenantSlug || !auditId) return null;
+  if (isServerAuditId(auditId)) return null;
 
   try {
     const outbox = await dbListOutbox(tenantSlug);
     for (const item of outbox) {
       if (item.mode !== "submit") continue;
       const pendingId = `pending:${item.id}`;
-      const matches =
-        auditId === pendingId || (item.auditId && item.auditId === auditId);
+      const matches = auditId === pendingId || (item.auditId && item.auditId === auditId);
       if (!matches) continue;
 
       const tpl = await dbGetTemplate(tenantSlug, item.templateId);
@@ -90,6 +120,18 @@ export async function enrichReportWithCachedTemplateSchema(
   audit: AuditReportData
 ): Promise<AuditReportData> {
   if (!templateId || audit.template?.schema) return audit;
+
+  const cached = readAuditTemplateCache(tenantSlug, templateId);
+  if (cached?.template?.schema) {
+    return {
+      ...audit,
+      template: {
+        title: audit.template.title || cached.template.title,
+        schema: cached.template.schema as FormSchemaV1,
+      },
+    };
+  }
+
   try {
     const tpl = await dbGetTemplate(tenantSlug, templateId);
     if (!tpl?.schema) return audit;

@@ -74,7 +74,7 @@ export async function GET(req: Request) {
 
     const { data: row, error: rowErr } = await sb
       .from("audit_logs")
-      .select("id, status, created_at, payload, template_id")
+      .select("id, status, created_at, payload, template_id, form_templates(title, schema)")
       .eq("id", auditId)
       .eq("tenant_id", tenant.id)
       .maybeSingle();
@@ -89,29 +89,15 @@ export async function GET(req: Request) {
 
     const mapped = row as Record<string, unknown>;
     const templateId = String(mapped.template_id || "");
+    const templateRaw = mapped.form_templates as
+      | { title?: string; schema?: unknown }
+      | { title?: string; schema?: unknown }[]
+      | null;
+    const templateRow = Array.isArray(templateRaw) ? templateRaw[0] : templateRaw;
 
-    let templateTitle = "Form";
-    let templateSchema: unknown = null;
-
-    if (templateId) {
-      const { data: tplRow, error: tplErr } = await sb
-        .from("form_templates")
-        .select("title, schema")
-        .eq("id", templateId)
-        .eq("tenant_id", tenant.id)
-        .maybeSingle();
-
-      if (tplErr) {
-        console.error("/api/audit/report template lookup", tplErr);
-        return NextResponse.json({ error: tplErr.message || "Failed to load form template" }, { status: 500 });
-      }
-
-      if (tplRow) {
-        templateTitle =
-          typeof tplRow.title === "string" && tplRow.title.trim() ? tplRow.title : "Form";
-        templateSchema = tplRow.schema;
-      }
-    }
+    const templateTitle =
+      typeof templateRow?.title === "string" && templateRow.title.trim() ? templateRow.title : "Form";
+    const templateSchema = templateRow?.schema ?? null;
 
     return NextResponse.json({
       audit: {

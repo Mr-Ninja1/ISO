@@ -32,7 +32,7 @@ export function NativeUpdateGate() {
     }
 
     try {
-      const res = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+      const res = await fetch(apiUrl(`/api/platform/client-config?_=${Date.now()}`), { cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as ClientConfig;
       const min =
         typeof json.minNativeBuild === "number" && Number.isFinite(json.minNativeBuild)

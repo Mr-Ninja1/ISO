@@ -9,6 +9,7 @@ type SnapshotInput = {
   status: string;
   createdAt: string;
   tenantName: string;
+  templateId?: string;
   payload: Record<string, unknown>;
 };
 

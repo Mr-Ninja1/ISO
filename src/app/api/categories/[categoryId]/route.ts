@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -96,6 +97,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       details: { name: updated.name },
     });
 
+    scheduleBrandSyncChange({
+      sourceTenantId: category.tenant_id as string,
+      entityType: "category",
+      entityId: categoryId,
+      changeType: "update",
+    });
+
     return NextResponse.json({
       id: updated.id,
       tenantId: updated.tenant_id,
@@ -153,6 +161,13 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       action: "category.delete",
       entityType: "Category",
       entityId: categoryId,
+    });
+
+    scheduleBrandSyncChange({
+      sourceTenantId: category.tenant_id as string,
+      entityType: "category",
+      entityId: categoryId,
+      changeType: "delete",
     });
 
     return NextResponse.json({ success: true });

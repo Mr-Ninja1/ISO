@@ -1543,7 +1543,7 @@ body {
     max-width: 320px !important;
     object-fit: contain !important;
     image-rendering: -webkit-optimize-contrast;
-    filter: contrast(1.16) brightness(0.99);
+    filter: none !important;
 }
 
 .pdf-generation-mode .report-footer {

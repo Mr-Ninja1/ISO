@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -148,6 +149,13 @@ export async function POST(req: Request) {
       entityType: "Category",
       entityId: category.id as string,
       details: { name },
+    });
+
+    scheduleBrandSyncChange({
+      sourceTenantId: tenantId,
+      entityType: "category",
+      entityId: category.id as string,
+      changeType: "create",
     });
 
     try {

@@ -5,6 +5,7 @@ import { Download, Loader2 } from "lucide-react";
 import {
   buildAuditPdfFilename,
   generateAuditReportPdf,
+  prefersNativePdfShare,
   type PdfOrientation,
 } from "@/lib/pdfGenerator";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
@@ -24,6 +25,7 @@ export function PdfGeneratorButton({
 }: Props) {
   const filename = buildAuditPdfFilename(formTitle, tenantSlug);
   const documentTitle = formTitle.trim() || "Form report";
+  const nativeShare = prefersNativePdfShare();
   const [generating, setGenerating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [orientation, setOrientation] =
@@ -57,7 +59,11 @@ export function PdfGeneratorButton({
       await runExport(hasEvidence ? includeEvidence : false, orientation);
     } catch (error) {
       console.error("Failed to generate PDF:", error);
-      alert("Failed to generate PDF. Please try again.");
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to generate PDF. Please try again.";
+      alert(message);
     } finally {
       setGenerating(false);
     }
@@ -98,7 +104,7 @@ export function PdfGeneratorButton({
         ) : (
           <Download className="h-4 w-4" />
         )}
-        {generating ? "Generating…" : "Download PDF"}
+        {generating ? "Generating…" : nativeShare ? "Share PDF" : "Download PDF"}
       </button>
 
       {dialogOpen && hasEvidence ? (

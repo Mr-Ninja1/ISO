@@ -3,9 +3,7 @@
 This is the exact workflow we use. **Website and OTA ship on the same `git push` to `main`.**
 
 ---
-
 ## The three layers
-
 | Layer | What | When you change it |
 |-------|------|-------------------|
 | **1. APIs** | `https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/api/...` (Supabase) | Deploy backend / env — same for browser and app |
@@ -13,9 +11,7 @@ This is the exact workflow we use. **Website and OTA ship on the same `git push`
 | **3. App UI (OTA)** | Zip in WebView | **Same push** — CI runs `release:ota:ci` and deploys `public/ota/production/` |
 
 OTA only updates **layer 3** on the phone. Layers 1–2 use the same deploy; you do not upload zips by hand anymore.
-
 ---
-
 ## Step-by-step (what we run)
 
 ### Step 0 — You change code in the IDE

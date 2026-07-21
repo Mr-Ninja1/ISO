@@ -24,8 +24,11 @@ const minNativeBuild = parseInt(process.env.OTA_MIN_NATIVE_BUILD || "1", 10);
 const releaseNotes = (process.env.OTA_RELEASE_NOTES || "").trim();
 
 const distDir = path.join(root, "ota-dist", channel);
-// Use .ota (still a zip archive) so Azure ZipDeploy does not drop nested *.zip files.
-const zipName = `bundle-${bundleId}.ota`;
+// Azure ZipDeploy drops nested *.zip files — use .ota there. Windows Compress-Archive only supports .zip.
+const archiveExt =
+  process.env.OTA_ARCHIVE_EXT?.trim() ||
+  (process.platform === "win32" ? "zip" : "ota");
+const zipName = `bundle-${bundleId}.${archiveExt}`;
 const zipPath = path.join(distDir, zipName);
 
 function defaultBundleId() {
@@ -70,7 +73,13 @@ function zipOutFolder() {
   }
 
   const stagingMb = (
-    [...listFilesRecursive(stagingDir)].reduce((sum, f) => sum + fs.statSync(f).size, 0) /
+    [...listFilesRecursive(stagingDir)].reduce((sum, f) => {
+      try {
+        return sum + fs.statSync(f).size;
+      } catch {
+        return sum;
+      }
+    }, 0) /
     (1024 * 1024)
   ).toFixed(1);
   console.log(`[package-ota] Staging ${stagingMb} MB from out/ (excluding ota/).`);

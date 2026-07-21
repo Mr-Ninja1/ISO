@@ -17,6 +17,7 @@ import { resolveAuditId, resolveTenantSlug } from "@/lib/client/resolveTenantSlu
 import { buildAuditReportHref, buildTenantHref } from "@/lib/client/tenantHref";
 import {
   buildReportFromDeviceStores,
+  buildReportFromListCache,
   enrichReportWithCachedTemplateSchema,
   parseReportSnapshotFromLocalStorage,
 } from "@/lib/client/loadLocalAuditReport";
@@ -52,9 +53,10 @@ export function AuditReportPageClient({
     return "";
   }, [pathname, searchParams, routeAuditId]);
 
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const offline = useAppOffline();
   const accessToken = getWorkspaceAccessToken(session);
+  const userId = user?.id || session?.user?.id || null;
 
   const [audit, setAudit] = useState<AuditReportData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,25 +76,45 @@ export function AuditReportPageClient({
       setError("");
 
       const fromStorage = parseReportSnapshotFromLocalStorage(tenantSlug, auditId);
-      const fromDevice = (await buildReportFromDeviceStores(tenantSlug, auditId)) ?? null;
-      let localDisplayable = Boolean(fromStorage || fromDevice);
+      const fromList = buildReportFromListCache(userId, tenantSlug, auditId);
+      const fromDevicePromise = buildReportFromDeviceStores(tenantSlug, auditId);
 
       const applyLocal = async (row: AuditReportData | null) => {
-        if (!row || cancelled) return;
-        const enriched = await enrichReportWithCachedTemplateSchema(tenantSlug, row.templateId, row);
+        if (!row || cancelled) return false;
+        const templateId = row.templateId || fromList?.templateId;
+        const merged: AuditReportData = {
+          ...row,
+          templateId,
+          payload:
+            Object.keys(row.payload || {}).length > 0
+              ? row.payload
+              : fromStorage?.payload || fromList?.payload || row.payload,
+        };
+        const enriched = await enrichReportWithCachedTemplateSchema(tenantSlug, templateId, merged);
         setAudit(enriched);
+        return Boolean(enriched.template?.schema);
       };
 
-      if (fromStorage) await applyLocal(fromStorage);
-      if (!cancelled && fromDevice && (!fromStorage || !fromStorage.template?.schema)) {
-        await applyLocal(fromDevice);
+      let localDisplayable = Boolean(fromStorage || fromList);
+      const schemaFromCache = await applyLocal(fromStorage || fromList);
+      if (schemaFromCache) {
+        setLoading(false);
+      }
+
+      const fromDevice = await fromDevicePromise;
+      if (fromDevice) {
+        localDisplayable = true;
+        const deviceReady = await applyLocal(fromDevice);
+        if (deviceReady) setLoading(false);
       }
 
       if (offline || !accessToken) {
         if (!cancelled) {
           setLoading(false);
           if (!localDisplayable) {
-            setError("This form is not available offline on this device. Open it once while online after submitting, or stay offline and open it right after you submit.");
+            setError(
+              "This form is not available offline on this device. Open it once while online after submitting, or stay offline and open it right after you submit."
+            );
           }
         }
         return;
@@ -104,7 +126,10 @@ export function AuditReportPageClient({
         url.searchParams.set("auditId", auditId);
 
         const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-        const json = (await res.json().catch(() => ({}))) as { audit?: AuditReportData & { templateId?: string }; error?: string };
+        const json = (await res.json().catch(() => ({}))) as {
+          audit?: AuditReportData & { templateId?: string };
+          error?: string;
+        };
         if (!res.ok) {
           throw new Error(json?.error || `Failed to load report (${res.status})`);
         }
@@ -148,7 +173,7 @@ export function AuditReportPageClient({
     return () => {
       cancelled = true;
     };
-  }, [tenantSlug, auditId, accessToken, offline]);
+  }, [tenantSlug, auditId, accessToken, offline, userId]);
 
   const schemaReady = useMemo(() => {
     if (!audit?.template?.schema) return false;
@@ -211,6 +236,7 @@ export function AuditReportPageClient({
         status={audit.status}
         createdAt={audit.createdAt}
         tenantName={audit.tenant.name}
+        templateId={audit.templateId}
         payload={audit.payload}
       />
       <div className="flex flex-wrap items-center gap-2 print:hidden">

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
+import { scheduleBrandSyncChange } from "@/lib/brandSync";
 import { getBearerToken } from "@/lib/supabase/routeAuth";
 import { createClient } from "@supabase/supabase-js";
 
@@ -86,6 +87,13 @@ export async function POST(req: Request) {
       entityType: "FormTemplate",
       entityId: templateId,
       details: { categoryId, title: template.title },
+    });
+
+    scheduleBrandSyncChange({
+      sourceTenantId: tenant.id as string,
+      entityType: "form_template",
+      entityId: templateId,
+      changeType: "update",
     });
 
     return NextResponse.json({ success: true, templateId, categoryId });

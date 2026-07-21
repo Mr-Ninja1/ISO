@@ -25,6 +25,7 @@ import {
 } from "@/lib/client/deviceAuditsRows";
 import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
+import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 
 function actionButtonClass(busy: boolean) {
   return (
@@ -38,20 +39,24 @@ function actionButtonClass(busy: boolean) {
 function SavedFormRowActions({
   tenantSlug,
   auditId,
+  templateId,
   layout,
   canDelete,
   onDelete,
 }: {
   tenantSlug: string;
   auditId: string;
+  templateId?: string;
   layout: "row" | "menu";
   canDelete?: boolean;
   onDelete?: () => void;
 }) {
   const router = useRouter();
+  const { session } = useAuth();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const prefetchedRef = useRef(false);
 
   const reportPath = auditReportHref(tenantSlug, auditId);
 
@@ -60,6 +65,25 @@ function SavedFormRowActions({
     const timeout = window.setTimeout(() => setBusy(false), 15_000);
     return () => window.clearTimeout(timeout);
   }, [busy]);
+
+  function prefetchReport() {
+    if (prefetchedRef.current) return;
+    prefetchedRef.current = true;
+    try {
+      router.prefetch(reportPath);
+    } catch {
+      // ignore
+    }
+    if (templateId) {
+      void readAuditTemplateCache(tenantSlug, templateId);
+    }
+    const token = getWorkspaceAccessToken(session);
+    if (!token || auditId.startsWith("pending:")) return;
+    const url = new URL(apiUrl("/api/audit/report"));
+    url.searchParams.set("tenantSlug", tenantSlug);
+    url.searchParams.set("auditId", auditId);
+    void fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  }
 
   function openReport() {
     if (busy) return;
@@ -96,6 +120,9 @@ function SavedFormRowActions({
           <button
             type="button"
             disabled={busy}
+            onMouseEnter={prefetchReport}
+            onFocus={prefetchReport}
+            onTouchStart={prefetchReport}
             onClick={openReport}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5 disabled:opacity-60"
           >
@@ -130,6 +157,9 @@ function SavedFormRowActions({
       <button
         type="button"
         disabled={busy}
+        onMouseEnter={prefetchReport}
+        onFocus={prefetchReport}
+        onTouchStart={prefetchReport}
         onClick={openReport}
         className={actionButtonClass(busy)}
       >
@@ -772,6 +802,7 @@ export function AuditsListClient({
                     <SavedFormRowActions
                       tenantSlug={activeTenantSlug}
                       auditId={row.id}
+                      templateId={row.templateId}
                       layout="row"
                       canDelete={
                         canDeleteAudits &&

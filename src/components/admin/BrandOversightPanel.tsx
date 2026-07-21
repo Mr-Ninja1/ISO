@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
+  GitMerge,
   Loader2,
   Megaphone,
   MessageSquare,
@@ -22,6 +23,7 @@ import { AppLoadingScreen } from "@/components/AppLoadingScreen";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { NotificationModal } from "@/components/NotificationModal";
 import { BrandPlanModal } from "@/components/admin/BrandPlanModal";
+import { BrandSyncPanel } from "@/components/admin/BrandSyncPanel";
 import { SupportContactLink } from "@/components/SupportContactLink";
 import { AdminNetworkStatusBanner } from "@/components/admin/AdminNetworkStatusBanner";
 import { AnnouncementAudienceField } from "@/components/admin/AnnouncementAudienceField";
@@ -143,6 +145,7 @@ export function BrandOversightPanel() {
   const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
   const [planTarget, setPlanTarget] = useState<BrandRow | null>(null);
   const [aiResetBusy, setAiResetBusy] = useState(false);
+  const [showSync, setShowSync] = useState(false);
 
   async function resetAllBrandsAi(options: { resetFormAiUsage?: boolean; resetDcTrial?: boolean }) {
     const token = session?.access_token || "";
@@ -564,6 +567,15 @@ export function BrandOversightPanel() {
   const inactiveCount = brands.length - activeCount;
   const totalUsers = brands.reduce((sum, brand) => sum + brand.memberCount, 0);
 
+  if (showSync) {
+    return (
+      <BrandSyncPanel
+        brands={brands.map((brand) => ({ id: brand.id, name: brand.name, slug: brand.slug }))}
+        onBack={() => setShowSync(false)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-2xl border border-foreground/10 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.96),_rgba(242,245,248,0.95),_rgba(229,231,235,0.9))] p-5 shadow-sm sm:p-6">
@@ -596,6 +608,26 @@ export function BrandOversightPanel() {
               {inactiveCount} inactive
             </span>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-foreground/15 bg-background p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">Brand workspace sync</h2>
+            <p className="mt-1 max-w-xl text-xs text-foreground/60">
+              Link branches that share the same forms and categories while keeping submissions and staff separate.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={offline}
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-foreground/15 px-3 text-xs font-medium hover:bg-foreground/5 disabled:opacity-50"
+            onClick={() => setShowSync(true)}
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            Manage linked brands
+          </button>
         </div>
       </div>
 

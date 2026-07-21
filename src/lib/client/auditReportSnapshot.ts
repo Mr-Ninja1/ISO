@@ -26,6 +26,7 @@ export function writeAuditReportSnapshot(
     status?: string;
     createdAt?: string;
     tenantName?: string;
+    templateId?: string;
     payload: Record<string, unknown>;
   }
 ) {
@@ -39,6 +40,7 @@ export function writeAuditReportSnapshot(
         status: input.status || "SUBMITTED",
         createdAt: input.createdAt || new Date().toISOString(),
         tenantName: input.tenantName || tenantSlug,
+        templateId: input.templateId || null,
         payload: input.payload,
         ts: Date.now(),
       })
