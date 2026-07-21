@@ -1077,6 +1077,37 @@ body {
     animation: copilot-spotlight-enter 0.35s ease-out both;
 }
 
+@keyframes copilot-bubble-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes copilot-bubble-out {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+}
+
+.copilot-bubble-enter {
+    animation: copilot-bubble-in 0.3s ease-out both;
+}
+
+.copilot-bubble-exit {
+    animation: copilot-bubble-out 0.35s ease-in both;
+    pointer-events: none;
+}
+
 .mobile-app-install-banner {
     border-radius: 1rem;
     border: 1px solid color-mix(in srgb, var(--hse-teal) 18%, transparent);
@@ -1516,7 +1547,6 @@ body {
 
 .pdf-generation-mode .text-xs,
 .pdf-generation-mode .text-sm,
-.pdf-generation-mode table,
 .pdf-generation-mode .report-field-value {
     font-size: 14px !important;
     line-height: 1.45 !important;
@@ -1566,11 +1596,21 @@ body {
     max-width: 100% !important;
 }
 
+.pdf-generation-mode table.pdf-compact-table th,
+.pdf-generation-mode table.pdf-compact-table td {
+    font-size: var(--pdf-table-font-size, 10px) !important;
+    line-height: var(--pdf-table-line-height, 1.35) !important;
+    padding: var(--pdf-table-cell-padding, 4px 6px) !important;
+}
+
 .pdf-generation-mode table.report-data-table {
     min-width: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
     table-layout: fixed !important;
+    /* border-collapse breaks row lines in html2canvas/WebView — use separate cells */
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
 }
 
 .pdf-generation-mode table.report-data-table th,
@@ -1581,6 +1621,11 @@ body {
     word-break: break-word !important;
     overflow-wrap: anywhere !important;
     white-space: normal !important;
+    vertical-align: top !important;
+    border-style: solid !important;
+    border-width: 1px !important;
+    line-height: 1.35 !important;
+    height: auto !important;
 }
 
 /* Browser print — orientation set via #report-print-page-style from report page */

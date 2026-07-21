@@ -5,6 +5,9 @@ import {
   clearPendingOtaBundle,
   OTA_ACTIVATED_BUNDLE_KEY,
   parseNativeBuild,
+  readActivatedBundleId,
+  readEmbeddedWebBundleId,
+  writeActivatedBundleId,
 } from "@/lib/capacitor/liveUpdateClient";
 
 const APK_NATIVE_BUILD_KEY = "iso-apk-native-build:v1";
@@ -50,6 +53,15 @@ async function resetOtaIfNativeBuildChanged(): Promise<void> {
 
   if (buildChanged || bundleChanged) {
     await clearStaleOtaState();
+    const embedded = readEmbeddedWebBundleId();
+    if (embedded) {
+      writeActivatedBundleId(embedded);
+    }
+  } else {
+    const embedded = readEmbeddedWebBundleId();
+    if (embedded && !readActivatedBundleId()) {
+      writeActivatedBundleId(embedded);
+    }
   }
 
   try {

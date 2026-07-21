@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { deliverPdfBlob, generatePdfBlobFromElement, resolvePdfScale } from "@/lib/pdfGenerator";
+import { deliverPdfBlob, formatPdfSavedMessage, generatePdfBlobFromElement, resolvePdfScale } from "@/lib/pdfGenerator";
 
 type Props = {
   title: string;
@@ -47,7 +47,8 @@ export async function shareAuditPdf(title: string) {
     orientation: "portrait",
   });
   const safeTitle = title.replace(/[^a-z0-9]/gi, "-");
-  await deliverPdfBlob(pdfBlob, `${safeTitle}.pdf`);
+  const saved = await deliverPdfBlob(pdfBlob, `${safeTitle}.pdf`);
+  return saved;
 }
 
 export function AuditShareControls({ title, url, enablePdfShare = false }: Props) {
@@ -61,10 +62,17 @@ export function AuditShareControls({ title, url, enablePdfShare = false }: Props
     if (sharingPdf) return;
     setSharingPdf(true);
     try {
-      await shareAuditPdf(title);
+      const saved = await shareAuditPdf(title);
+      if (saved?.savedPathLabel) {
+        alert(formatPdfSavedMessage(saved.savedPathLabel));
+      }
     } catch (error) {
-      console.error("Failed to share PDF:", error);
-      alert("Failed to share PDF. Please try again.");
+      console.error("Failed to save PDF:", error);
+      alert(
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to save PDF. Please try again.",
+      );
     } finally {
       setSharingPdf(false);
     }
@@ -86,7 +94,7 @@ export function AuditShareControls({ title, url, enablePdfShare = false }: Props
           onClick={handleSharePdf}
           disabled={sharingPdf}
         >
-          {sharingPdf ? "Generating..." : "Share PDF"}
+          {sharingPdf ? "Saving..." : "Save PDF"}
         </button>
       )}
     </div>

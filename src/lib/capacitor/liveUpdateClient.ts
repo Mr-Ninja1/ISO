@@ -17,6 +17,28 @@ export const OTA_ACTIVATED_BUNDLE_KEY = "iso-ota-bundle-activated:v1";
 export const OTA_PENDING_BUNDLE_KEY = "iso-ota-bundle-pending:v1";
 export const OTA_CHANNEL_ENV = process.env.NEXT_PUBLIC_OTA_CHANNEL?.trim() || "production";
 
+/** Baked into the APK at build time (see tools/capacitor-build.mjs). */
+export function readEmbeddedWebBundleId(): string | null {
+  const raw = process.env.NEXT_PUBLIC_WEB_BUNDLE_ID?.trim();
+  return raw || null;
+}
+
+export function isEmbeddedBundleNewerThanManifest(manifest: OtaManifest): boolean {
+  const embedded = readEmbeddedWebBundleId();
+  if (!embedded || !manifest.publishedAt) return false;
+  const embeddedTime = Date.parse(embedded);
+  const publishedTime = Date.parse(manifest.publishedAt);
+  if (!Number.isFinite(embeddedTime) || !Number.isFinite(publishedTime)) return false;
+  return embeddedTime >= publishedTime;
+}
+
+export function resolveActiveBundleId(
+  activatedBundleId: string | null,
+  pluginCurrentBundleId?: string | null,
+): string | null {
+  return activatedBundleId || pluginCurrentBundleId || readEmbeddedWebBundleId();
+}
+
 export type OtaPendingBundle = {
   bundleId: string;
   releaseNotes?: string;
@@ -150,6 +172,10 @@ export function evaluateOtaManifest(args: {
   const channel = (configuredChannel || OTA_CHANNEL_ENV || "production").trim();
   if (manifest.channel && manifest.channel !== channel) {
     return { action: "skip", reason: "channel_mismatch" };
+  }
+
+  if (isEmbeddedBundleNewerThanManifest(manifest)) {
+    return { action: "skip", reason: "already_activated" };
   }
 
   if (activatedBundleId === manifest.bundleId) {

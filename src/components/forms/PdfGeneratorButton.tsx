@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import {
   buildAuditPdfFilename,
+  formatPdfSavedMessage,
   generateAuditReportPdf,
-  prefersNativePdfShare,
+  prefersNativePdfSave,
+  warmPdfGenerationLibs,
   type PdfOrientation,
 } from "@/lib/pdfGenerator";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
@@ -25,12 +27,16 @@ export function PdfGeneratorButton({
 }: Props) {
   const filename = buildAuditPdfFilename(formTitle, tenantSlug);
   const documentTitle = formTitle.trim() || "Form report";
-  const nativeShare = prefersNativePdfShare();
+  const nativeSave = prefersNativePdfSave();
   const [generating, setGenerating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [orientation, setOrientation] =
     useState<PdfOrientation>(defaultOrientation);
   const [includeEvidence, setIncludeEvidence] = useState(true);
+
+  useEffect(() => {
+    warmPdfGenerationLibs();
+  }, []);
 
   const hasEvidence = evidencePhotos.length > 0;
 
@@ -43,12 +49,15 @@ export function PdfGeneratorButton({
       throw new Error("Report content not found");
     }
 
-    await generateAuditReportPdf(element, filename, {
+    const saved = await generateAuditReportPdf(element, filename, {
       orientation: orient,
       includeEvidencePages,
       evidencePhotos: includeEvidencePages ? evidencePhotos : [],
       documentTitle,
     });
+    if (saved?.savedPathLabel) {
+      alert(formatPdfSavedMessage(saved.savedPathLabel));
+    }
   }
 
   async function handleConfirmExport() {
@@ -108,7 +117,7 @@ export function PdfGeneratorButton({
         ) : (
           <Download className="h-4 w-4" />
         )}
-        {generating ? "Generating…" : nativeShare ? "Share PDF" : "Download PDF"}
+        {generating ? "Generating…" : nativeSave ? "Save PDF" : "Download PDF"}
       </button>
 
       {dialogOpen && hasEvidence ? (

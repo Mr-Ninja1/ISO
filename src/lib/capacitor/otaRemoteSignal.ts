@@ -1,7 +1,10 @@
 "use client";
 
 import { apiUrl } from "@/lib/client/apiBase";
-import { readActivatedBundleId } from "@/lib/capacitor/liveUpdateClient";
+import {
+  readActivatedBundleId,
+  resolveActiveBundleId,
+} from "@/lib/capacitor/liveUpdateClient";
 import { OTA_PUSH_EVENT } from "@/lib/capacitor/otaRealtime";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
@@ -22,8 +25,9 @@ export async function remoteOtaBundleDiffersFromActive(): Promise<boolean> {
     const config = (await res.json().catch(() => ({}))) as ClientConfig;
     const remote = (config.otaLatestBundleId || "").trim();
     if (!remote) return false;
-    const active = readActivatedBundleId();
-    return Boolean(active ? active !== remote : true);
+    const active = resolveActiveBundleId(readActivatedBundleId());
+    if (!active) return false;
+    return active !== remote;
   } catch {
     return false;
   }

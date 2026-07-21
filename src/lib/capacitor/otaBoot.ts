@@ -42,3 +42,19 @@ export function clearOtaBootGracePeriod() {
     // ignore
   }
 }
+
+/** After a reload, mark the bundle we restarted into as active. */
+export function consumeOtaReloadSessionBundleId(): string | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(OTA_RELOAD_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OtaReloadSession;
+    sessionStorage.removeItem(OTA_RELOAD_SESSION_KEY);
+    if (!parsed?.bundleId) return null;
+    if (Date.now() - parsed.at > OTA_BOOT_GRACE_MS) return null;
+    return parsed.bundleId;
+  } catch {
+    return null;
+  }
+}

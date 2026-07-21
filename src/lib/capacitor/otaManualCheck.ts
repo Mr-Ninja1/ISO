@@ -2,14 +2,18 @@
 
 import { ensureLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { consumeOtaReloadSessionBundleId } from "@/lib/capacitor/otaBoot";
 import {
   clearPendingOtaBundle,
   evaluateOtaManifest,
+  isEmbeddedBundleNewerThanManifest,
   OTA_CHANNEL_ENV,
   parseNativeBuild,
   parseOtaManifest,
   readActivatedBundleId,
+  readEmbeddedWebBundleId,
   readPendingOtaBundle,
+  resolveActiveBundleId,
   writeActivatedBundleId,
   writePendingOtaBundle,
   type OtaPendingBundle,
@@ -65,11 +69,47 @@ function pendingToResult(pending: OtaPendingBundle, message: string): OtaCheckRe
   return { status: "available", pending: payload, message };
 }
 
+async function discardStaleDownloadedBundle(bundleId: string) {
+  try {
+    const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
+    await LiveUpdate.deleteBundle({ bundleId });
+  } catch {
+    // ignore
+  }
+}
+
+function isRunningEmbeddedApkBundle(): boolean {
+  const embedded = readEmbeddedWebBundleId();
+  const activated = readActivatedBundleId();
+  return Boolean(embedded && activated === embedded);
+}
+
+async function clearOrphanedOtaDownloads(currentBundleId?: string | null) {
+  try {
+    const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
+    const { bundleIds } = await LiveUpdate.getDownloadedBundles();
+    for (const id of bundleIds || []) {
+      if (id && id !== currentBundleId) {
+        await discardStaleDownloadedBundle(id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  clearPendingOtaBundle();
+}
+
 /** Sync activated/pending state from the native plugin after ready(). */
 export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null> {
   if (!isCapacitorNativeApp()) return null;
   const ready = await ensureLiveUpdateReady();
   if (!ready) return readPendingOtaBundle();
+
+  const reloadedBundleId = consumeOtaReloadSessionBundleId();
+  if (reloadedBundleId) {
+    writeActivatedBundleId(reloadedBundleId);
+    clearPendingOtaBundle();
+  }
 
   try {
     const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
@@ -79,10 +119,17 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
     if (current) {
       writeActivatedBundleId(current);
       if (current === next) clearPendingOtaBundle();
+    } else if (!readActivatedBundleId()) {
+      const embedded = resolveActiveBundleId(null, current);
+      if (embedded) writeActivatedBundleId(embedded);
     }
 
     const storedPending = readPendingOtaBundle();
     if (next && next !== current) {
+      if (isRunningEmbeddedApkBundle()) {
+        await clearOrphanedOtaDownloads(current);
+        return null;
+      }
       const pending: OtaPendingBundle =
         storedPending?.bundleId === next
           ? storedPending
@@ -101,6 +148,10 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
       const { bundleIds } = await LiveUpdate.getDownloadedBundles();
       const pendingId = (bundleIds || []).find((id) => id && id !== current);
       if (pendingId) {
+        if (isRunningEmbeddedApkBundle()) {
+          await clearOrphanedOtaDownloads(current);
+          return null;
+        }
         const pending: OtaPendingBundle =
           storedPending?.bundleId === pendingId
             ? storedPending
@@ -180,6 +231,17 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
         activatedBundleId: readActivatedBundleId(),
         pendingBundle: readPendingOtaBundle(),
       });
+
+      if (decision.action === "skip" && decision.reason === "already_activated") {
+        const pending = readPendingOtaBundle();
+        if (pending?.bundleId && pending.bundleId !== manifest.bundleId) {
+          clearPendingOtaBundle();
+          await discardStaleDownloadedBundle(pending.bundleId);
+        }
+        if (isEmbeddedBundleNewerThanManifest(manifest)) {
+          await discardStaleDownloadedBundle(manifest.bundleId);
+        }
+      }
 
       if (decision.action === "prompt_restart") {
         return pendingToResult(
