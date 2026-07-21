@@ -107,7 +107,15 @@ type SortField = "name" | "createdAt" | "updatedAt" | "memberCount";
 type SortOrder = "asc" | "desc";
 type StatusFilter = "all" | "active" | "inactive";
 
-export function BrandOversightPanel() {
+type BrandOversightPanelProps = {
+  initialShowSync?: boolean;
+  onBackToDashboard?: () => void;
+};
+
+export function BrandOversightPanel({
+  initialShowSync = false,
+  onBackToDashboard,
+}: BrandOversightPanelProps) {
   const { user, session, loading: authLoading } = useAuth();
   const offline = useAppOffline();
   const [requestPending, setRequestPending] = useState(false);
@@ -145,7 +153,7 @@ export function BrandOversightPanel() {
   const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
   const [planTarget, setPlanTarget] = useState<BrandRow | null>(null);
   const [aiResetBusy, setAiResetBusy] = useState(false);
-  const [showSync, setShowSync] = useState(false);
+  const [showSync, setShowSync] = useState(initialShowSync);
 
   async function resetAllBrandsAi(options: { resetFormAiUsage?: boolean; resetDcTrial?: boolean }) {
     const token = session?.access_token || "";
@@ -578,6 +586,16 @@ export function BrandOversightPanel() {
 
   return (
     <div className="flex flex-col gap-6">
+      {onBackToDashboard ? (
+        <button
+          type="button"
+          onClick={onBackToDashboard}
+          className="inline-flex w-fit items-center gap-2 text-sm text-foreground/70 hover:text-foreground"
+        >
+          <ArrowUpRight className="h-4 w-4 rotate-180" />
+          Back to developer dashboard
+        </button>
+      ) : null}
       <div className="rounded-2xl border border-foreground/10 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.96),_rgba(242,245,248,0.95),_rgba(229,231,235,0.9))] p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, ShieldCheck, Activity, MessageSquare, Users, Building2, TrendingUp } from "lucide-react";
+import { Building2, GitMerge, Loader2, ShieldCheck, Activity, MessageSquare, Users, TrendingUp } from "lucide-react";
 import { AdminSectionErrorBoundary } from "@/components/admin/AdminSectionErrorBoundary";
 import { BrandOversightPanel } from "@/components/admin/BrandOversightPanel";
 import { PlatformOtaPanel } from "@/components/admin/PlatformOtaPanel";
@@ -26,7 +26,7 @@ export default function AdminPage() {
   const offline = useAppOffline();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
-  const [showBrands, setShowBrands] = useState(false);
+  const [brandsView, setBrandsView] = useState<null | "list" | "sync">(null);
   const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
@@ -84,10 +84,13 @@ export default function AdminPage() {
     return <OfflineRouteBlock title="Developer access required" message="This console is restricted to approved platform developers." backHref="/developer-login" backLabel="Developer sign in" />;
   }
 
-  if (showBrands) {
+  if (brandsView) {
     return (
       <AdminSectionErrorBoundary>
-        <BrandOversightPanel />
+        <BrandOversightPanel
+          initialShowSync={brandsView === "sync"}
+          onBackToDashboard={() => setBrandsView(null)}
+        />
       </AdminSectionErrorBoundary>
     );
   }
@@ -110,7 +113,7 @@ export default function AdminPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <SupportContactLink label="Contact support" />
             <button
-            onClick={() => setShowBrands(true)}
+            onClick={() => setBrandsView("list")}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background shadow-sm transition hover:translate-y-[-1px]"
           >
             <Building2 className="h-4 w-4" />
@@ -174,11 +177,23 @@ export default function AdminPage() {
           <h2 className="text-lg font-semibold">Quick actions</h2>
           <div className="mt-4 space-y-2">
             <button
-              onClick={() => setShowBrands(true)}
+              onClick={() => setBrandsView("list")}
               className="w-full rounded-lg border border-foreground/15 bg-background px-4 py-3 text-left text-sm hover:bg-foreground/5 transition"
             >
               <div className="font-medium">Manage brands</div>
               <div className="mt-1 text-xs text-foreground/60">Activate, deactivate, and send alerts to brands</div>
+            </button>
+            <button
+              onClick={() => setBrandsView("sync")}
+              className="w-full rounded-lg border border-foreground/15 bg-background px-4 py-3 text-left text-sm hover:bg-foreground/5 transition"
+            >
+              <div className="inline-flex items-center gap-2 font-medium">
+                <GitMerge className="h-4 w-4" />
+                Link brand workspaces
+              </div>
+              <div className="mt-1 text-xs text-foreground/60">
+                Connect restaurants that share the same categories and form templates
+              </div>
             </button>
             <Link
               href="/workspace"
