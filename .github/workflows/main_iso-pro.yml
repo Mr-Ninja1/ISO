@@ -152,7 +152,11 @@ jobs:
       - name: Configure Azure Web App runtime
         shell: bash
         run: |
-          RESOURCE_GROUP=$(az webapp show --name iso-pro --query resourceGroup -o tsv)
+          RESOURCE_GROUP=$(az webapp list --query "[?name=='iso-pro'].resourceGroup | [0]" -o tsv)
+          if [ -z "$RESOURCE_GROUP" ]; then
+            echo "ERROR: Could not find Azure Web App 'iso-pro' in the active subscription. Check the App Service exists and the login has access."
+            exit 1
+          fi
           echo "Using resource group: $RESOURCE_GROUP"
           az webapp config set \
             --resource-group "$RESOURCE_GROUP" \
@@ -171,7 +175,11 @@ jobs:
           cd node-app
           zip -r ../node-app.zip .
           cd ..
-          RESOURCE_GROUP=$(az webapp show --name iso-pro --query resourceGroup -o tsv)
+          RESOURCE_GROUP=$(az webapp list --query "[?name=='iso-pro'].resourceGroup | [0]" -o tsv)
+          if [ -z "$RESOURCE_GROUP" ]; then
+            echo "ERROR: Could not find Azure Web App 'iso-pro' in the active subscription. Check the App Service exists and the login has access."
+            exit 1
+          fi
           az webapp deploy \
             --resource-group "$RESOURCE_GROUP" \
             --name iso-pro \
