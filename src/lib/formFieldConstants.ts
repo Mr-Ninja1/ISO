@@ -4,6 +4,7 @@ export const COLUMN_HEADER_PLACEHOLDER = "Add column name";
 export const COLUMN_MIN_WIDTH_PX = 65;
 export const COLUMN_MAX_WIDTH_PX = 640;
 export const COLUMN_DEFAULT_WIDTH_PX = 160;
+export const CHECKBOX_COLUMN_WIDTH_PX = 34;
 
 export const GRID_COLUMN_LIMIT_MESSAGE =
   "Tables can use as many columns as the source form needs. The builder scrolls wide tables horizontally and PDF export fits them to the page.";

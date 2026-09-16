@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import {
   COLUMN_DEFAULT_WIDTH_PX,
+  CHECKBOX_COLUMN_WIDTH_PX,
   COLUMN_HEADER_PLACEHOLDER,
   COLUMN_MAX_WIDTH_PX,
   COLUMN_MIN_WIDTH_PX,
@@ -1479,11 +1480,15 @@ function GridBuilder({
                   key={col.id}
                   className={
                     "relative border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
-                    (col.type === "checkbox" ? "w-16" : "")
+                    (col.type === "checkbox" ? "text-center" : "")
                   }
                   style={
                     col.type === "checkbox"
-                      ? { width: 72, minWidth: 72 }
+                      ? {
+                          width: CHECKBOX_COLUMN_WIDTH_PX,
+                          minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                          maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                        }
                       : { width: columnWidthPx(col), minWidth: columnWidthPx(col) }
                   }
                 >
@@ -1531,18 +1536,27 @@ function GridBuilder({
                     }}
                     title="Edit column"
                   >
-                    <span
-                      className={
-                        isColumnHeaderPlaceholder(col.label)
-                          ? "inline-flex items-center gap-1 italic text-foreground/45"
-                          : ""
-                      }
-                    >
-                      {columnHeaderDisplayLabel(col.label)}
-                      {isColumnHeaderPlaceholder(col.label) ? (
-                        <PenLine className="h-3.5 w-3.5 shrink-0" />
-                      ) : null}
-                    </span>
+                    {col.type === "checkbox" ? (
+                      <span
+                        className="mx-auto block max-h-24 overflow-hidden text-[9px] font-semibold leading-tight [writing-mode:vertical-rl] [transform:rotate(180deg)]"
+                        title={columnHeaderDisplayLabel(col.label)}
+                      >
+                        {columnHeaderDisplayLabel(col.label)}
+                      </span>
+                    ) : (
+                      <span
+                        className={
+                          isColumnHeaderPlaceholder(col.label)
+                            ? "inline-flex items-center gap-1 italic text-foreground/45"
+                            : ""
+                        }
+                      >
+                        {columnHeaderDisplayLabel(col.label)}
+                        {isColumnHeaderPlaceholder(col.label) ? (
+                          <PenLine className="h-3.5 w-3.5 shrink-0" />
+                        ) : null}
+                      </span>
+                    )}
                   </button>
                 </th>
               ))}
@@ -1568,12 +1582,16 @@ function GridBuilder({
                       colSpan={cell.colSpan}
                       className={
                         "h-9 border border-foreground/35 px-3 py-2 text-xs " +
-                        (col.type === "checkbox" ? "w-16 text-center" : "") +
+                        (col.type === "checkbox" ? "text-center" : "") +
                         (isSelected ? " bg-foreground/10" : " bg-background")
                       }
                       style={
                         col.type === "checkbox"
-                          ? { width: 72, minWidth: 72 }
+                          ? {
+                              width: CHECKBOX_COLUMN_WIDTH_PX,
+                              minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                              maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                            }
                           : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
                             ? {
                                 width: columnWidthPx(col),

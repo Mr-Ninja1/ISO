@@ -24,7 +24,7 @@ jobs:
       - name: Set up Node.js version
         uses: actions/setup-node@v5
         with:
-          node-version: '24.x'
+          node-version: "24.x"
           package-manager-cache: false
 
       - name: npm install, build, and test
@@ -128,7 +128,7 @@ jobs:
       - name: Set up Node.js for deploy packaging
         uses: actions/setup-node@v5
         with:
-          node-version: '24.x'
+          node-version: "24.x"
 
       - name: Verify standalone server entry exists
         run: |
@@ -148,10 +148,33 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_AA9A865845774FE0A0C69A7F379F0925 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_06EA98C756DE4B049273EC852D6FABC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E6EF8159DABC44E085A27DA7B62D8A51 }}
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'iso-pro'
-          slot-name: 'Production'
-          package: ./node-app
+
+      - name: Configure Azure Web App runtime
+        shell: bash
+        run: |
+          RESOURCE_GROUP=$(az webapp show --name iso-pro --query resourceGroup -o tsv)
+          echo "Using resource group: $RESOURCE_GROUP"
+          az webapp config set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name iso-pro \
+            --startup-file "node server.js"
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name iso-pro \
+            --settings \
+              SCM_DO_BUILD_DURING_DEPLOYMENT=false \
+              WEBSITE_RUN_FROM_PACKAGE=0
+
+      - name: Deploy zip package to Azure Web App
+        shell: bash
+        run: |
+          cd node-app
+          zip -r ../node-app.zip .
+          cd ..
+          RESOURCE_GROUP=$(az webapp show --name iso-pro --query resourceGroup -o tsv)
+          az webapp deploy \
+            --resource-group "$RESOURCE_GROUP" \
+            --name iso-pro \
+            --src-path ./node-app.zip \
+            --type zip \
+            --clean true

@@ -15,7 +15,7 @@ import {
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
 import { buildGridLayout, buildGridRowDefaults } from "@/lib/gridLayout";
-import { clampColumnWidthPx } from "@/lib/formFieldConstants";
+import { CHECKBOX_COLUMN_WIDTH_PX, clampColumnWidthPx } from "@/lib/formFieldConstants";
 
 type FormValues = Record<string, unknown>;
 
@@ -400,11 +400,15 @@ export function GridField({
                   key={col.id}
                   className={
                     `sticky top-0 z-10 border-b border-r border-foreground/20 px-3 py-2 text-left text-xs font-semibold text-foreground/70 ${tableHeaderClass} ` +
-                    (col.type === "checkbox" ? "w-16 text-center" : "")
+                    (col.type === "checkbox" ? "text-center" : "")
                   }
                   style={
                     col.type === "checkbox"
-                      ? { width: 72, minWidth: 72, maxWidth: 72 }
+                      ? {
+                          width: CHECKBOX_COLUMN_WIDTH_PX,
+                          minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                          maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                        }
                       : col.type === "signature"
                         ? { width: 168, minWidth: 140, maxWidth: 200 }
                         : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)
@@ -416,7 +420,16 @@ export function GridField({
                           : undefined
                   }
                 >
-                  {col.label}
+                  {col.type === "checkbox" ? (
+                    <span
+                      className="mx-auto block max-h-28 overflow-hidden text-[10px] font-semibold leading-tight [writing-mode:vertical-rl] [transform:rotate(180deg)]"
+                      title={col.label}
+                    >
+                      {col.label}
+                    </span>
+                  ) : (
+                    col.label
+                  )}
                 </th>
               ))}
               {grid.rows === "dynamic" ? (
@@ -456,11 +469,15 @@ export function GridField({
                       colSpan={cell.colSpan}
                       className={
                         "border-b border-r border-foreground/10 px-1 py-1 align-middle " +
-                        (col.type === "checkbox" ? "w-16" : "")
+                        (col.type === "checkbox" ? "text-center" : "")
                       }
                       style={
                         col.type === "checkbox"
-                          ? { width: 72, minWidth: 72, maxWidth: 72 }
+                          ? {
+                              width: CHECKBOX_COLUMN_WIDTH_PX,
+                              minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                              maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                            }
                           : col.type === "signature"
                             ? { width: 168, minWidth: 140, maxWidth: 200 }
                             : typeof (col as any).widthPx === "number" && Number.isFinite((col as any).widthPx)

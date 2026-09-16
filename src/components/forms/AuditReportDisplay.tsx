@@ -11,7 +11,7 @@ import {
 } from "@/components/forms/auditReportFieldRender";
 import { ReportPhotoGallery } from "@/components/forms/ReportPhotoGallery";
 import { buildGridLayout } from "@/lib/gridLayout";
-import { clampColumnWidthPx } from "@/lib/formFieldConstants";
+import { CHECKBOX_COLUMN_WIDTH_PX, clampColumnWidthPx } from "@/lib/formFieldConstants";
 import {
   normalizeFormSchema,
   splitReportSections,
@@ -233,11 +233,15 @@ export function AuditReportDisplay({
                           key={col.id}
                           className={
                             "border border-foreground/25 bg-foreground/[0.04] px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-wide " +
-                            (col.type === "checkbox" ? "w-16 text-center" : "")
+                            (col.type === "checkbox" ? "text-center" : "")
                           }
                           style={
                             col.type === "checkbox"
-                              ? { width: 72, minWidth: 72, maxWidth: 72 }
+                              ? {
+                                  width: CHECKBOX_COLUMN_WIDTH_PX,
+                                  minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                                  maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                                }
                               : col.type === "signature"
                                 ? { width: 168, minWidth: 140, maxWidth: 200 }
                                 : typeof (col as { widthPx?: number }).widthPx ===
@@ -259,7 +263,16 @@ export function AuditReportDisplay({
                                   : undefined
                           }
                         >
-                          {col.label || "Column"}
+                          {col.type === "checkbox" ? (
+                            <span
+                              className="mx-auto block max-h-28 overflow-hidden text-[9px] font-semibold leading-tight [writing-mode:vertical-rl] [transform:rotate(180deg)]"
+                              title={col.label || "Column"}
+                            >
+                              {col.label || "Column"}
+                            </span>
+                          ) : (
+                            col.label || "Column"
+                          )}
                         </th>
                       ))}
                     </tr>
@@ -287,7 +300,11 @@ export function AuditReportDisplay({
                                 }
                                 style={
                                   col.type === "checkbox"
-                                    ? { width: 72, minWidth: 72, maxWidth: 72 }
+                                    ? {
+                                        width: CHECKBOX_COLUMN_WIDTH_PX,
+                                        minWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                                        maxWidth: CHECKBOX_COLUMN_WIDTH_PX,
+                                      }
                                     : col.type === "signature"
                                       ? {
                                           width: 168,
