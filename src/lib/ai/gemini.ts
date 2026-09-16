@@ -1,3 +1,5 @@
+import { resolveSourceMimeType } from "@/lib/ai/sourceDocument";
+
 type GeminiPart = { text?: string; inline_data?: { mime_type: string; data: string } };
 
 type GenerateContentOptions = {
@@ -77,5 +79,10 @@ export async function fileToBase64(file: File | Blob): Promise<{ mimeType: strin
   let binary = "";
   for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
   const data = typeof Buffer !== "undefined" ? Buffer.from(bytes).toString("base64") : btoa(binary);
-  return { mimeType: file.type || "application/octet-stream", data };
+  const name = "name" in file && typeof file.name === "string" ? file.name : undefined;
+  const resolved =
+    resolveSourceMimeType({ name, type: file.type }) ||
+    file.type ||
+    "application/octet-stream";
+  return { mimeType: resolved, data };
 }

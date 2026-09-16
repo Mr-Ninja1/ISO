@@ -3,8 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { generateFormSchemaFromInput } from "@/lib/ai/generateFormSchema";
 import { getGeminiModelName, isGeminiConfigured } from "@/lib/ai/gemini";
-
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+import { validateSourceDocument } from "@/lib/ai/sourceDocument";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -45,9 +44,12 @@ export async function POST(req: Request) {
     const file = formData.get("file");
 
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
-    if (!(file instanceof File)) return NextResponse.json({ error: "Image file is required" }, { status: 400 });
-    if (file.size > MAX_IMAGE_BYTES) {
-      return NextResponse.json({ error: "Image/PDF must be 10 MB or smaller." }, { status: 400 });
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "A PDF, JPG, or PNG document is required" }, { status: 400 });
+    }
+    const validated = validateSourceDocument(file);
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
     }
 
     const sb = createSupabaseWithBearer(token);
@@ -62,12 +64,16 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (me || !membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const schema = await generateFormSchemaFromInput({ prompt: prompt || undefined, image: file });
+    const { schema, extraction } = await generateFormSchemaFromInput({
+      prompt: prompt || undefined,
+      image: file,
+    });
 
     return NextResponse.json({
       title: schema.title,
       schema,
       sections: schema.sections,
+      extraction: extraction || null,
       provider: "gemini",
       model: getGeminiModelName(),
     });

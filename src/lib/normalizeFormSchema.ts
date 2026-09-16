@@ -36,6 +36,34 @@ function normalizeGridRows(rowsRaw: unknown): GridSection["rows"] {
   return 10;
 }
 
+function normalizeSeedRows(
+  raw: unknown,
+  columns: GridSection["columns"],
+): GridSection["seedRows"] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const columnIds = new Set(columns.map((col) => col.id));
+  if (!columnIds.size) return undefined;
+
+  const seedRows: Array<Record<string, string | number | boolean>> = [];
+  for (const item of raw.slice(0, 200)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    const row: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (!columnIds.has(key)) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        row[key] = value;
+      } else if (value == null) {
+        continue;
+      } else {
+        row[key] = String(value);
+      }
+    }
+    if (Object.keys(row).length) seedRows.push(row);
+  }
+  return seedRows.length ? seedRows : undefined;
+}
+
 function normalizeSections(sections: unknown[]): FormSection[] {
   const out: FormSection[] = [];
 
@@ -45,14 +73,17 @@ function normalizeSections(sections: unknown[]): FormSection[] {
 
     if (row.type === "grid") {
       const rows = normalizeGridRows(row.rows);
+      const columns = Array.isArray(row.columns) ? (row.columns as GridSection["columns"]) : [];
+      const seedRows = normalizeSeedRows(row.seedRows, columns);
 
       out.push({
         type: "grid",
         id: typeof row.id === "string" ? row.id : undefined,
         title: typeof row.title === "string" ? row.title : undefined,
-        rows,
-        columns: Array.isArray(row.columns) ? (row.columns as GridSection["columns"]) : [],
+        rows: seedRows?.length && rows !== "dynamic" ? "dynamic" : rows,
+        columns,
         mergedCells: Array.isArray(row.mergedCells) ? (row.mergedCells as GridSection["mergedCells"]) : undefined,
+        seedRows,
       });
       continue;
     }

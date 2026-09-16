@@ -149,6 +149,11 @@ export type GridSection = {
   rows: number | "dynamic";
   columns: Array<SimpleFieldDef>;
   mergedCells?: Array<GridMergedCell>;
+  /**
+   * Template-configured initial row values (e.g. printed inspection items).
+   * Copied into new submissions; not user answers until submitted.
+   */
+  seedRows?: Array<Record<string, string | number | boolean>>;
 };
 
 export type GridMergedCell = {

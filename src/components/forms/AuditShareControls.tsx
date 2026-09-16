@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { deliverPdfBlob, formatPdfSavedMessage, generatePdfBlobFromElement, resolvePdfScale } from "@/lib/pdfGenerator";
+import {
+  deliverPdfBlob,
+  formatPdfSavedMessage,
+  generatePdfBlobFromElement,
+  recommendedPdfOrientationForReport,
+  resolvePdfScale,
+} from "@/lib/pdfGenerator";
 
 type Props = {
   title: string;
@@ -44,7 +50,7 @@ export async function shareAuditPdf(title: string) {
 
   const pdfBlob = await generatePdfBlobFromElement(element, {
     scale: resolvePdfScale(),
-    orientation: "portrait",
+    orientation: recommendedPdfOrientationForReport(element),
   });
   const safeTitle = title.replace(/[^a-z0-9]/gi, "-");
   const saved = await deliverPdfBlob(pdfBlob, `${safeTitle}.pdf`);

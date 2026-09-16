@@ -5,6 +5,7 @@ import {
 } from "@/lib/pdfImageCompression";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
+import { recommendedPdfOrientationForColumns } from "@/lib/formFieldConstants";
 
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
@@ -34,6 +35,19 @@ export function warmPdfGenerationLibs() {
 }
 
 export type PdfOrientation = "portrait" | "landscape";
+
+export function recommendedPdfOrientationForReport(
+  element: HTMLElement,
+): PdfOrientation {
+  const widestTableColumnCount = Array.from(
+    element.querySelectorAll("table.report-data-table"),
+  ).reduce(
+    (maxColumns, table) =>
+      Math.max(maxColumns, table.querySelectorAll("thead th").length),
+    0,
+  );
+  return recommendedPdfOrientationForColumns(widestTableColumnCount);
+}
 
 type PdfOptions = {
   scale?: number;

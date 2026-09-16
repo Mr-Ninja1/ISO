@@ -23,6 +23,7 @@ import {
 } from "@/lib/client/loadLocalAuditReport";
 import type { FormSchemaV1 } from "@/types/forms";
 import { normalizeFormSchema } from "@/lib/normalizeFormSchema";
+import { recommendedPdfOrientationForColumns } from "@/lib/formFieldConstants";
 
 export type { AuditReportData };
 
@@ -181,6 +182,19 @@ export function AuditReportPageClient({
     return Boolean(normalized.sections?.length || normalized.fields?.length);
   }, [audit]);
 
+  const reportPdfOrientation = useMemo(() => {
+    if (!audit?.template?.schema) return "landscape" as const;
+    const schema = normalizeFormSchema(audit.template.schema);
+    const widestGrid = (schema.sections || []).reduce(
+      (maxColumns, section) =>
+        section.type === "grid"
+          ? Math.max(maxColumns, section.columns.length)
+          : maxColumns,
+      0,
+    );
+    return recommendedPdfOrientationForColumns(widestGrid);
+  }, [audit]);
+
   if (!tenantSlug || !auditId) {
     return (
       <div className="rounded-md border border-foreground/20 p-4 text-sm">
@@ -256,6 +270,7 @@ export function AuditReportPageClient({
           formTitle={title}
           tenantSlug={tenantSlug}
           evidencePhotos={evidencePhotos}
+          defaultOrientation={reportPdfOrientation}
         />
       </div>
       <AuditReportDisplay audit={audit} tenantSlug={tenantSlug} auditId={auditId} />

@@ -113,8 +113,17 @@ export function getGridRowFields(grid: GridSection, rowIndex: number, rowCount: 
 export function buildGridRowDefaults(grid: GridSection, rowIndex: number, rowCount: number) {
   const fields = getGridRowFields(grid, rowIndex, rowCount);
   const row: Record<string, unknown> = {};
+  const seed = Array.isArray(grid.seedRows) ? grid.seedRows[rowIndex] : undefined;
 
   for (const field of fields) {
+    if (seed && Object.prototype.hasOwnProperty.call(seed, field.id)) {
+      const seeded = seed[field.id];
+      if (typeof seeded === "string" || typeof seeded === "number" || typeof seeded === "boolean") {
+        row[field.id] = seeded;
+        continue;
+      }
+    }
+
     if (field.type === "checkbox") {
       row[field.id] = false;
       continue;

@@ -24,7 +24,8 @@
     "release:golden": "node tools/golden-release.mjs",
     "release:ota": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
     "release:ota:ci": "node tools/capacitor-build.mjs && node tools/package-ota-bundle.mjs && node tools/publish-ota-public.mjs",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",
@@ -61,6 +62,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

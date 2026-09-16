@@ -469,7 +469,7 @@ const INTENTS: IntentMatch[] = [
     patterns: [/column/i, /table/i, /how many columns/i, /grid/i],
     build: ({ tenantSlug, caps }) => ({
       message:
-        "Table forms support up to **8 columns**. For PDF export, landscape mode fits wide tables best — columns auto-shrink so nothing gets clipped.",
+        "Table forms can use as many meaningful columns as the source requires. Wide tables scroll horizontally in the builder, and PDF export fits every column automatically.",
       actions: caps.canCreateForms
         ? [{ type: "navigate", label: "Create a table form", href: `/${tenantSlug}/templates/new` }]
         : [],
@@ -526,7 +526,7 @@ const HELP_TOPICS: Array<{ keywords: string[]; title: string; body: string }> = 
   {
     keywords: ["column", "table", "wide", "pdf clip"],
     title: "Wide tables in PDF",
-    body: "Tables support up to 8 columns. PDF export auto-shrinks text so columns stay visible. Use landscape for best results.",
+    body: "Tables can use as many meaningful columns as the source requires. Wide tables scroll horizontally in the builder, and PDF export fits every column automatically.",
   },
   {
     keywords: ["role", "permission", "admin", "manager"],

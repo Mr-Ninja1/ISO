@@ -5,11 +5,14 @@ export const COLUMN_MIN_WIDTH_PX = 65;
 export const COLUMN_MAX_WIDTH_PX = 640;
 export const COLUMN_DEFAULT_WIDTH_PX = 160;
 
-/** Max data-table columns — wider tables clip on PDF export even with auto-shrink. */
-export const MAX_GRID_COLUMNS = 8;
-
 export const GRID_COLUMN_LIMIT_MESSAGE =
-  "Tables support up to 8 columns so PDF export can fit every column on the page. Extra columns are trimmed on import; delete a column before adding another.";
+  "Tables can use as many columns as the source form needs. The builder scrolls wide tables horizontally and PDF export fits them to the page.";
+
+export function recommendedPdfOrientationForColumns(
+  columnCount: number,
+): "portrait" | "landscape" {
+  return columnCount > 4 ? "landscape" : "portrait";
+}
 
 export function clampColumnWidthPx(value: number): number {
   if (!Number.isFinite(value)) return COLUMN_DEFAULT_WIDTH_PX;

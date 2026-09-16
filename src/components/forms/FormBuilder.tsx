@@ -37,7 +37,6 @@ import {
   COLUMN_MAX_WIDTH_PX,
   COLUMN_MIN_WIDTH_PX,
   GRID_COLUMN_LIMIT_MESSAGE,
-  MAX_GRID_COLUMNS,
   clampColumnWidthPx,
   columnHeaderDisplayLabel,
   isColumnHeaderPlaceholder,
@@ -783,6 +782,149 @@ function ColumnTypeSelect({
   );
 }
 
+function StaticItemListEditor({
+  grid,
+  onApply,
+}: {
+  grid: GridSection;
+  onApply: (next: GridSection, options?: { skipHistory?: boolean }) => void;
+}) {
+  const defaultColumnId =
+    grid.columns.find((col) => col.readOnly)?.id ||
+    grid.columns.find((col) => col.type === "text" || col.type === "display")?.id ||
+    grid.columns[0]?.id ||
+    "";
+  const [staticColumnId, setStaticColumnId] = useState(defaultColumnId);
+  const [draftText, setDraftText] = useState(() => {
+    const colId = defaultColumnId;
+    if (!colId || !grid.seedRows?.length) return "";
+    return grid.seedRows.map((row) => String(row[colId] ?? "")).join("\n");
+  });
+  const [expanded, setExpanded] = useState(Boolean(grid.seedRows?.length));
+
+  useEffect(() => {
+    const nextDefault =
+      grid.columns.find((col) => col.readOnly)?.id ||
+      grid.columns.find((col) => col.type === "text" || col.type === "display")?.id ||
+      grid.columns[0]?.id ||
+      "";
+    setStaticColumnId((prev) => (grid.columns.some((c) => c.id === prev) ? prev : nextDefault));
+  }, [grid.columns]);
+
+  useEffect(() => {
+    if (!staticColumnId) return;
+    setDraftText(
+      (grid.seedRows || []).map((row) => String(row[staticColumnId] ?? "")).join("\n"),
+    );
+  }, [grid.seedRows, staticColumnId]);
+
+  if (!grid.columns.length) return null;
+
+  function applyStaticList() {
+    const colId = staticColumnId || grid.columns[0]?.id;
+    if (!colId) return;
+    const items = draftText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 200);
+
+    const seedRows = items.length
+      ? items.map((item) => {
+          const existing = (grid.seedRows || []).find((row) => String(row[colId] ?? "") === item);
+          return { ...(existing || {}), [colId]: item };
+        })
+      : undefined;
+
+    onApply({
+      ...grid,
+      rows: seedRows?.length ? "dynamic" : grid.rows,
+      columns: grid.columns.map((col) =>
+        col.id === colId
+          ? ({ ...col, readOnly: items.length > 0 ? true : col.readOnly } as SimpleFieldDef)
+          : col,
+      ),
+      seedRows,
+    });
+  }
+
+  function clearStaticList() {
+    setDraftText("");
+    onApply({
+      ...grid,
+      seedRows: undefined,
+      columns: grid.columns.map((col) =>
+        col.id === staticColumnId ? ({ ...col, readOnly: undefined } as SimpleFieldDef) : col,
+      ),
+    });
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-foreground/15 bg-foreground/[0.02] px-3 py-2">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 text-left"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div>
+          <div className="text-xs font-semibold text-foreground/80">Static item list</div>
+          <div className="text-[11px] text-foreground/55">
+            Paste printed checklist items (one per line). They become read-only seeded rows.
+            {grid.seedRows?.length ? ` · ${grid.seedRows.length} items` : ""}
+          </div>
+        </div>
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-foreground/50" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-foreground/50" />
+        )}
+      </button>
+
+      {expanded ? (
+        <div className="mt-3 grid gap-2">
+          <div className="grid gap-1">
+            <div className="text-[11px] font-medium text-foreground/65">Item column</div>
+            <select
+              className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+              value={staticColumnId}
+              onChange={(e) => setStaticColumnId(e.target.value)}
+            >
+              {grid.columns.map((col) => (
+                <option key={col.id} value={col.id}>
+                  {col.label || col.id}
+                </option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            className="min-h-[96px] w-full rounded-md border border-foreground/20 bg-background px-2 py-1.5 text-xs leading-5"
+            placeholder={"Fire doors\nEmergency lighting\nFirst aid kit"}
+            value={draftText}
+            onChange={(e) => setDraftText(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background"
+              onClick={applyStaticList}
+            >
+              Apply list
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs hover:bg-foreground/5"
+              onClick={clearStaticList}
+              disabled={!grid.seedRows?.length && !draftText.trim()}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ColumnEditorModal({
   activeCol,
   grid,
@@ -1125,7 +1267,6 @@ function GridBuilder({
   }
 
   function addColumn() {
-    if (grid.columns.length >= MAX_GRID_COLUMNS) return;
     const colId = makeId("col");
     const nextCol: SimpleFieldDef = {
       id: colId,
@@ -1136,9 +1277,6 @@ function GridBuilder({
     applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
     setActiveColId(colId);
   }
-
-  const atColumnLimit = grid.columns.length >= MAX_GRID_COLUMNS;
-  const nearColumnLimit = grid.columns.length >= MAX_GRID_COLUMNS - 1;
 
   const previewRows = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
   const layout = useMemo(() => buildGridLayout(grid, previewRows), [grid, previewRows]);
@@ -1266,24 +1404,11 @@ function GridBuilder({
         <div>
           <div className="text-sm font-semibold">Data Log Table</div>
           <div className="text-xs text-foreground/70 mt-0.5">
-            Click headers to edit columns · {grid.columns.length} / {MAX_GRID_COLUMNS} columns
+            Click headers to edit columns · {grid.columns.length} columns
           </div>
-          {nearColumnLimit ? (
-            <div
-              className={
-                "mt-1.5 text-[11px] leading-snug " +
-                (atColumnLimit ? "text-amber-800" : "text-foreground/55")
-              }
-            >
-              {atColumnLimit
-                ? `Maximum ${MAX_GRID_COLUMNS} columns reached. PDF export fits all columns by shrinking text — more columns get cut off.`
-                : `Up to ${MAX_GRID_COLUMNS} columns for reliable PDF export. Text wraps automatically in wide tables.`}
-            </div>
-          ) : (
-            <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
-              Tip: Right-click or long-press cells/headers for contextual tools.
-            </div>
-          )}
+          <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
+            Wide tables scroll horizontally and PDF export fits every column automatically.
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -1313,10 +1438,9 @@ function GridBuilder({
           </div>
           <button
             type="button"
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
             onClick={addColumn}
-            disabled={atColumnLimit}
-            title={atColumnLimit ? GRID_COLUMN_LIMIT_MESSAGE : "Add column"}
+              title="Add column"
           >
             <Plus className="h-3.5 w-3.5" />
             Add column
@@ -1343,6 +1467,8 @@ function GridBuilder({
           ) : null}
         </div>
       </div>
+
+      <StaticItemListEditor grid={grid} onApply={applyGridChange} />
 
       <div className="mt-4 overflow-x-auto flex-1 flex flex-col">
         <table className="w-full min-w-max border-collapse text-xs border border-foreground/35">

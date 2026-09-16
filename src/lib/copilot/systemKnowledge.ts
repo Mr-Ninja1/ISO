@@ -111,7 +111,7 @@ When users ask "what can I do", "help me get started", "tour", or seem new:
 
 ### Export PDF
 1. Saved forms → open submission → **Download PDF**.
-2. Wide tables: use landscape; up to ~8 columns auto-shrink.
+2. Wide tables: scroll horizontally while editing; PDF export automatically fits all meaningful columns.
 
 ### Share submissions (no PDF)
 Saved forms → Select mode → tick items → **Share link** (read-only browser view).

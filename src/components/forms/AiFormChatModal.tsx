@@ -22,6 +22,7 @@ import {
   type ExamplePrompt,
 } from "@/lib/ai/examplePrompts";
 import { getFormBuilderConfig } from "@/lib/formBuilderConfig";
+import { SOURCE_DOCUMENT_ACCEPT, validateSourceDocument } from "@/lib/ai/sourceDocument";
 import type { FormType } from "@/types/forms";
 
 export type AiChatMessage = {
@@ -40,8 +41,10 @@ type Props = {
   messages: AiChatMessage[];
   prompt: string;
   onPromptChange: (value: string) => void;
-  imageFile: File | null;
-  onImageChange: (file: File | null) => void;
+  sourceFile: File | null;
+  onSourceFileChange: (file: File | null) => void;
+  sourceFileError?: string | null;
+  onSourceFileError?: (message: string | null) => void;
   questions: AiClarificationQuestion[];
   answers: Record<string, string>;
   onAnswersChange: (answers: Record<string, string>) => void;
@@ -142,8 +145,10 @@ export function AiFormChatModal({
   messages,
   prompt,
   onPromptChange,
-  imageFile,
-  onImageChange,
+  sourceFile,
+  onSourceFileChange,
+  sourceFileError,
+  onSourceFileError,
   questions,
   answers,
   onAnswersChange,
@@ -160,7 +165,7 @@ export function AiFormChatModal({
   const [showHints, setShowHints] = useState(false);
 
   const suggestion = step === "input" ? getSuggestionForPartialPrompt(prompt) : null;
-  const canSend = (prompt.trim().length > 0 || imageFile) && !generating;
+  const canSend = (prompt.trim().length > 0 || sourceFile) && !generating;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -178,7 +183,21 @@ export function AiFormChatModal({
   }
 
   function handleFileSelect(file: File | null) {
-    onImageChange(file);
+    if (!file) {
+      onSourceFileChange(null);
+      onSourceFileError?.(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    const validated = validateSourceDocument(file);
+    if (!validated.ok) {
+      onSourceFileChange(null);
+      onSourceFileError?.(validated.error);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    onSourceFileError?.(null);
+    onSourceFileChange(file);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -419,14 +438,20 @@ export function AiFormChatModal({
               </button>
             ) : null}
 
-            {imageFile ? (
+            {sourceFileError ? (
+              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {sourceFileError}
+              </div>
+            ) : null}
+
+            {sourceFile ? (
               <div className="mb-2 flex items-center gap-2 rounded-lg border border-foreground/10 bg-foreground/[0.03] px-3 py-1.5">
-                {imageFile.type === "application/pdf" ? (
+                {sourceFile.type === "application/pdf" ? (
                   <FileText className="h-4 w-4 text-foreground/50" />
                 ) : (
                   <ImageIcon className="h-4 w-4 text-foreground/50" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-xs text-foreground/70">{imageFile.name}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-foreground/70">{sourceFile.name}</span>
                 <button
                   type="button"
                   className="text-foreground/40 hover:text-foreground"
@@ -443,7 +468,7 @@ export function AiFormChatModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,application/pdf"
+                accept={SOURCE_DOCUMENT_ACCEPT}
                 className="hidden"
                 disabled={generating}
                 onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
@@ -465,8 +490,8 @@ export function AiFormChatModal({
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-foreground/15 text-foreground/55 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
                 disabled={generating}
                 onClick={() => fileInputRef.current?.click()}
-                aria-label="Attach photo or PDF"
-                title="Attach photo or PDF"
+                aria-label="Attach PDF, JPG, or PNG"
+                title="Attach PDF, JPG, or PNG"
               >
                 <Paperclip className="h-4 w-4" />
               </button>

@@ -32,7 +32,7 @@ import {
   getPendingTemplateSyncCount,
 } from "@/lib/client/templateSyncQueue";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
-import type { AiClarificationQuestion } from "@/lib/ai/types";
+import type { AiClarificationQuestion, AiExtractionSummary } from "@/lib/ai/types";
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
 
@@ -433,11 +433,13 @@ function NewTemplatePageInner() {
   const [generatingAi, setGeneratingAi] = useState(false);
   const [showAiGenerate, setShowAiGenerate] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [aiImageFile, setAiImageFile] = useState<File | null>(null);
+  const [aiSourceFile, setAiSourceFile] = useState<File | null>(null);
+  const [aiSourceFileError, setAiSourceFileError] = useState<string | null>(null);
   const [aiStep, setAiStep] = useState<"input" | "clarify">("input");
   const [aiQuestions, setAiQuestions] = useState<AiClarificationQuestion[]>([]);
   const [aiAnswers, setAiAnswers] = useState<Record<string, string>>({});
   const [aiAssessSummary, setAiAssessSummary] = useState("");
+  const [aiExtraction, setAiExtraction] = useState<AiExtractionSummary | null>(null);
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
   const [aiQuota, setAiQuota] = useState<{
     used: number;
@@ -879,7 +881,8 @@ function NewTemplatePageInner() {
     setAiAnswers({});
     setAiAssessSummary("");
     setAiPrompt("");
-    setAiImageFile(null);
+    setAiSourceFile(null);
+    setAiSourceFileError(null);
     setAiMessages(welcomeAiMessages());
   }
 
@@ -956,7 +959,7 @@ function NewTemplatePageInner() {
     formData.set("phase", options.phase);
     const prompt = aiPrompt.trim();
     if (prompt) formData.set("prompt", prompt);
-    if (aiImageFile) formData.set("file", aiImageFile);
+    if (aiSourceFile) formData.set("file", aiSourceFile);
     if (options.answers && Object.keys(options.answers).length) {
       formData.set("answers", JSON.stringify(options.answers));
     }
@@ -974,13 +977,13 @@ function NewTemplatePageInner() {
     if (!accessToken || !tenantSlug) return;
 
     const prompt = aiPrompt.trim();
-    if (!prompt && !aiImageFile) {
-      setError("Describe your form, attach a photo/PDF, or both.");
+    if (!prompt && !aiSourceFile) {
+      setError("Describe your form, attach a PDF/JPG/PNG, or both.");
       return;
     }
 
     const displayContent =
-      prompt || (aiImageFile ? `Attached ${aiImageFile.name}` : "");
+      prompt || (aiSourceFile ? `Attached ${aiSourceFile.name}` : "");
 
     setAiMessages((prev) => [
       ...prev.filter((m) => !m.isTyping),
@@ -988,7 +991,7 @@ function NewTemplatePageInner() {
         id: `user-${Date.now()}`,
         role: "user",
         content: displayContent,
-        attachmentName: aiImageFile?.name,
+        attachmentName: aiSourceFile?.name,
       },
       { id: "typing", role: "assistant", content: "", isTyping: true },
     ]);
@@ -1022,6 +1025,7 @@ function NewTemplatePageInner() {
 
       const generated = await postAiGenerate(buildAiFormData({ phase: "generate" }));
       applyImportedSchema(generated, "ai-generate");
+      setAiExtraction(generated.extraction ?? null);
       finishAiGeneration();
     } catch (err: unknown) {
       if (handlePlanLimit(err)) {
@@ -1069,6 +1073,7 @@ function NewTemplatePageInner() {
         buildAiFormData({ phase: "generate", answers: aiAnswers }),
       );
       applyImportedSchema(generated, "ai-generate");
+      setAiExtraction(generated.extraction ?? null);
       finishAiGeneration();
     } catch (err: unknown) {
       if (handlePlanLimit(err)) {
@@ -1102,6 +1107,7 @@ function NewTemplatePageInner() {
   }
   async function openAiGenerateModal() {
     setError("");
+    setAiExtraction(null);
     resetAiModalState();
     const allowed = await refreshAiQuota();
     if (!allowed) return;
@@ -1416,8 +1422,10 @@ function NewTemplatePageInner() {
           messages={aiMessages}
           prompt={aiPrompt}
           onPromptChange={setAiPrompt}
-          imageFile={aiImageFile}
-          onImageChange={setAiImageFile}
+          sourceFile={aiSourceFile}
+          onSourceFileChange={setAiSourceFile}
+          sourceFileError={aiSourceFileError}
+          onSourceFileError={setAiSourceFileError}
           questions={aiQuestions}
           answers={aiAnswers}
           onAnswersChange={setAiAnswers}
@@ -1475,7 +1483,7 @@ function NewTemplatePageInner() {
       {showAiCompleteModal ? (
         <CenteredOverlay
           open
-          maxWidthClass={aiCompleteStep === "preview" ? "max-w-5xl" : "max-w-md"}
+          maxWidthClass={aiCompleteStep === "preview" ? "max-w-5xl" : aiExtraction ? "max-w-lg" : "max-w-md"}
           onClose={() => {
             setShowAiCompleteModal(false);
             setAiCompleteStep("success");
@@ -1489,10 +1497,59 @@ function NewTemplatePageInner() {
                 </div>
                 <div className="mt-3 text-lg font-semibold">Form generated</div>
                 <p className="mt-2 text-sm leading-6 text-foreground/75">
-                  Your draft is ready. Take a moment to preview it and check that the fields, table columns, and title
-                  match what you had in mind — you can still adjust anything before saving.
+                  Your draft is ready. Review the extraction notes below, preview the form, then edit anything that needs
+                  changing before saving.
                 </p>
               </div>
+
+              {aiExtraction ? (
+                <div className="mt-4 space-y-3 text-left">
+                  <div className="rounded-md border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-sm leading-6 text-foreground/80">
+                    {aiExtraction.summary}
+                  </div>
+                  {aiExtraction.adaptations?.length ? (
+                    <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-950">
+                      <div className="mb-1 font-medium">How the source was adapted</div>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {aiExtraction.adaptations.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {typeof aiExtraction.staticItemCount === "number" && aiExtraction.staticItemCount > 0 ? (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
+                      {aiExtraction.staticItemCount} static item
+                      {aiExtraction.staticItemCount === 1 ? "" : "s"} were imported into the primary table. Confirm or
+                      edit them in the builder&apos;s Static item list before publishing.
+                    </div>
+                  ) : null}
+                  {aiExtraction.uncertainItems?.length ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+                      <div className="mb-1 flex items-center gap-1.5 font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Review uncertain items
+                      </div>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {aiExtraction.uncertainItems.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {aiExtraction.prefilledContent?.length ? (
+                    <div className="rounded-md border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 text-foreground/75">
+                      <div className="mb-1 font-medium text-foreground/85">Setup tasks from source content</div>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {aiExtraction.prefilledContent.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"

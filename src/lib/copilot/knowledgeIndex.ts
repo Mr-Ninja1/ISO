@@ -132,7 +132,7 @@ export const COPILOT_KNOWLEDGE_CHUNKS: KnowledgeChunk[] = [
     id: "pdf-export",
     title: "Export PDF",
     tags: ["pdf", "export", "download", "print", "landscape", "table"],
-    body: "Saved forms → open submission → **Download PDF**. Use **landscape** for wide tables (up to ~8 columns auto-shrink).",
+    body: "Saved forms → open submission → **Download PDF**. Wide tables automatically use a fitting layout so every column remains visible.",
     hrefs: [h("Saved forms", "/{tenantSlug}/audits")],
   },
   {

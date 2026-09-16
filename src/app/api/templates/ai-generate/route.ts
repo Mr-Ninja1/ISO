@@ -3,9 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { assessFormSchemaContext, generateFormSchemaFromInput } from "@/lib/ai/generateFormSchema";
 import { getGeminiModelName, isGeminiConfigured } from "@/lib/ai/gemini";
+import { validateSourceDocument } from "@/lib/ai/sourceDocument";
 import { ensureTenantPlan, getAiQuotaStatus, recordAiUsage } from "@/lib/tenantPlan";
-
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -100,15 +99,18 @@ export async function POST(req: Request) {
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
     if (!prompt && !file) {
       return NextResponse.json(
-        { error: "Provide a description, an image/PDF, or both." },
+        { error: "Provide a description, a PDF/JPG/PNG document, or both." },
         { status: 400 },
       );
     }
     if (prompt.length > 4000) {
       return NextResponse.json({ error: "Description is too long (max 4000 characters)" }, { status: 400 });
     }
-    if (file && file.size > MAX_IMAGE_BYTES) {
-      return NextResponse.json({ error: "Image/PDF must be 10 MB or smaller." }, { status: 400 });
+    if (file) {
+      const validated = validateSourceDocument(file);
+      if (!validated.ok) {
+        return NextResponse.json({ error: validated.error }, { status: 400 });
+      }
     }
 
     const auth = await authorizeTenant(token, tenantSlug);
@@ -150,7 +152,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const schema = await generateFormSchemaFromInput(input);
+    const { schema, extraction } = await generateFormSchemaFromInput(input);
 
     await recordAiUsage(auth.sb, {
       tenantId: auth.tenantId,
@@ -165,6 +167,7 @@ export async function POST(req: Request) {
       title: schema.title,
       schema,
       sections: schema.sections,
+      extraction: extraction || null,
       provider: "gemini",
       model: getGeminiModelName(),
       quota: {

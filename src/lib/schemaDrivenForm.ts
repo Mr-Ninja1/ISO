@@ -189,7 +189,11 @@ export function buildDefaultValues(schema: FormSchemaV1) {
     if (section.type === "grid") {
       const key = section.id || "form_data";
       const activeColumns = section.columns.filter(isActiveField);
-      const count = section.rows === "dynamic" ? 1 : Math.max(0, section.rows);
+      const seedCount = Array.isArray(section.seedRows) ? section.seedRows.length : 0;
+      const count =
+        section.rows === "dynamic"
+          ? Math.max(1, seedCount)
+          : Math.max(seedCount, Math.max(0, section.rows));
       defaults[key] = Array.from({ length: count }, (_, rowIndex) =>
         buildGridRowDefaults({ ...section, columns: activeColumns }, rowIndex, count)
       );

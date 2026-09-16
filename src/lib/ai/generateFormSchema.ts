@@ -8,7 +8,6 @@ import type {
   SimpleFieldDef,
 } from "@/types/forms";
 import { parseFormType } from "@/lib/formBuilderConfig";
-import { MAX_GRID_COLUMNS } from "@/lib/formFieldConstants";
 import { normalizeFormSchema } from "@/lib/normalizeFormSchema";
 import { fileToBase64, geminiGenerateContent } from "@/lib/ai/gemini";
 import {
@@ -16,7 +15,7 @@ import {
   FORM_ENGINE_JSON_EXAMPLE,
   FORM_ENGINE_SYSTEM_PROMPT,
 } from "@/lib/ai/formEnginePrompt";
-import type { AiAssessResult, AiClarificationQuestion } from "@/lib/ai/types";
+import type { AiAssessResult, AiClarificationQuestion, AiExtractionSummary, GenerateFormSchemaResult } from "@/lib/ai/types";
 
 const FIELD_TYPES = new Set([
   "text",
@@ -90,6 +89,7 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
     type: resolvedType as SimpleFieldDef["type"],
     label,
     required: obj.required === true,
+    readOnly: obj.readOnly === true ? true : undefined,
   };
 
   if (resolvedType === "temp") {
@@ -119,17 +119,39 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
   return base as SimpleFieldDef;
 }
 
-function capGridColumns(columns: SimpleFieldDef[]): SimpleFieldDef[] {
-  return columns.slice(0, MAX_GRID_COLUMNS);
+const MAX_SEED_ROWS = 200;
+
+function sanitizeSeedRows(
+  raw: unknown,
+  columns: SimpleFieldDef[],
+): Array<Record<string, string | number | boolean>> | undefined {
+  if (!Array.isArray(raw) || !raw.length || !columns.length) return undefined;
+  const columnIds = new Set(columns.map((col) => col.id));
+  const seedRows: Array<Record<string, string | number | boolean>> = [];
+
+  for (const item of raw.slice(0, MAX_SEED_ROWS)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    const row: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (!columnIds.has(key)) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        row[key] = value;
+      } else if (value != null) {
+        row[key] = String(value);
+      }
+    }
+    if (Object.keys(row).length) seedRows.push(row);
+  }
+
+  return seedRows.length ? seedRows : undefined;
 }
 
 function dynamicTableToGrid(raw: Record<string, unknown>, index: number): FormSection | null {
   const columnsRaw = Array.isArray(raw.columns) ? raw.columns : [];
-  const columns = capGridColumns(
-    columnsRaw
-      .map((col, i) => sanitizeSimpleField(col, index * 100 + i, true))
-      .filter((col): col is SimpleFieldDef => Boolean(col)),
-  );
+  const columns = columnsRaw
+    .map((col, i) => sanitizeSimpleField(col, index * 100 + i, true))
+    .filter((col): col is SimpleFieldDef => Boolean(col));
   if (!columns.length) return null;
 
   return {
@@ -165,18 +187,19 @@ function sanitizeSections(raw: unknown): FormSection[] {
 
     if (type === "grid") {
       const columnsRaw = Array.isArray(obj.columns) ? obj.columns : [];
-      const columns = capGridColumns(
-        columnsRaw
-          .map((col, i) => sanitizeSimpleField(col, sectionIndex * 100 + i, true))
-          .filter((col): col is SimpleFieldDef => Boolean(col)),
-      );
+      const columns = columnsRaw
+        .map((col, i) => sanitizeSimpleField(col, sectionIndex * 100 + i, true))
+        .filter((col): col is SimpleFieldDef => Boolean(col));
       if (!columns.length) return;
 
+      const seedRows = sanitizeSeedRows(obj.seedRows, columns);
       const rowsRaw = obj.rows;
       const rows =
-        rowsRaw === "dynamic"
+        seedRows?.length
           ? "dynamic"
-          : Math.max(5, Math.min(60, Number(rowsRaw) || 12));
+          : rowsRaw === "dynamic"
+            ? "dynamic"
+            : Math.max(5, Math.min(60, Number(rowsRaw) || 12));
 
       sections.push({
         type: "grid",
@@ -184,6 +207,7 @@ function sanitizeSections(raw: unknown): FormSection[] {
         title: typeof obj.title === "string" ? obj.title : "Data table",
         rows,
         columns,
+        seedRows,
       });
       return;
     }
@@ -237,13 +261,30 @@ function ensureUniqueIds(sections: FormSection[]): FormSection[] {
 
   return sections.map((section) => {
     if (section.type === "grid") {
+      const idMap = new Map<string, string>();
+      const columns = section.columns.map((col, i) => {
+        const nextColId = nextId(col.id, col.type || `col_${i}`);
+        if (col.id !== nextColId) idMap.set(col.id, nextColId);
+        return {
+          ...col,
+          id: nextColId,
+        };
+      });
+
+      const seedRows = section.seedRows?.map((row) => {
+        if (!idMap.size) return row;
+        const remapped: Record<string, string | number | boolean> = {};
+        for (const [key, value] of Object.entries(row)) {
+          remapped[idMap.get(key) || key] = value;
+        }
+        return remapped;
+      });
+
       return {
         ...section,
         id: nextId(section.id || "form_data", "grid"),
-        columns: section.columns.map((col, i) => ({
-          ...col,
-          id: nextId(col.id, col.type || `col_${i}`),
-        })),
+        columns,
+        seedRows,
       };
     }
 
@@ -333,11 +374,13 @@ function buildUserPromptParts(options: {
 
   if (options.hasImage && options.prompt?.trim()) {
     parts.push(
-      "The user attached a form image AND provided instructions. Match the image structure and apply the instructions.",
+      "The user attached a source PDF/image AND provided instructions. Preserve all meaningful information from the document and apply the instructions.",
       `Instructions:\n${options.prompt.trim()}`,
     );
   } else if (options.hasImage) {
-    parts.push("Extract the form structure from the attached image. Match table headers, labels, and section layout.");
+    parts.push(
+      "Extract an information-preserving digital form from the attached PDF/image. Prefer one primary grid for repeated rows/item lists. Use seedRows + readOnly for printed static item lists. Include an extraction summary.",
+    );
   } else if (options.prompt?.trim()) {
     parts.push(`User request:\n${options.prompt.trim()}`);
   }
@@ -423,7 +466,7 @@ export async function assessFormSchemaContext(input: GenerateFormSchemaInput): P
   const hasImage = Boolean(input.image);
 
   if (!prompt && !hasImage) {
-    throw new Error("Provide a description, an image, or both.");
+    throw new Error("Provide a description, a PDF/JPG/PNG document, or both.");
   }
 
   const text = await geminiGenerateContent({
@@ -438,12 +481,59 @@ export async function assessFormSchemaContext(input: GenerateFormSchemaInput): P
   return parseAssessResponse(parseJsonResponse(text));
 }
 
-export async function generateFormSchemaFromInput(input: GenerateFormSchemaInput) {
+function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractionSummary | undefined {
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+
+  const staticItemCountFromSchema = (schema.sections || []).reduce((sum, section) => {
+    if (section.type !== "grid" || !section.seedRows?.length) return sum;
+    return sum + section.seedRows.length;
+  }, 0);
+
+  const uncertainItems = Array.isArray(obj?.uncertainItems)
+    ? obj!.uncertainItems.map((item) => String(item).trim()).filter(Boolean).slice(0, 30)
+    : [];
+  const adaptations = Array.isArray(obj?.adaptations)
+    ? obj!.adaptations.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
+    : [];
+  const prefilledContent = Array.isArray(obj?.prefilledContent)
+    ? obj!.prefilledContent.map((item) => String(item).trim()).filter(Boolean).slice(0, 30)
+    : [];
+
+  const staticItemCount =
+    typeof obj?.staticItemCount === "number" && Number.isFinite(obj.staticItemCount)
+      ? Math.max(0, Math.floor(obj.staticItemCount))
+      : staticItemCountFromSchema || undefined;
+
+  const summary =
+    typeof obj?.summary === "string" && obj.summary.trim()
+      ? obj.summary.trim()
+      : staticItemCountFromSchema
+        ? `Form structure created with ${staticItemCountFromSchema} static item row${staticItemCountFromSchema === 1 ? "" : "s"}. Review the builder before saving.`
+        : undefined;
+
+  if (!summary && !adaptations.length && !uncertainItems.length && !prefilledContent.length && !staticItemCount) {
+    return undefined;
+  }
+
+  return {
+    summary:
+      summary ||
+      "Form structure was created. Review fields, tables, and any setup notes before saving.",
+    adaptations: adaptations.length ? adaptations : undefined,
+    uncertainItems: uncertainItems.length ? uncertainItems : undefined,
+    prefilledContent: prefilledContent.length ? prefilledContent : undefined,
+    staticItemCount,
+  };
+}
+
+export async function generateFormSchemaFromInput(
+  input: GenerateFormSchemaInput,
+): Promise<GenerateFormSchemaResult> {
   const prompt = input.prompt?.trim() || "";
   const hasImage = Boolean(input.image);
 
   if (!prompt && !hasImage) {
-    throw new Error("Provide a description, an image, or both.");
+    throw new Error("Provide a description, a PDF/JPG/PNG document, or both.");
   }
 
   const textPrompt = buildUserPromptParts({
@@ -458,8 +548,16 @@ export async function generateFormSchemaFromInput(input: GenerateFormSchemaInput
     temperature: hasImage ? 0.1 : 0.2,
   });
 
+  const parsed = parseJsonResponse(text);
   const fallbackTitle = hasImage ? "Imported form" : "Generated form";
-  return sanitizeAiFormSchema(parseJsonResponse(text), fallbackTitle);
+  const schema = sanitizeAiFormSchema(parsed, fallbackTitle);
+  const rawObj =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  const extraction = parseExtractionSummary(rawObj.extraction, schema);
+
+  return { schema, extraction };
 }
 
 /** @deprecated Use generateFormSchemaFromInput */

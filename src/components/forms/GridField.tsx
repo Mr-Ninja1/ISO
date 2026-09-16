@@ -135,7 +135,18 @@ export function GridField({
 
   useEffect(() => {
     if (grid.rows === "dynamic") {
-      if (fields.length === 0) append({ ...emptyRow });
+      if (fields.length === 0) {
+        const seedCount = Array.isArray(grid.seedRows) ? grid.seedRows.length : 0;
+        if (seedCount > 0) {
+          replace(
+            Array.from({ length: seedCount }, (_, idx) =>
+              buildGridRowDefaults(grid, idx, seedCount),
+            ),
+          );
+        } else {
+          append({ ...emptyRow });
+        }
+      }
       return;
     }
 
@@ -144,7 +155,7 @@ export function GridField({
 
     replace(Array.from({ length: fixedRows }, (_, idx) => buildGridRowDefaults(grid, idx, fixedRows)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid.rows, fixedRows, fields.length]);
+  }, [grid.rows, fixedRows, fields.length, grid.seedRows]);
 
   const [sig, setSig] = useState<{ rowIndex: number; colId: string } | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
