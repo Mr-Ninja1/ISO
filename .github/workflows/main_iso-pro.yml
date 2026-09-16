@@ -1,10 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
-# This workflow is triggered on pushes to the main branch and can also be triggered manually.
-name: Build and deploy Node.js app to Azure Web App - iso-pro
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+name: Build and deploy Node.js app to Azure Web App - iso-pro
 
 on:
   push:
@@ -16,173 +13,47 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # This is required for actions/checkout
+      contents: read #This is required for actions/checkout
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v3
         with:
-          node-version: "24.x"
-          package-manager-cache: false
+          node-version: '22.x'
 
-      - name: npm install, build, and test
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          CI: true
-          NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
-          NEXT_PUBLIC_ANDROID_APK_URL: https://github.com/Mr-Ninja1/ISO/releases/download/v1.5.0/iso-grid.apk
-          NEXT_PUBLIC_NATIVE_BUILD: "11"
-          OTA_BUNDLE_ID: ci.${{ github.run_number }}
-          OTA_PUBLIC_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production
-          OTA_CHANNEL: production
-          OTA_MIN_NATIVE_BUILD: "11"
-          OTA_RELEASE_NOTES: Deploy ${{ github.sha }} (run ${{ github.run_number }})
-          SKIP_CAP_SYNC: "1"
-        run: |
-          npm install
-
-          # OTA: static Capacitor bundle + zip → public/ota/production/ (deployed with the site)
-          echo "=== Building OTA bundle for native apps ==="
-          npm run release:ota:ci
-          ls -la public/ota/production/
-          test -f public/ota/production/manifest.json
-          test -f public/ota/production/bundle-ci.${{ github.run_number }}.ota
-
-          echo "=== Building hosted website (standalone) ==="
-          npm run build
-          pwd
-          ls -la
-          if [ -d ".next" ]; then
-            echo ".next exists"
-            find . -maxdepth 3 | sort
-          else
-            echo ".next directory not found after build."
-            exit 1
-          fi
-          if [ -f ".next/standalone/server.js" ]; then
-            echo "standalone server entry exists"
-          else
-            echo "standalone server entry not found at .next/standalone/server.js"
-            exit 1
-          fi
-          # Copy top-level static assets into the standalone .next folder so
-          # the standalone server can serve CSS and other _next/static files.
-          if [ -d ".next/static" ]; then
-            echo "Copying .next/static into .next/standalone/.next/"
-            mkdir -p .next/standalone/.next
-            cp -R .next/static .next/standalone/.next/
-          else
-            echo "Warning: .next/static not found; CSS may be missing in standalone build"
-          fi
-          npm run test --if-present
-
-      - name: Package standalone artifact for deployment job
-        run: |
-          rm -rf deploy-bundle
-          mkdir -p deploy-bundle/.next
-          cp -R .next/standalone/. deploy-bundle/
-          cp -R .next/static deploy-bundle/.next/static
-          cp -R public deploy-bundle/public
-          echo "OTA files included in deploy:"
-          ls -la deploy-bundle/public/ota/production/ || true
-          # Ensure Azure runs the standalone server (API routes require Node, not static-only hosting).
-          node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...j.scripts,start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
-          rm -f node-app.tar.gz
-          tar -czf node-app.tar.gz -C deploy-bundle .
       - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: node-app.tar.gz
+          path: .
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write # This is required for requesting the JWT
-      contents: read # This is required for actions/checkout
+      id-token: write #This is required for requesting the JWT
+      contents: read #This is required for actions/checkout
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: node-app
-          path: node-app
-
-      - name: Inspect downloaded artifact layout
-        run: |
-          ls -la node-app
-          find node-app -maxdepth 3 -mindepth 1 | sort
-
-      - name: Extract artifact tarball
-        run: |
-          cd node-app
-          tar -xzf node-app.tar.gz
-          rm node-app.tar.gz
-          ls -la
-          find . -maxdepth 2 -mindepth 1 | sort
-
-      - name: Set up Node.js for deploy packaging
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24.x"
-
-      - name: Verify standalone server entry exists
-        run: |
-          cd node-app
-          if [ ! -f "server.js" ]; then
-            echo "server.js not found in deploy root. Standalone bundle may be incomplete."
-            exit 1
-          fi
-          if [ ! -d ".next/static" ]; then
-            echo ".next/static not found. CSS and client chunks may be missing."
-            exit 1
-          fi
-
+      
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_AA9A865845774FE0A0C69A7F379F0925 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_06EA98C756DE4B049273EC852D6FABC5 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E6EF8159DABC44E085A27DA7B62D8A51 }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9D7F8CB7376D47A68009113555E32C6E }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F793274F43514759BB189EE80366ECEE }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_FA70655D80174016802D466A657BA934 }}
 
-      - name: Configure Azure Web App runtime
-        shell: bash
-        run: |
-          RESOURCE_GROUP=$(az webapp list --query "[?name=='iso-pro'].resourceGroup | [0]" -o tsv)
-          if [ -z "$RESOURCE_GROUP" ]; then
-            echo "ERROR: Could not find Azure Web App 'iso-pro' in the active subscription. Check the App Service exists and the login has access."
-            exit 1
-          fi
-          echo "Using resource group: $RESOURCE_GROUP"
-          az webapp config set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name iso-pro \
-            --startup-file "node server.js"
-          az webapp config appsettings set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name iso-pro \
-            --settings \
-              SCM_DO_BUILD_DURING_DEPLOYMENT=false \
-              WEBSITE_RUN_FROM_PACKAGE=0
-
-      - name: Deploy zip package to Azure Web App
-        shell: bash
-        run: |
-          cd node-app
-          zip -r ../node-app.zip .
-          cd ..
-          RESOURCE_GROUP=$(az webapp list --query "[?name=='iso-pro'].resourceGroup | [0]" -o tsv)
-          if [ -z "$RESOURCE_GROUP" ]; then
-            echo "ERROR: Could not find Azure Web App 'iso-pro' in the active subscription. Check the App Service exists and the login has access."
-            exit 1
-          fi
-          az webapp deploy \
-            --resource-group "$RESOURCE_GROUP" \
-            --name iso-pro \
-            --src-path ./node-app.zip \
-            --type zip \
-            --clean true
+      - name: 'Deploy to Azure Web App'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'iso-pro'
+          slot-name: 'Production'
+          package: .
+          
