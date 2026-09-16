@@ -9,11 +9,22 @@ export type AiClarificationQuestion = {
 
 export type AiAssessResult =
   | { status: "ready"; summary?: string }
-  | { status: "needs_clarification"; summary?: string; questions: AiClarificationQuestion[] };
+  | { status: "needs_clarification"; summary?: string; questions: AiClarificationQuestion[] }
+  | { status: "rejected"; summary: string; suggestion?: string };
+
+export type AiDocumentAnalysis = {
+  pagesInspected?: number;
+  tablesDetected?: number;
+  controlsDetected?: number;
+  confidence?: number;
+  coverage?: "complete" | "partial" | "uncertain";
+  omittedContent?: string[];
+};
 
 /** Post-generate information coverage for document import review. */
 export type AiExtractionSummary = {
   summary: string;
+  analysis?: AiDocumentAnalysis;
   adaptations?: string[];
   uncertainItems?: string[];
   prefilledContent?: string[];

@@ -15,6 +15,9 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - A grid column has one datatype for every repeated row. Never force a signature, approval, instruction, or summary row into a data column when the source table mixes row purposes.
 - Move table-embedded sign-off rows into a separate fields section with distinct signature fields. Preserve the scope in each label, such as "HSEQ sign - Sunday" or "Complex manager / FSCS sign - Monday".
 - Preserve all static labels that explain the form's purpose, including document numbers, dates, revision numbers, instructions, warnings, min/max values, store/site details, and approval names. Use display fields for non-input text.
+- Infer datatypes from both labels and visual evidence. A narrow repeated cell under a time, day, interval, or inspection heading is a checkbox when the source shows tick boxes, small empty cells intended for ticks, or repeated mark-only entries.
+- Use checkbox for independent completion marks, yesno for an explicit yes/no or pass/fail decision, number for quantities/counts, date/time for date or time entry, signature for signing areas, and text when the expected entry is a name, initials, comment, or unclear free-form value.
+- Do not turn every narrow cell into a checkbox just because it is small. If the source shows expected numbers, initials, dates, or comments, preserve that datatype. When visual evidence is ambiguous, choose the least destructive supported type and list the uncertainty in extraction.uncertainItems.
 - Prefer retaining an uncertain label as a text field over dropping it.
 - Never invent fields that are not present in the source unless the user explicitly asks.
 - Never claim a visual match.
@@ -82,6 +85,9 @@ Do NOT use types outside this list. Do NOT use "dynamic-table" — use a grid se
 13. For attendance or status matrices, keep identity columns (S/N, full name, job title) together with one consistent status/confirmation column per person and period. Use clear labels such as "Monday - manager comment" when grouped headers are present.
 14. For hygiene or inspection checklists with long instructional text, preserve the instruction and question text as display fields or text/yesno fields, then keep the repeated staff/date/status matrix as a separate grid.
 15. If one source page contains multiple logical tables, create separate sections or grids instead of forcing unrelated areas into one grid. If a table continues on later pages with the same columns, combine it into one logical grid.
+16. Reject or request clarification instead of generating a form when the source is blank, decorative, only a logo/cover page, non-data content, unreadable, or too contradictory to interpret safely.
+17. For cleaning or inspection sheets with time-interval columns (for example 06:00, 07:00, 08:00), use checkbox columns when each interval represents “completed/ticked”. Keep the interval in the label, such as "06:00 - cleaned", and do not model the interval as a time-entry field.
+18. For a column headed "Staff sign", "Sup sign", "HSEQ sign", or similar, use signature or text/initials according to the visible space and mark convention; do not infer a checkbox unless the source clearly uses a tick mark for that column.
 
 ## Recommended layouts
 - Temperature / monitoring logs: fields header (site, date) + grid with date/time/temp/signature columns
@@ -102,6 +108,14 @@ Set meta.formType to one of: custom | checklist | questionnaire | answer-sheet |
   "sections": [ ... ],
   "extraction": {
     "summary": "Detected 2 sections, 8 fields, 1 repeatable table, 12 static items, 1 signature.",
+      "analysis": {
+        "pagesInspected": 2,
+        "tablesDetected": 1,
+        "controlsDetected": 3,
+        "confidence": 0.92,
+        "coverage": "complete",
+        "omittedContent": []
+      },
     "adaptations": ["Combined the two-level time header into clear column labels.", "Moved table-embedded daily sign-off rows into separate signature fields."],
     "uncertainItems": ["Blurry label near bottom-right"],
     "prefilledContent": ["Optional notes about fixed content not stored as seedRows"],
@@ -114,6 +128,7 @@ Rules:
 - HSE-friendly labels; match uploaded form labels when a document is provided
 - required:true only when the form clearly marks a field mandatory
 - Include extraction whenever a source document is attached (and optionally for text-only requests)
+- For an attached document, include extraction.analysis with pagesInspected, tablesDetected, controlsDetected, confidence from 0 to 1, coverage (complete|partial|uncertain), and omittedContent.
 - No markdown, no comments, no prose outside JSON`;
 
 export const FORM_ENGINE_JSON_EXAMPLE = `{
@@ -169,8 +184,9 @@ Decide if there is enough context to build a useful ISO Grid HSE form draft from
 
 Output shape:
 {
-  "status": "ready" | "needs_clarification",
+  "status": "ready" | "needs_clarification" | "rejected",
   "summary": "One sentence of your understanding (optional)",
+  "suggestion": "Helpful next step when rejected (optional)",
   "questions": [
     {
       "id": "stable_snake_case_id",
@@ -189,6 +205,7 @@ Rules:
 - Do NOT block merely because the layout is visually complex or multi-page. Complex forms can still be flattened.
 - Do not ask the user to choose between visual layouts that the builder can safely flatten. Build the information-preserving version and explain the adaptation afterward.
 - Block/clarify only when information cannot be read or the result would be empty/unusable.
+- Use status "rejected" for blank, decorative, non-data, or fundamentally unrelated documents. Do not produce a placeholder form for a rejected source.
 - If only an image is attached with no description and layout is unclear: status "needs_clarification" with questions about table structure.
 - If the text description already specifies table rows/columns, headers, field types, and purpose: status "ready".
 - If text-only and vague (e.g. "make a checklist", "temperature log"): status "needs_clarification".
@@ -198,5 +215,5 @@ Rules:
 - Use inputType "choice" with 2–6 options when a fixed set makes sense (e.g. rows: 10/12/15/dynamic).
 - Use inputType "number" for counts.
 - When status is "ready", questions must be [].
-- The assistant should be decisive for clear forms: do not ask for confirmation just because the source has merged headers, nested groups, multiple pages, or unusual spacing.
+- The assistant should be decisive for clear forms:do not ask for confirmation just because the source has merged headers, nested groups, multiple pages, or unusual spacing.
 - No markdown — JSON only.`;

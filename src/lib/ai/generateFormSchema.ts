@@ -15,7 +15,13 @@ import {
   FORM_ENGINE_JSON_EXAMPLE,
   FORM_ENGINE_SYSTEM_PROMPT,
 } from "@/lib/ai/formEnginePrompt";
-import type { AiAssessResult, AiClarificationQuestion, AiExtractionSummary, GenerateFormSchemaResult } from "@/lib/ai/types";
+import type {
+  AiAssessResult,
+  AiClarificationQuestion,
+  AiDocumentAnalysis,
+  AiExtractionSummary,
+  GenerateFormSchemaResult,
+} from "@/lib/ai/types";
 
 const FIELD_TYPES = new Set([
   "text",
@@ -436,6 +442,12 @@ function parseAssessResponse(raw: unknown): AiAssessResult {
   const summary = typeof obj.summary === "string" ? obj.summary.trim() : undefined;
   const questions = sanitizeClarificationQuestions(obj.questions);
 
+  if (statusRaw === "rejected") {
+    const rejectedSummary = summary || "This document does not appear to contain a readable data-capture form.";
+    const suggestion = typeof obj.suggestion === "string" ? obj.suggestion.trim() : undefined;
+    return { status: "rejected", summary: rejectedSummary, suggestion };
+  }
+
   if (statusRaw === "needs_clarification" && questions.length) {
     return { status: "needs_clarification", summary, questions };
   }
@@ -481,6 +493,37 @@ export async function assessFormSchemaContext(input: GenerateFormSchemaInput): P
   return parseAssessResponse(parseJsonResponse(text));
 }
 
+function parseDocumentAnalysis(raw: unknown): AiDocumentAnalysis | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const coverageRaw = String(obj.coverage || "").trim().toLowerCase();
+  const coverage =
+    coverageRaw === "complete" || coverageRaw === "partial" || coverageRaw === "uncertain"
+      ? coverageRaw
+      : undefined;
+  const numberValue = (value: unknown, max: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.max(0, Math.min(max, Math.floor(value)))
+      : undefined;
+  const confidence =
+    typeof obj.confidence === "number" && Number.isFinite(obj.confidence)
+      ? Math.max(0, Math.min(1, obj.confidence))
+      : undefined;
+  const omittedContent = Array.isArray(obj.omittedContent)
+    ? obj.omittedContent.map((item) => String(item).trim()).filter(Boolean).slice(0, 20)
+    : undefined;
+
+  const analysis: AiDocumentAnalysis = {
+    pagesInspected: numberValue(obj.pagesInspected, 200),
+    tablesDetected: numberValue(obj.tablesDetected, 100),
+    controlsDetected: numberValue(obj.controlsDetected, 500),
+    confidence,
+    coverage,
+    omittedContent: omittedContent?.length ? omittedContent : undefined,
+  };
+  return Object.values(analysis).some((value) => value !== undefined) ? analysis : undefined;
+}
+
 function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractionSummary | undefined {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
 
@@ -495,6 +538,7 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
   const adaptations = Array.isArray(obj?.adaptations)
     ? obj!.adaptations.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
     : [];
+  const analysis = parseDocumentAnalysis(obj?.analysis);
   const prefilledContent = Array.isArray(obj?.prefilledContent)
     ? obj!.prefilledContent.map((item) => String(item).trim()).filter(Boolean).slice(0, 30)
     : [];
@@ -511,7 +555,7 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
         ? `Form structure created with ${staticItemCountFromSchema} static item row${staticItemCountFromSchema === 1 ? "" : "s"}. Review the builder before saving.`
         : undefined;
 
-  if (!summary && !adaptations.length && !uncertainItems.length && !prefilledContent.length && !staticItemCount) {
+  if (!summary && !analysis && !adaptations.length && !uncertainItems.length && !prefilledContent.length && !staticItemCount) {
     return undefined;
   }
 
@@ -519,6 +563,7 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
     summary:
       summary ||
       "Form structure was created. Review fields, tables, and any setup notes before saving.",
+    analysis,
     adaptations: adaptations.length ? adaptations : undefined,
     uncertainItems: uncertainItems.length ? uncertainItems : undefined,
     prefilledContent: prefilledContent.length ? prefilledContent : undefined,

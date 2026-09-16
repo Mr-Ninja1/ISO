@@ -1003,6 +1003,16 @@ function NewTemplatePageInner() {
 
       setAiMessages((prev) => prev.filter((m) => !m.isTyping));
 
+      if (assessment.status === "rejected") {
+        const rejection = [assessment.summary, assessment.suggestion].filter(Boolean).join(" ");
+        setAiMessages((prev) => [
+          ...prev,
+          { id: `rejected-${Date.now()}`, role: "assistant", content: rejection },
+        ]);
+        setError(rejection);
+        return;
+      }
+
       if (assessment.status === "needs_clarification" && Array.isArray(assessment.questions) && assessment.questions.length) {
         const questions = assessment.questions as AiClarificationQuestion[];
         const initialAnswers: Record<string, string> = {};
@@ -1507,6 +1517,38 @@ function NewTemplatePageInner() {
                   <div className="rounded-md border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-sm leading-6 text-foreground/80">
                     {aiExtraction.summary}
                   </div>
+                  {aiExtraction.analysis ? (
+                    <div className="rounded-md border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 text-foreground/75">
+                      <div className="mb-1 font-medium text-foreground/85">Import coverage</div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {typeof aiExtraction.analysis.pagesInspected === "number" ? (
+                          <span>{aiExtraction.analysis.pagesInspected} page{aiExtraction.analysis.pagesInspected === 1 ? "" : "s"}</span>
+                        ) : null}
+                        {typeof aiExtraction.analysis.tablesDetected === "number" ? (
+                          <span>{aiExtraction.analysis.tablesDetected} table{aiExtraction.analysis.tablesDetected === 1 ? "" : "s"}</span>
+                        ) : null}
+                        {typeof aiExtraction.analysis.controlsDetected === "number" ? (
+                          <span>{aiExtraction.analysis.controlsDetected} input control{aiExtraction.analysis.controlsDetected === 1 ? "" : "s"}</span>
+                        ) : null}
+                        {typeof aiExtraction.analysis.confidence === "number" ? (
+                          <span>{Math.round(aiExtraction.analysis.confidence * 100)}% confidence</span>
+                        ) : null}
+                        {aiExtraction.analysis.coverage ? (
+                          <span className="capitalize">{aiExtraction.analysis.coverage} coverage</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {aiExtraction.analysis?.omittedContent?.length ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+                      <div className="mb-1 font-medium">Content needing review</div>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {aiExtraction.analysis.omittedContent.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {aiExtraction.adaptations?.length ? (
                     <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-950">
                       <div className="mb-1 font-medium">How the source was adapted</div>
