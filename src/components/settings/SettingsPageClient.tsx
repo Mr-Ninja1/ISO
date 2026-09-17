@@ -14,6 +14,7 @@ import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
 import { BrandSyncSection } from "@/components/settings/BrandSyncSection";
+import { AccountSettingsPanel } from "@/components/settings/AccountSettingsPanel";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -238,6 +239,10 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
 
         <DeferredDetailsSection title="Brand profile" defaultOpen>
           <TenantSettingsForm tenant={tenant ?? undefined} tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Your account">
+          <AccountSettingsPanel />
         </DeferredDetailsSection>
 
         <DeferredDetailsSection title="Form management">

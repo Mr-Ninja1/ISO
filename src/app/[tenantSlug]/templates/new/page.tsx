@@ -462,7 +462,8 @@ function NewTemplatePageInner() {
   const [sections, setSections] = useState<FormSection[]>([]);
   const [formType, setFormType] = useState<FormType>("custom");
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
-  const [builderMode, setBuilderMode] = useState<"ai" | "manual">("ai");
+  const [builderMode, setBuilderMode] = useState<"choose" | "ai" | "manual">("choose");
+  const [builderDraftHydrated, setBuilderDraftHydrated] = useState(isEditMode);
   const [cardIcon, setCardIcon] = useState("clipboard");
   const [cardColor, setCardColor] = useState("default");
   const [schemaMeta, setSchemaMeta] = useState<Record<string, unknown>>({});
@@ -570,7 +571,8 @@ function NewTemplatePageInner() {
     if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
     const raw = localStorage.getItem(builderDraftKey);
     if (!raw) {
-      setBuilderMode("ai");
+      setBuilderMode("choose");
+      setBuilderDraftHydrated(true);
       return;
     }
 
@@ -580,24 +582,26 @@ function NewTemplatePageInner() {
         formType?: FormType;
         formStyle?: FormStyle;
         sections?: FormSection[];
-        builderMode?: "ai" | "manual";
+        builderMode?: "choose" | "ai" | "manual";
       };
       if (typeof draft.title === "string" && draft.title.trim()) setTitle(draft.title);
       if (Array.isArray(draft.sections) && draft.sections.length) {
         setSections(draft.sections);
-        setBuilderMode(draft.builderMode === "manual" ? "manual" : "ai");
+        setBuilderMode(draft.builderMode === "manual" ? "manual" : draft.builderMode === "ai" ? "ai" : "choose");
       } else {
-        setBuilderMode(draft.builderMode === "manual" ? "manual" : "ai");
+        setBuilderMode(draft.builderMode === "manual" ? "manual" : draft.builderMode === "ai" ? "ai" : "choose");
       }
       if (draft.formType) setFormType(parseFormType(draft.formType));
       if (draft.formStyle) setFormStyle(draft.formStyle);
     } catch {
-      setBuilderMode("ai");
+      setBuilderMode("choose");
+    } finally {
+      setBuilderDraftHydrated(true);
     }
   }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey]);
 
   useEffect(() => {
-    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
+    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || !builderDraftHydrated) return;
     const payload = {
       title,
       sections,
@@ -606,8 +610,18 @@ function NewTemplatePageInner() {
       builderMode,
       savedAt: Date.now(),
     };
-    localStorage.setItem(builderDraftKey, JSON.stringify(payload));
-  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, title, sections, formType, formStyle, builderMode]);
+    const persistDraft = () => {
+      try {
+        localStorage.setItem(builderDraftKey, JSON.stringify(payload));
+      } catch {
+        // Keep the builder usable when browser storage is unavailable or full.
+      }
+    };
+
+    persistDraft();
+    window.addEventListener("pagehide", persistDraft);
+    return () => window.removeEventListener("pagehide", persistDraft);
+  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated, title, sections, formType, formStyle, builderMode]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -807,6 +821,14 @@ function NewTemplatePageInner() {
           categoryId: selectedCategoryId ?? null,
           updatedAt: new Date().toISOString(),
         });
+      }
+
+      if (!isEditMode && builderDraftKey) {
+        try {
+          localStorage.removeItem(builderDraftKey);
+        } catch {
+          // Ignore storage cleanup failures after a successful server save.
+        }
       }
 
       // Clear all workspace caches for this tenant to force fresh data
@@ -1216,11 +1238,19 @@ function NewTemplatePageInner() {
   function closeAiGenerateModal() {
     if (generatingAi) return;
     setShowAiGenerate(false);
+    setBuilderMode((current) => (current === "ai" && !sections.length ? "choose" : current));
     resetAiModalState();
   }
 
+  function openManualBuilderMode() {
+    setBuilderMode("manual");
+    setShowAiCompleteModal(false);
+    setShowAiGenerate(false);
+    setBuilderResetKey(`manual-${Date.now()}`);
+  }
+
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
-  const showBuilderModeChooser = !isEditMode && !sections.length && builderMode === "ai";
+  const showBuilderModeChooser = !isEditMode && builderMode === "choose" && !sections.length;
 
   function handleFormTypeChange(next: FormType) {
     if (next === formType) return;
@@ -1355,6 +1385,9 @@ function NewTemplatePageInner() {
                         <Sparkles className="h-4 w-4 text-[var(--hse-teal)]" />
                         AI mode
                       </div>
+                      <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-[var(--hse-teal)]">
+                        Best for: imported forms and quick drafts
+                      </div>
                       <p className="mt-2 text-sm leading-6 text-foreground/70">
                         Upload a PDF or photo, or describe the form. ISO Grid focuses on typed labels and keeps static item rows in their original table positions instead of burying them in a separate modal.
                       </p>
@@ -1375,8 +1408,11 @@ function NewTemplatePageInner() {
                         </span>
                         Manual mode
                       </div>
+                      <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-foreground/60">
+                        Best for: exact control and layout tweaks
+                      </div>
                       <p className="mt-2 text-sm leading-6 text-foreground/70">
-                        Start from a blank canvas and add fields, tables, and signature blocks exactly the way you want.
+                        Start from a blank canvas or switch to the full editing toolkit whenever you need to fine-tune fields, tables, signatures, and section layout exactly the way you want.
                       </p>
                     </button>
                   </div>
@@ -1744,7 +1780,7 @@ function NewTemplatePageInner() {
                 <button
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => setShowAiCompleteModal(false)}
+                  onClick={() => openManualBuilderMode()}
                 >
                   Edit in builder
                 </button>
@@ -1773,7 +1809,7 @@ function NewTemplatePageInner() {
                 <button
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => setShowAiCompleteModal(false)}
+                  onClick={() => openManualBuilderMode()}
                 >
                   Edit in builder
                 </button>

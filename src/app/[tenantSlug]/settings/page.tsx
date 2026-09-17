@@ -10,6 +10,7 @@ import { RouteOfflineGate } from "@/components/RouteOfflineGate";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
+import { AccountSettingsPanel } from "@/components/settings/AccountSettingsPanel";
 import { SettingsPageClient } from "@/components/settings/SettingsPageClient";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
@@ -93,6 +94,10 @@ export default async function TenantSettingsPage({
 
           <DeferredDetailsSection title="Brand profile" defaultOpen>
             <TenantSettingsForm tenant={tenant} tenantSlug={tenant.slug} />
+          </DeferredDetailsSection>
+
+          <DeferredDetailsSection title="Your account">
+            <AccountSettingsPanel />
           </DeferredDetailsSection>
 
           <DeferredDetailsSection title="Form management">
