@@ -87,6 +87,16 @@ function coerceFieldType(raw: unknown, gridColumn: boolean): string {
 function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): SimpleFieldDef | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
+  const rawValue = obj.value;
+  const staticValueText =
+    rawValue == null
+      ? undefined
+      : typeof rawValue === "string"
+        ? rawValue.trim()
+        : typeof rawValue === "number" || typeof rawValue === "boolean"
+          ? String(rawValue)
+          : String(rawValue).trim();
+
   const resolvedType = coerceFieldType(obj.type, gridColumn);
   const label = String(obj.label || obj.name || `Field ${index + 1}`).trim() || `Field ${index + 1}`;
 
@@ -97,6 +107,16 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
     required: obj.required === true,
     readOnly: obj.readOnly === true ? true : undefined,
   };
+
+  if (staticValueText && (obj.name || obj.label) && !obj.content && resolvedType !== "display") {
+    const staticLabel = label.trim();
+    return {
+      ...base,
+      type: "display",
+      content: staticLabel && staticValueText ? `${staticLabel}: ${staticValueText}` : staticValueText,
+      variant: "body",
+    } as SimpleFieldDef;
+  }
 
   if (resolvedType === "temp") {
     return { ...base, type: "temp", unit: obj.unit === "F" ? "F" : "C" } as SimpleFieldDef;

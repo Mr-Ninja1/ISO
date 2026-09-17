@@ -7,10 +7,12 @@ export const FORM_ENGINE_SYSTEM_PROMPT = `You are the ISO Grid HSE form builder 
 ## Core principle
 This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - Collect the same meaningful information as the source document.
+- Ignore handwritten notes, scribbles, stray marks, and annotations that are not typewritten or clearly printed. Only use typed text, printed labels, and machine-readable values for the generated form.
 - Do NOT try to match exact spacing, nesting, page layout, borders, or fonts.
 - Flatten nested or spanning visual groups into simple supported fields/sections.
 - The builder supports fields sections with 1–4 columns, grid sections with as many source columns as needed, display fields for instructions or flattened headers, and seedRows/readOnly for printed item lists.
 - Prefer a clear supported approximation over a visually exact structure the builder cannot represent.
+- Place static printed items where they originally appeared in the form: if the source shows a list in a grid column or repeated row, keep those entries as readOnly seedRows inside the same primary table and in the same row/column arrangement the form originally used, rather than moving them into a separate modal-only list.
 - If you flatten a merged header, combine its meaning into column labels or a display field and explain that adaptation in extraction.adaptations.
 - A grid column has one datatype for every repeated row. Never force a signature, approval, instruction, or summary row into a data column when the source table mixes row purposes.
 - Move table-embedded sign-off rows into a separate fields section with distinct signature fields. Preserve the scope in each label, such as "HSEQ sign - Sunday" or "Complex manager / FSCS sign - Monday".

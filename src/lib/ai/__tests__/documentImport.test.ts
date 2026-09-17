@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sanitizeAiFormSchema } from "../generateFormSchema";
+import { FORM_ENGINE_SYSTEM_PROMPT } from "../formEnginePrompt";
 import {
   MAX_SOURCE_DOCUMENT_BYTES,
   resolveSourceMimeType,
@@ -101,5 +102,33 @@ describe("seedRows sanitize and defaults", () => {
     const fieldsSection = schema.sections?.find((section) => section.type === "fields");
     assert.ok(fieldsSection && fieldsSection.type === "fields");
     assert.ok(fieldsSection.fields.some((field) => field.label.includes("Unclear label")));
+  });
+
+  it("preserves static labels with their value instead of dropping the field name", () => {
+    const schema = sanitizeAiFormSchema({
+      version: 1,
+      sections: [
+        {
+          type: "fields",
+          title: "Header",
+          fields: [
+            { id: "document_number", type: "text", name: "Document No", value: "BBN-SHEQ-P-16-R-11n" },
+            { id: "compiled_by", type: "text", name: "Compiled by", value: "Michael Zulu C." },
+            { id: "date", type: "date", name: "Date", value: "03/08/2025" },
+          ],
+        },
+      ],
+    });
+
+    const fields = schema.sections?.[0]?.type === "fields" ? schema.sections[0].fields : [];
+    assert.ok(fields.some((field) => field.type === "display" && field.label === "Document No"));
+    assert.ok(fields.some((field) => field.type === "display" && field.label === "Compiled by"));
+    assert.ok(fields.some((field) => field.type === "display" && field.label === "Date"));
+  });
+
+  it("ignores handwriting and keeps static form items aligned with their original grid position", () => {
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /ignore handwritten|handwriting/i);
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /typed|printed text/i);
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /same columns|original.*row|original.*grid/i);
   });
 });

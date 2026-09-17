@@ -462,6 +462,7 @@ function NewTemplatePageInner() {
   const [sections, setSections] = useState<FormSection[]>([]);
   const [formType, setFormType] = useState<FormType>("custom");
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
+  const [builderMode, setBuilderMode] = useState<"ai" | "manual">("ai");
   const [cardIcon, setCardIcon] = useState("clipboard");
   const [cardColor, setCardColor] = useState("default");
   const [schemaMeta, setSchemaMeta] = useState<Record<string, unknown>>({});
@@ -559,6 +560,54 @@ function NewTemplatePageInner() {
   useEffect(() => {
     if (!authLoading && !user) router.push("/login");
   }, [authLoading, user, router]);
+
+  const builderDraftKey = useMemo(() => {
+    if (!tenantSlug) return null;
+    return `template-builder:v1:${userId || "anon"}:${tenantSlug}:${isEditMode ? `edit:${editTemplateId || "draft"}` : "new"}`;
+  }, [tenantSlug, userId, isEditMode, editTemplateId]);
+
+  useEffect(() => {
+    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
+    const raw = localStorage.getItem(builderDraftKey);
+    if (!raw) {
+      setBuilderMode("ai");
+      return;
+    }
+
+    try {
+      const draft = JSON.parse(raw) as {
+        title?: string;
+        formType?: FormType;
+        formStyle?: FormStyle;
+        sections?: FormSection[];
+        builderMode?: "ai" | "manual";
+      };
+      if (typeof draft.title === "string" && draft.title.trim()) setTitle(draft.title);
+      if (Array.isArray(draft.sections) && draft.sections.length) {
+        setSections(draft.sections);
+        setBuilderMode(draft.builderMode === "manual" ? "manual" : "ai");
+      } else {
+        setBuilderMode(draft.builderMode === "manual" ? "manual" : "ai");
+      }
+      if (draft.formType) setFormType(parseFormType(draft.formType));
+      if (draft.formStyle) setFormStyle(draft.formStyle);
+    } catch {
+      setBuilderMode("ai");
+    }
+  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey]);
+
+  useEffect(() => {
+    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
+    const payload = {
+      title,
+      sections,
+      formType,
+      formStyle,
+      builderMode,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(builderDraftKey, JSON.stringify(payload));
+  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, title, sections, formType, formStyle, builderMode]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -967,10 +1016,45 @@ function NewTemplatePageInner() {
   }
 
   function finishAiGeneration() {
+    setBuilderMode("ai");
     setShowAiGenerate(false);
     resetAiModalState();
-    setAiCompleteStep("success");
+    setAiCompleteStep("preview");
     setShowAiCompleteModal(true);
+  }
+
+  function isTransientAiError(message: string) {
+    return /(429|resource exhausted|too many requests|temporar|high demand|try again later|overloaded|503|service unavailable|rate limit)/i.test(message);
+  }
+
+  async function withAiRetry<T>(operation: () => Promise<T>, context: "assess" | "generate"): Promise<T> {
+    let lastError: unknown;
+    const maxAttempts = 3;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (err) {
+        lastError = err;
+        const message = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+        if (!isTransientAiError(message) || attempt >= maxAttempts - 1) {
+          throw err;
+        }
+
+        const waitMs = 1800 * (attempt + 1);
+        setAiMessages((prev) => [
+          ...prev.filter((m) => !m.isTyping),
+          {
+            id: `retry-${Date.now()}-${attempt}`,
+            role: "assistant",
+            content: `The model is busy right now. Retrying automatically in ${Math.ceil(waitMs / 1000)}s (${context === "assess" ? "checking the form" : "building the form"})…`,
+          },
+        ]);
+        await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+      }
+    }
+
+    throw lastError;
   }
 
   async function continueAiFlow() {
@@ -999,7 +1083,7 @@ function NewTemplatePageInner() {
     setGeneratingAi(true);
     setError("");
     try {
-      const assessment = await postAiGenerate(buildAiFormData({ phase: "assess" }));
+      const assessment = await withAiRetry(() => postAiGenerate(buildAiFormData({ phase: "assess" })), "assess");
 
       setAiMessages((prev) => prev.filter((m) => !m.isTyping));
 
@@ -1022,7 +1106,7 @@ function NewTemplatePageInner() {
         setAiQuestions(questions);
         setAiAnswers(initialAnswers);
         const summary = typeof assessment.summary === "string" ? assessment.summary : "";
-      setAiAssessSummary(summary);
+        setAiAssessSummary(summary);
         setAiMessages((prev) => prev.filter((m) => !m.isTyping));
         setAiStep("clarify");
         return;
@@ -1033,7 +1117,7 @@ function NewTemplatePageInner() {
         { id: `ready-${Date.now()}`, role: "assistant", content: "Building your form draft…" },
       ]);
 
-      const generated = await postAiGenerate(buildAiFormData({ phase: "generate" }));
+      const generated = await withAiRetry(() => postAiGenerate(buildAiFormData({ phase: "generate" })), "generate");
       applyImportedSchema(generated, "ai-generate");
       setAiExtraction(generated.extraction ?? null);
       finishAiGeneration();
@@ -1048,7 +1132,9 @@ function NewTemplatePageInner() {
         {
           id: `err-${Date.now()}`,
           role: "assistant",
-          content: message,
+          content: isTransientAiError(message)
+            ? `${message} You can keep this prompt and click Try again, or wait a moment and the model will retry automatically the next time you submit.`
+            : message,
         },
       ]);
       setError(message);
@@ -1079,8 +1165,9 @@ function NewTemplatePageInner() {
     setGeneratingAi(true);
     setError("");
     try {
-      const generated = await postAiGenerate(
-        buildAiFormData({ phase: "generate", answers: aiAnswers }),
+      const generated = await withAiRetry(
+        () => postAiGenerate(buildAiFormData({ phase: "generate", answers: aiAnswers })),
+        "generate",
       );
       applyImportedSchema(generated, "ai-generate");
       setAiExtraction(generated.extraction ?? null);
@@ -1096,7 +1183,9 @@ function NewTemplatePageInner() {
         {
           id: `err-${Date.now()}`,
           role: "assistant",
-          content: message,
+          content: isTransientAiError(message)
+            ? `${message} You can keep the answers and click Try again, or wait a moment before retrying.`
+            : message,
         },
       ]);
       setError(message);
@@ -1131,6 +1220,7 @@ function NewTemplatePageInner() {
   }
 
   const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
+  const showBuilderModeChooser = !isEditMode && !sections.length && builderMode === "ai";
 
   function handleFormTypeChange(next: FormType) {
     if (next === formType) return;
@@ -1239,17 +1329,72 @@ function NewTemplatePageInner() {
               </div>
             </div>
 
-            <FormBuilder
-              onChangeSections={setSections}
-              initialSections={sections}
-              title={title}
-              onTitleChange={setTitle}
-              formType={formType}
-              lockExistingDeletes={hasAudits}
-              lockedFieldIds={lockedFieldIds}
-              lockedGridColumnIds={lockedGridColumnIds}
-              resetKey={builderResetKey}
-            />
+            {showBuilderModeChooser ? (
+              <div className="p-4 sm:p-6">
+                <div className="mx-auto max-w-3xl rounded-2xl border border-foreground/15 bg-foreground/[0.02] p-5 sm:p-7">
+                  <div className="text-center">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/55">
+                      Start with the fastest path
+                    </div>
+                    <h2 className="mt-3 text-2xl font-semibold text-foreground">Choose how you want to build this form</h2>
+                    <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-foreground/70">
+                      AI mode turns a photo or pasted form into a working draft in seconds, while manual mode keeps the full toolkit available for custom layouts.
+                    </p>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] p-5 text-left transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_15%,white)]"
+                      onClick={() => {
+                        setBuilderMode("ai");
+                        void openAiGenerateModal();
+                      }}
+                    >
+                      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                        <Sparkles className="h-4 w-4 text-[var(--hse-teal)]" />
+                        AI mode
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/70">
+                        Upload a PDF or photo, or describe the form. ISO Grid focuses on typed labels and keeps static item rows in their original table positions instead of burying them in a separate modal.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="rounded-xl border border-foreground/15 bg-background p-5 text-left transition hover:bg-foreground/[0.02]"
+                      onClick={() => {
+                        setBuilderMode("manual");
+                        setSections(blankCanvasForType(formType));
+                        setBuilderResetKey(`manual-${Date.now()}`);
+                      }}
+                    >
+                      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-foreground/20 text-[10px]">
+                          M
+                        </span>
+                        Manual mode
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/70">
+                        Start from a blank canvas and add fields, tables, and signature blocks exactly the way you want.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <FormBuilder
+                onChangeSections={setSections}
+                initialSections={sections}
+                title={title}
+                onTitleChange={setTitle}
+                formType={formType}
+                lockExistingDeletes={hasAudits}
+                lockedFieldIds={lockedFieldIds}
+                lockedGridColumnIds={lockedGridColumnIds}
+                resetKey={builderResetKey}
+              />
+            )}
             {builderBlockedSmallScreen ? (
               <CenteredOverlay open maxWidthClass="max-w-md" zIndexClass="z-[85]" onClose={() => {}}>
                 <div className="p-5">
@@ -1516,6 +1661,9 @@ function NewTemplatePageInner() {
                 <div className="mt-4 space-y-3 text-left">
                   <div className="rounded-md border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-sm leading-6 text-foreground/80">
                     {aiExtraction.summary}
+                  </div>
+                  <div className="rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 py-2 text-xs leading-5 text-foreground/75">
+                    This draft preserves the same information, meaning, and required data points even when the layout is simplified or not visually identical to the original form.
                   </div>
                   {aiExtraction.analysis ? (
                     <div className="rounded-md border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 text-foreground/75">

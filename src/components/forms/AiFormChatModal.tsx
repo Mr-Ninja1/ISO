@@ -210,6 +210,27 @@ export function AiFormChatModal({
     {} as Record<FormType, ExamplePrompt[]>,
   );
 
+  const createByOptions = [
+    {
+      id: "pdf",
+      label: "Upload Form PDF",
+      description: "Drop in a scan or exported form PDF and let AI rebuild the structure.",
+      icon: FileText,
+    },
+    {
+      id: "photo",
+      label: "Upload Photo",
+      description: "Use a clear photo of a paper form for quick digitization.",
+      icon: ImageIcon,
+    },
+    {
+      id: "describe",
+      label: "Describe form",
+      description: "Tell the AI the fields, table columns, and signs you need.",
+      icon: Lightbulb,
+    },
+  ] as const;
+
   return (
     <CenteredOverlay open={open} maxWidthClass="max-w-lg" zIndexClass="z-[110]" onClose={onClose}>
       <div className="flex max-h-[min(90dvh,720px)] min-h-0 flex-col">
@@ -258,16 +279,22 @@ export function AiFormChatModal({
         {/* Chat area */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
           {step === "input" ? (
-            <div className="mb-4 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] p-3">
+            <div className="mb-4 space-y-3 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] p-3">
               <div className="flex items-start gap-2">
                 <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--hse-teal)]" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-foreground/85">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/60">
+                    Create your form by
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-foreground/85">
                     {AI_FORM_BUILDER_GUIDE.label}
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed text-foreground/65">
                     {AI_FORM_BUILDER_GUIDE.prompt}
                   </p>
+                  <div className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-white/70 px-2 py-1.5 text-[10px] leading-relaxed text-foreground/70">
+                    A generated form may not look identical to the original, but it is designed to preserve the same information, meaning, and required fields.
+                  </div>
                   <button
                     type="button"
                     disabled={generating}
@@ -277,6 +304,32 @@ export function AiFormChatModal({
                     Use this example
                   </button>
                 </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                {createByOptions.map(({ id, label, description, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    disabled={generating}
+                    onClick={() => {
+                      if (id === "describe") {
+                        textareaRef.current?.focus();
+                        return;
+                      }
+                      fileInputRef.current?.click();
+                    }}
+                    className="rounded-xl border border-foreground/10 bg-white/80 px-3 py-2.5 text-left transition-colors hover:border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] disabled:opacity-50"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">{label}</div>
+                    <div className="mt-1 text-[10px] leading-relaxed text-foreground/60">
+                      {description}
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
