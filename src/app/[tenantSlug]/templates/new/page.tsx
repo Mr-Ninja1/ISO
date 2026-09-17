@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Laptop, Loader2, Sparkles } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
@@ -464,6 +464,7 @@ function NewTemplatePageInner() {
   const [formStyle, setFormStyle] = useState<FormStyle>("default");
   const [builderMode, setBuilderMode] = useState<"choose" | "ai" | "manual">("choose");
   const [builderDraftHydrated, setBuilderDraftHydrated] = useState(isEditMode);
+  const builderDraftTimerRef = useRef<number | null>(null);
   const [cardIcon, setCardIcon] = useState("clipboard");
   const [cardColor, setCardColor] = useState("default");
   const [schemaMeta, setSchemaMeta] = useState<Record<string, unknown>>({});
@@ -618,9 +619,18 @@ function NewTemplatePageInner() {
       }
     };
 
-    persistDraft();
+    if (builderDraftTimerRef.current !== null) {
+      window.clearTimeout(builderDraftTimerRef.current);
+    }
+    builderDraftTimerRef.current = window.setTimeout(persistDraft, 250);
     window.addEventListener("pagehide", persistDraft);
-    return () => window.removeEventListener("pagehide", persistDraft);
+    return () => {
+      if (builderDraftTimerRef.current !== null) {
+        window.clearTimeout(builderDraftTimerRef.current);
+        builderDraftTimerRef.current = null;
+      }
+      window.removeEventListener("pagehide", persistDraft);
+    };
   }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated, title, sections, formType, formStyle, builderMode]);
 
   useEffect(() => {

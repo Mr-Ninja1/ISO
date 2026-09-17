@@ -2202,6 +2202,45 @@ function WorkspacePageInner() {
   }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook]);
 
   useEffect(() => {
+    if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
+    const categoryIds = workspace.categories
+      .map((category) => category.id)
+      .filter((id) => id !== workspace.selectedCategoryId);
+    if (!categoryIds.length) return;
+
+    let active = true;
+    const warmCategories = async () => {
+      for (const cid of categoryIds) {
+        if (!active || isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, 2 * 60_000)) continue;
+        try {
+          let data: WorkspaceData;
+          if (isCapacitorNativeApp()) {
+            data = (await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData;
+          } else {
+            const url = new URL(apiUrl("/api/workspace"));
+            url.searchParams.set("tenantSlug", tenantSlug);
+            url.searchParams.set("categoryId", cid);
+            const res = await fetch(url.toString(), {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (!res.ok) continue;
+            data = (await res.json()) as WorkspaceData;
+          }
+          if (active) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
+        } catch {
+          // Best-effort warming; the category switch still fetches on demand.
+        }
+      }
+    };
+
+    const timer = window.setTimeout(() => void warmCategories(), 1200);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [workspace?.tenant.slug, workspace?.selectedCategoryId, workspace?.categories, tenantSlug, accessToken, cacheUserId, offlineFromHook]);
+
+  useEffect(() => {
     if (!tenantSlug) return;
     setRecentTemplateIds(readRecentTemplateIds(tenantSlug));
   }, [tenantSlug]);

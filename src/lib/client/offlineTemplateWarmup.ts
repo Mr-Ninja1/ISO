@@ -7,6 +7,7 @@ import { writeAuditTemplateCache, type AuditTemplatePayload } from "@/lib/client
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 const BULK_CACHE_KEY_PREFIX = "template-schemas-bulk-cached:v1:";
+const inFlightBulkCaches = new Map<string, Promise<number>>();
 
 export function tenantTemplateBulkCacheKey(tenantSlug: string) {
   return `${BULK_CACHE_KEY_PREFIX}${tenantSlug}`;
@@ -186,9 +187,23 @@ export async function cacheAllTenantTemplatesFromSupabase(
 
 /** Downloads every form schema for a brand — API on web, Supabase on native. */
 export async function cacheAllTenantTemplates(accessToken: string, tenantSlug: string) {
-  if (isCapacitorNativeApp()) {
-    const { createClient } = await import("@/lib/auth");
-    return cacheAllTenantTemplatesFromSupabase(createClient(), tenantSlug);
+  const existing = inFlightBulkCaches.get(tenantSlug);
+  if (existing) return existing;
+
+  const request = (async () => {
+    if (isCapacitorNativeApp()) {
+      const { createClient } = await import("@/lib/auth");
+      return cacheAllTenantTemplatesFromSupabase(createClient(), tenantSlug);
+    }
+    return cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+  })();
+
+  inFlightBulkCaches.set(tenantSlug, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightBulkCaches.get(tenantSlug) === request) {
+      inFlightBulkCaches.delete(tenantSlug);
+    }
   }
-  return cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
 }

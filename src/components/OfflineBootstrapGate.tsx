@@ -31,6 +31,9 @@ function shouldSkipBootstrap(pathname: string | null) {
   if (SKIP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
   // Skip audit routes (cached forms should open without the first-time gate)
   if (/^\/[^/]+\/audits(\/|$)/.test(pathname)) return true;
+  // Template routes load their own workspace/template data and must not wait for
+  // a full offline bootstrap before the user can open the builder.
+  if (/^\/(?:[^/]+|_)\/templates(\/|$)/.test(pathname)) return true;
   return false;
 }
 

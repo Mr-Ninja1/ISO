@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -1975,7 +1975,6 @@ export function FormBuilder({
 
   function sync(next: BuilderState) {
     setState(next);
-    onChangeSections(buildSectionsFromBuilderState(next, formType));
   }
 
   function applyStarterLayout() {
@@ -2587,7 +2586,7 @@ function SchemaSyncEffect({
 }) {
   // Sync after render (not during) to avoid parent state updates during child render.
   useEffect(() => {
-    onSync(sections);
+    startTransition(() => onSync(sections));
   }, [onSync, sections]);
 
   return null;
