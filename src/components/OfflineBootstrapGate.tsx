@@ -14,7 +14,7 @@ import {
 } from '@/lib/client/offlineBootstrap';
 import { isCapacitorNativeApp } from '@/lib/capacitor/runtime';
 import { isTenantTemplateBulkCached } from '@/lib/client/offlineTemplateWarmup';
-import { readWorkspaceCacheResolved } from '@/lib/client/workspaceCache';
+import { readWorkspaceCache, readWorkspaceCacheResolved } from '@/lib/client/workspaceCache';
 import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
 
 const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
@@ -128,10 +128,15 @@ function FirstTimeDownloadScreen({
 
 function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
   if (!isOfflineBootstrapComplete(userId, tenantSlug)) return false;
+  const workspace = readWorkspaceCacheResolved(userId, tenantSlug, null);
+  if (!workspace) return false;
+  if (workspace.categories.some((category) => !readWorkspaceCache(userId, tenantSlug, category.id))) {
+    return false;
+  }
   if (!isCapacitorNativeApp()) return true;
   return (
     isTenantTemplateBulkCached(tenantSlug) &&
-    Boolean(readWorkspaceCacheResolved(userId, tenantSlug, null))
+    Boolean(workspace)
   );
 }
 
@@ -139,6 +144,7 @@ function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
  * Blocks the UI until the active brand has been fully cached for offline (first login / new device).
  */
 export function OfflineBootstrapGate({ children }: { children: React.ReactNode }) {
+  const nativeApp = isCapacitorNativeApp();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -154,6 +160,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const forceBootstrap = searchParams.get('forceBootstrap') === '1';
   const skip = shouldSkipBootstrap(pathname);
   const needsBootstrap =
+    nativeApp &&
     !skip &&
     Boolean(user) &&
     Boolean(tenantSlug) &&
@@ -220,6 +227,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   startBootstrapRef.current = startBootstrap;
 
   useEffect(() => {
+    if (!nativeApp) return;
     const update = () => setOffline(isAppOffline());
     update();
     window.addEventListener('online', update);
@@ -228,9 +236,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       window.removeEventListener('online', update);
       window.removeEventListener('offline', update);
     };
-  }, []);
+  }, [nativeApp]);
 
   useEffect(() => {
+    if (!nativeApp) return;
     if (authLoading) return;
     if (!user) {
       setReady(true);
@@ -266,7 +275,9 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     autoStartKeyRef.current = autoKey;
 
     void startBootstrapRef.current();
-  }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId]);
+  }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId, nativeApp]);
+
+  if (!nativeApp) return <>{children}</>;
 
   if (authLoading) {
     return (

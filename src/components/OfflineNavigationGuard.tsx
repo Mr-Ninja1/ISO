@@ -7,6 +7,7 @@ import { defaultOfflineBackHref, isOfflineSafePath } from "@/lib/client/offlineN
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
 import { INTERNET_REQUIRED_MESSAGE } from "@/lib/client/internetRequired";
 import { normalizeTenantSlug } from "@/lib/client/resolveTenantSlug";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 function tenantSlugFromPath(pathname: string) {
   if (typeof window !== "undefined") {
@@ -30,6 +31,7 @@ export function OfflineNavigationGuard() {
   const router = useRouter();
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
     if (!pathname || !isAppOffline()) return;
     if (isOfflineSafePath(pathname)) return;
 

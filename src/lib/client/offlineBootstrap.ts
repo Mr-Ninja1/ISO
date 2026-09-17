@@ -121,16 +121,20 @@ export async function runOfflineBootstrap({
   if (categories.length > 0) {
     report("categories", "Downloading categories…", 22);
     let done = 0;
+    const failedCategories: string[] = [];
     for (const category of categories) {
       try {
         const scoped = await fetchWorkspace(accessToken, tenantSlug, category.id);
         writeWorkspaceCache(userId, tenantSlug, category.id, scoped);
       } catch {
-        // best-effort per category
+        failedCategories.push(category.name);
       }
       done += 1;
       const slice = 22 + (done / categories.length) * 28;
       report("categories", `Downloading categories (${done}/${categories.length})…`, slice, category.name);
+    }
+    if (failedCategories.length > 0) {
+      throw new Error(`Failed to cache ${failedCategories.length} categor${failedCategories.length === 1 ? "y" : "ies"}. Please try again.`);
     }
   } else {
     report("categories", "No categories to download", 50);

@@ -10,11 +10,10 @@ import {
   flushBackgroundMutationQueue,
   getPendingBackgroundMutationCount,
 } from "@/lib/client/backgroundMutationQueue";
-import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
-import { cacheAllTenantTemplatesFromApi, isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
 import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 function readPendingCount() {
   return (
@@ -36,12 +35,6 @@ type WorkspaceData = {
     canManageStaff?: boolean;
   };
 };
-
-type ActivityResponse = {
-  rows?: CachedActivityRow[];
-};
-
-type CategorySummary = { id: string };
 
 function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
   return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
@@ -77,29 +70,6 @@ function tenantSlugFromPath(pathname: string | null, fallback: string | null): s
   return /^[a-z0-9][a-z0-9-]*$/i.test(first) ? first : "";
 }
 
-function bootstrapKey(userId: string | null, tenantSlug: string) {
-  return `offline-bootstrap:v1:${userId || "anon"}:${tenantSlug}`;
-}
-
-function readBootstrapTs(userId: string | null, tenantSlug: string) {
-  try {
-    const raw = localStorage.getItem(bootstrapKey(userId, tenantSlug));
-    if (!raw) return 0;
-    const ts = Number(raw);
-    return Number.isFinite(ts) ? ts : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function markBootstrapDone(userId: string | null, tenantSlug: string) {
-  try {
-    localStorage.setItem(bootstrapKey(userId, tenantSlug), String(Date.now()));
-  } catch {
-    // ignore
-  }
-}
-
 export function BackgroundSyncManager() {
   const { session, user } = useAuth();
   const pathname = usePathname();
@@ -109,11 +79,11 @@ export function BackgroundSyncManager() {
 
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [bootstrapRunning, setBootstrapRunning] = useState(false);
-  const [bootstrapStage, setBootstrapStage] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
+
     const updateOnline = () => setOnline(!isAppOffline());
     const refreshPending = () => setPendingCount(readPendingCount());
 
@@ -135,6 +105,7 @@ export function BackgroundSyncManager() {
   }, []);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
     if (!accessToken || !online) return;
 
     let active = true;
@@ -149,81 +120,6 @@ export function BackgroundSyncManager() {
       return data as T;
     }
 
-    function preloadCategoryViews(workspace: WorkspaceData) {
-      if (!tenantSlug || !active) return;
-      if (!workspace.categories.length) return;
-
-      const categoryIds = workspace.categories.map((category: CategorySummary) => category.id);
-      if (!categoryIds.length) return;
-
-      void (async () => {
-        for (const categoryId of categoryIds) {
-          if (!active) return;
-          const categoryUrl = new URL(apiUrl("/api/workspace"));
-          categoryUrl.searchParams.set("tenantSlug", tenantSlug);
-          categoryUrl.searchParams.set("categoryId", categoryId);
-          try {
-            const scoped = await fetchJson<WorkspaceData>(categoryUrl.toString());
-            writeWorkspaceCache(user?.id || null, tenantSlug, categoryId, scoped);
-          } catch {
-            // best-effort background preload
-          }
-        }
-      })();
-    }
-
-    const runBootstrapWarmup = async () => {
-      if (!tenantSlug || !active) return;
-      if (isAppOffline()) return;
-
-      const lastBootstrap = readBootstrapTs(user?.id || null, tenantSlug);
-      const shouldBootstrap = Date.now() - lastBootstrap > 24 * 60 * 60 * 1000;
-      if (!shouldBootstrap) return;
-
-      setBootstrapRunning(true);
-      try {
-        setBootstrapStage("Loading workspace");
-        const wsUrl = new URL(apiUrl("/api/workspace"));
-        wsUrl.searchParams.set("tenantSlug", tenantSlug);
-        const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
-        writeWorkspaceCache(user?.id || null, tenantSlug, null, workspace);
-        if (workspace.selectedCategoryId) {
-          writeWorkspaceCache(user?.id || null, tenantSlug, workspace.selectedCategoryId, workspace);
-        }
-
-        setBootstrapStage("Preloading category views");
-        preloadCategoryViews(workspace);
-
-        setBootstrapStage("Loading templates and schemas");
-        if (!isTenantTemplateBulkCached(tenantSlug)) {
-          await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
-        }
-
-        setBootstrapStage("Loading activity");
-        const role = workspace.role || (workspace.capabilities?.canAccessSettings ? "ADMIN" : "MEMBER");
-        if (role === "ADMIN" || role === "MANAGER") {
-          try {
-            const activityUrl = new URL(apiUrl("/api/activity"));
-            activityUrl.searchParams.set("tenantSlug", tenantSlug);
-            activityUrl.searchParams.set("limit", "200");
-            const activityJson = await fetchJson<ActivityResponse>(activityUrl.toString());
-            if (Array.isArray(activityJson.rows)) {
-              writeCachedActivityRows(tenantSlug, activityJson.rows);
-            }
-          } catch {
-            // optional for non-admin / no access
-          }
-        }
-
-        markBootstrapDone(user?.id || null, tenantSlug);
-      } catch {
-        // best-effort
-      } finally {
-        setBootstrapStage("");
-        setBootstrapRunning(false);
-      }
-    };
-
     const runPullSync = async () => {
       if (!tenantSlug || pullRunning || !active) return;
       if (isAppOffline()) return;
@@ -236,12 +132,6 @@ export function BackgroundSyncManager() {
         writeWorkspaceCache(user?.id || null, tenantSlug, null, workspace);
         if (workspace.selectedCategoryId) {
           writeWorkspaceCache(user?.id || null, tenantSlug, workspace.selectedCategoryId, workspace);
-        }
-
-        preloadCategoryViews(workspace);
-
-        if (!isTenantTemplateBulkCached(tenantSlug)) {
-          await cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
         }
 
         const existingAudits = readAuditsListCache(user?.id || null, tenantSlug);
@@ -295,10 +185,6 @@ export function BackgroundSyncManager() {
     runPullSync().catch(() => {
       // ignore initial pull sync failures
     });
-    runBootstrapWarmup().catch(() => {
-      // ignore initial bootstrap failures
-    });
-
     const onOnline = () => {
       maybeFlush();
       runPullSync().catch(() => {
@@ -325,12 +211,6 @@ export function BackgroundSyncManager() {
         // ignore
       });
     }, 45_000);
-    const bootstrapInterval = window.setInterval(() => {
-      runBootstrapWarmup().catch(() => {
-        // ignore
-      });
-    }, 6 * 60_000);
-
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
@@ -342,21 +222,19 @@ export function BackgroundSyncManager() {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(interval);
       window.clearInterval(pullInterval);
-      window.clearInterval(bootstrapInterval);
     };
   }, [accessToken, online, tenantSlug, user?.id]);
 
   const label = useMemo(() => {
-    if (bootstrapRunning) return bootstrapStage ? `Downloading workspace: ${bootstrapStage}` : "Downloading workspace...";
     if (!online) return "Offline mode";
     if (syncing) return "Syncing updates...";
     if (pendingCount > 0) return `${pendingCount} update${pendingCount === 1 ? "" : "s"} pending`;
     return "Up to date";
-  }, [online, syncing, pendingCount, bootstrapRunning, bootstrapStage]);
+  }, [online, syncing, pendingCount]);
 
   const toneClass = !online
     ? "border-amber-300 bg-amber-50 text-amber-900"
-    : bootstrapRunning || pendingCount > 0 || syncing
+    : pendingCount > 0 || syncing
       ? "border-blue-300 bg-blue-50 text-blue-900"
       : "border-foreground/20 bg-background text-foreground/70";
 

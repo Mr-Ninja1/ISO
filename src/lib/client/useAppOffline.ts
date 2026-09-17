@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { isAppOffline, INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT, initInternetStatusMonitor } from "./appOffline";
 import { initReachabilityMonitor } from "./reachability";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 /** Reactive offline state (browser + `window.__ISO_FORCE_OFFLINE__` from mobile shell). */
 export function useAppOffline(): boolean {
@@ -11,6 +12,8 @@ export function useAppOffline(): boolean {
   );
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
+
     const sync = () => setOffline(isAppOffline());
 
     sync();

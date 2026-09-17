@@ -286,41 +286,6 @@ function writeWorkspaceCache(userId: string | null, tenantSlug: string, category
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
     localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
 
-    // Keep category tabs consistent across cached category views.
-    // Each cache entry stores templates for a single category, but categories list should be global.
-    if (Array.isArray(data.categories) && data.categories.length > 0) {
-      const tenantMarker = `:${tenantSlug}:`;
-      for (let i = 0; i < localStorage.length; i += 1) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        if (!key.startsWith("workspace-cache:v2:")) continue;
-        if (!key.includes(tenantMarker)) continue;
-
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        try {
-          const existing = JSON.parse(raw) as WorkspaceCacheEnvelope;
-          if (!existing?.data) continue;
-          // Only patch if different length (fast heuristic).
-          if (Array.isArray(existing.data.categories) && existing.data.categories.length === data.categories.length) continue;
-          const next: WorkspaceCacheEnvelope = {
-            ts: Date.now(),
-            data: {
-              ...existing.data,
-              tenant: data.tenant,
-              categories: data.categories,
-              role: data.role ?? existing.data.role,
-              isAdmin: typeof data.isAdmin === "boolean" ? data.isAdmin : existing.data.isAdmin,
-              capabilities: data.capabilities ?? existing.data.capabilities,
-            },
-          };
-          localStorage.setItem(key, JSON.stringify(next));
-        } catch {
-          // ignore malformed cache items
-        }
-      }
-    }
-
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("workspace-cache-updated", {
@@ -2193,6 +2158,7 @@ function WorkspacePageInner() {
   }, []);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
     if (!workspace || !tenantSlug || !accessToken) return;
     if (offlineFromHook) return;
     if (offlinePreparedAt && isTenantTemplateBulkCached(tenantSlug)) return;
@@ -2202,6 +2168,7 @@ function WorkspacePageInner() {
   }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook]);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
     if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
     const categoryIds = workspace.categories
       .map((category) => category.id)
@@ -2246,6 +2213,7 @@ function WorkspacePageInner() {
   }, [tenantSlug]);
 
   useEffect(() => {
+    if (!isCapacitorNativeApp()) return;
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
     if (isTenantTemplateBulkCached(tenantSlug)) return;
