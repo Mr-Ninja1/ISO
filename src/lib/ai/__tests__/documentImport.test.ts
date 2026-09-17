@@ -97,6 +97,30 @@ describe("seedRows sanitize and defaults", () => {
     assert.equal(rows[0]?.notes, "");
   });
 
+  it("promotes printed item arrays into table seed rows", () => {
+    const schema = sanitizeAiFormSchema({
+      version: 1,
+      sections: [{
+        type: "grid",
+        title: "Cleaning items",
+        columns: [
+          { id: "equipment", type: "text", label: "Equipment" },
+          { id: "status", type: "checkbox", label: "Completed" },
+        ],
+        staticItems: ["Hot pass", "Alkaline table", "Preparation table"],
+      }],
+    });
+
+    const grid = schema.sections?.find((section) => section.type === "grid");
+    assert.ok(grid && grid.type === "grid");
+    assert.deepEqual(grid.seedRows, [
+      { equipment: "Hot pass" },
+      { equipment: "Alkaline table" },
+      { equipment: "Preparation table" },
+    ]);
+    assert.equal(grid.rows, "dynamic");
+  });
+
   it("keeps uncertain labels represented as text fields", () => {
     const schema = sanitizeAiFormSchema(raw);
     const fieldsSection = schema.sections?.find((section) => section.type === "fields");
@@ -124,6 +148,30 @@ describe("seedRows sanitize and defaults", () => {
     assert.ok(fields.some((field) => field.type === "display" && field.label === "Document No"));
     assert.ok(fields.some((field) => field.type === "display" && field.label === "Compiled by"));
     assert.ok(fields.some((field) => field.type === "display" && field.label === "Date"));
+  });
+
+  it("keeps printed metadata names when the model returns display values", () => {
+    const schema = sanitizeAiFormSchema({
+      version: 1,
+      sections: [
+        {
+          type: "fields",
+          title: "Document metadata",
+          fields: [
+            { id: "document_number", type: "display", name: "Doc No", value: "BBN-SHEQ-P-16-R-11n" },
+            { id: "compiled_by", type: "display", fieldName: "Compiled by", staticValue: "Michael Zulu C." },
+            { id: "revision_date", type: "display", key: "Revision Date", textValue: "30/12/2026" },
+            { id: "issue_date", type: "display", label: "Issue Date: 03/08/2025" },
+          ],
+        },
+      ],
+    });
+
+    const fields = schema.sections?.[0]?.type === "fields" ? schema.sections[0].fields : [];
+    assert.ok(fields.some((field) => field.type === "display" && field.content === "Doc No: BBN-SHEQ-P-16-R-11n"));
+    assert.ok(fields.some((field) => field.type === "display" && field.content === "Compiled by: Michael Zulu C."));
+    assert.ok(fields.some((field) => field.type === "display" && field.content === "Revision Date: 30/12/2026"));
+    assert.ok(fields.some((field) => field.type === "display" && field.content === "Issue Date: 03/08/2025"));
   });
 
   it("ignores handwriting and keeps static form items aligned with their original grid position", () => {

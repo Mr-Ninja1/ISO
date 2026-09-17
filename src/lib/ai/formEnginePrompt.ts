@@ -17,6 +17,7 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - A grid column has one datatype for every repeated row. Never force a signature, approval, instruction, or summary row into a data column when the source table mixes row purposes.
 - Move table-embedded sign-off rows into a separate fields section with distinct signature fields. Preserve the scope in each label, such as "HSEQ sign - Sunday" or "Complex manager / FSCS sign - Monday".
 - Preserve all static labels that explain the form's purpose, including document numbers, dates, revision numbers, instructions, warnings, min/max values, store/site details, and approval names. Use display fields for non-input text.
+- For printed metadata pairs such as "Doc No: BBN-SHEQ-P-16-R-11n", "Compiled by: Michael Zulu C.", "Issue Date: 03/08/2025", and "Revision Date: 30/12/2026", preserve both sides: return the printed name in the name or label property and the printed value in the value property (or return the complete pair in the content property). Never return only the value and never use a value as the field label when its printed name is visible.
 - Infer datatypes from both labels and visual evidence. A narrow repeated cell under a time, day, interval, or inspection heading is a checkbox when the source shows tick boxes, small empty cells intended for ticks, or repeated mark-only entries.
 - Use checkbox for independent completion marks, yesno for an explicit yes/no or pass/fail decision, number for quantities/counts, date/time for date or time entry, signature for signing areas, and text when the expected entry is a name, initials, comment, or unclear free-form value.
 - Do not turn every narrow cell into a checkbox just because it is small. If the source shows expected numbers, initials, dates, or comments, preserve that datatype. When visual evidence is ambiguous, choose the least destructive supported type and list the uncertainty in extraction.uncertainItems.
@@ -69,6 +70,7 @@ Do NOT use types outside this list. Do NOT use "dynamic-table" — use a grid se
 - Always generate the structure.
 - For long printed item lists: put them in seedRows on the primary grid (item column readOnly).
 - For other fixed content you cannot store as seedRows: list it under extraction.prefilledContent so the user can finish setup in the builder.
+- Never put a detected printed checklist/equipment/item list only in extraction.prefilledContent when it belongs to a grid. Put every recognizable item directly into seedRows under the matching item/equipment/task column so it appears as an actual row in the table immediately.
 - Never silently drop recognizable labels or prefilled items.
 
 ## Extraction rules

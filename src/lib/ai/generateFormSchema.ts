@@ -87,7 +87,7 @@ function coerceFieldType(raw: unknown, gridColumn: boolean): string {
 function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): SimpleFieldDef | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
-  const rawValue = obj.value;
+  const rawValue = obj.value ?? obj.staticValue ?? obj.textValue;
   const staticValueText =
     rawValue == null
       ? undefined
@@ -98,7 +98,14 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
           : String(rawValue).trim();
 
   const resolvedType = coerceFieldType(obj.type, gridColumn);
-  const label = String(obj.label || obj.name || `Field ${index + 1}`).trim() || `Field ${index + 1}`;
+  const metadataKey = obj.name ?? obj.fieldName ?? obj.key ?? obj.title;
+  const rawLabel = metadataKey ?? obj.label;
+  const label = String(rawLabel || `Field ${index + 1}`).trim() || `Field ${index + 1}`;
+  const labelText = typeof obj.label === "string" ? obj.label.trim() : "";
+  const completeLabel =
+    !staticValueText && !metadataKey && labelText.includes(":")
+      ? labelText
+      : "";
 
   const base = {
     id: typeof obj.id === "string" && obj.id.trim() ? obj.id.trim() : makeId(resolvedType, index),
@@ -134,10 +141,17 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
   }
   if (resolvedType === "display") {
     const variantRaw = String(obj.variant || "body").trim().toLowerCase();
+    const explicitContent = typeof obj.content === "string" ? obj.content.trim() : "";
+    const displayContent =
+      explicitContent ||
+      completeLabel ||
+      (staticValueText && metadataKey && label && staticValueText !== label
+        ? `${label}: ${staticValueText}`
+        : staticValueText || label);
     return {
       ...base,
       type: "display",
-      content: typeof obj.content === "string" ? obj.content : label,
+      content: displayContent,
       variant: DISPLAY_VARIANTS.has(variantRaw as DisplayVariant) ? (variantRaw as DisplayVariant) : "body",
     } as SimpleFieldDef;
   }
@@ -171,6 +185,28 @@ function sanitizeSeedRows(
   }
 
   return seedRows.length ? seedRows : undefined;
+}
+
+function sanitizePrintedRows(
+  raw: unknown,
+  columns: SimpleFieldDef[],
+): Array<Record<string, string | number | boolean>> | undefined {
+  if (!Array.isArray(raw) || !raw.length || !columns.length) return undefined;
+  const objectRows = raw.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+  if (objectRows.length) return sanitizeSeedRows(objectRows, columns);
+
+  const itemColumn =
+    columns.find((column) => column.readOnly)?.id ||
+    columns.find((column) => /item|equipment|task|area|name|description/i.test(column.label))?.id ||
+    columns[0]?.id;
+  if (!itemColumn) return undefined;
+
+  const rows = raw
+    .map((item) => (typeof item === "string" || typeof item === "number" || typeof item === "boolean" ? item : null))
+    .filter((item): item is string | number | boolean => item !== null)
+    .slice(0, MAX_SEED_ROWS)
+    .map((item) => ({ [itemColumn]: item }));
+  return rows.length ? rows : undefined;
 }
 
 function dynamicTableToGrid(raw: Record<string, unknown>, index: number): FormSection | null {
@@ -218,7 +254,19 @@ function sanitizeSections(raw: unknown): FormSection[] {
         .filter((col): col is SimpleFieldDef => Boolean(col));
       if (!columns.length) return;
 
-      const seedRows = sanitizeSeedRows(obj.seedRows, columns);
+      const seedRows =
+        sanitizeSeedRows(obj.seedRows, columns) ||
+        sanitizePrintedRows(obj.staticItems ?? obj.printedItems ?? obj.items ?? obj.rows, columns);
+      const seededColumnId = seedRows?.length
+        ? columns.find((column) => column.readOnly)?.id ||
+          columns.find((column) => /item|equipment|task|area|name|description/i.test(column.label))?.id ||
+          columns[0]?.id
+        : undefined;
+      const normalizedColumns = seededColumnId
+        ? columns.map((column) =>
+            column.id === seededColumnId ? ({ ...column, readOnly: true } as SimpleFieldDef) : column,
+          )
+        : columns;
       const rowsRaw = obj.rows;
       const rows =
         seedRows?.length
@@ -232,7 +280,7 @@ function sanitizeSections(raw: unknown): FormSection[] {
         id: typeof obj.id === "string" && obj.id.trim() ? obj.id.trim() : "form_data",
         title: typeof obj.title === "string" ? obj.title : "Data table",
         rows,
-        columns,
+        columns: normalizedColumns,
         seedRows,
       });
       return;

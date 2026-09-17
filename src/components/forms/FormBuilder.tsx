@@ -1279,7 +1279,10 @@ function GridBuilder({
     setActiveColId(colId);
   }
 
-  const previewRows = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
+  const previewRows = Math.max(
+    typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1,
+    grid.seedRows?.length || 0,
+  );
   const layout = useMemo(() => buildGridLayout(grid, previewRows), [grid, previewRows]);
   const activeColumns = layout.columns;
 
@@ -1710,7 +1713,15 @@ function GridBuilder({
                       }}
                       title="Click to select cell"
                     >
-                      {cell.mergeId ? col.label || "Merged cell" : rowIndex === 0 ? (col.type === "yesno" ? "yes/no" : col.type) : ""}
+                      {cell.mergeId
+                        ? col.label || "Merged cell"
+                        : grid.seedRows?.[rowIndex]?.[col.id] != null
+                          ? String(grid.seedRows[rowIndex][col.id])
+                          : rowIndex === 0
+                            ? col.type === "yesno"
+                              ? "yes/no"
+                              : col.type
+                            : ""}
                     </td>
                   );
                 })}
