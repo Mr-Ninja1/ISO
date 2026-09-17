@@ -96,7 +96,7 @@ export default function ResetPasswordPage() {
       >
         <div className="space-y-5">
           <AuthStatusCard variant="success" title="Your password was updated" icon="success">
-            <p>You can now sign in with your new password. Taking you to the sign-in page…</p>
+            <p>password changed! You can now sign in with your new password. Taking you to the sign-in page…</p>
           </AuthStatusCard>
           <Link
             href="/login?reset=1"
