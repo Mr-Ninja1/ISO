@@ -1,5 +1,8 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
+#
+# IMPORTANT: Do not let Azure Portal "Deployment Center" regenerate this file.
+# Portal stubs only zip source (no npm build) and finish in ~2–3 minutes without updating the site.
 
 name: Build and deploy Node.js app to Azure Web App - iso-pro
 
@@ -27,24 +30,74 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build production app
+      - name: Build OTA bundle + production website
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: npm run build
+          CI: true
+          NEXT_PUBLIC_API_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net
+          NEXT_PUBLIC_NATIVE_BUILD: "1"
+          APP_BUNDLE_LABEL: deploy-${{ github.run_number }}
+          OTA_BUNDLE_ID: ci.${{ github.run_number }}
+          OTA_PUBLIC_BASE_URL: https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production
+          OTA_CHANNEL: production
+          OTA_MIN_NATIVE_BUILD: "1"
+          OTA_RELEASE_NOTES: Deploy ${{ github.sha }} (run ${{ github.run_number }})
+          SKIP_CAP_SYNC: "1"
+        run: |
+          set -euo pipefail
+
+          echo "=== Building OTA bundle for native apps ==="
+          npm run release:ota:ci
+          ls -la public/ota/production/
+          test -f public/ota/production/manifest.json
+          # Linux CI packs as .ota (Azure ZipDeploy drops nested .zip files)
+          if [ -f "public/ota/production/bundle-ci.${{ github.run_number }}.ota" ]; then
+            echo "OTA archive: bundle-ci.${{ github.run_number }}.ota"
+          elif [ -f "public/ota/production/bundle-ci.${{ github.run_number }}.zip" ]; then
+            echo "OTA archive: bundle-ci.${{ github.run_number }}.zip"
+          else
+            echo "OTA archive missing for run ${{ github.run_number }}"
+            ls -la public/ota/production/ || true
+            exit 1
+          fi
+
+          echo "=== Building hosted website (standalone) ==="
+          npm run build
+
+          if [ ! -f ".next/standalone/server.js" ]; then
+            echo "standalone server.js missing after build"
+            exit 1
+          fi
+          if [ ! -d ".next/static" ]; then
+            echo ".next/static missing after build"
+            exit 1
+          fi
+
+          npm run test --if-present
 
       - name: Prepare standalone deployment package
         run: |
+          set -euo pipefail
           rm -rf deploy-bundle
           mkdir -p deploy-bundle/.next
           cp -R .next/standalone/. deploy-bundle/
           cp -R .next/static deploy-bundle/.next/static
           cp -R public deploy-bundle/public
+
           if [ ! -f deploy-bundle/server.js ]; then
-            echo "standalone server.js missing after build"
+            echo "standalone server.js missing in deploy-bundle"
             exit 1
           fi
-          # Azure App Service runs `npm start` — point it at the standalone server.
+          if [ ! -d deploy-bundle/.next/static ]; then
+            echo ".next/static missing in deploy-bundle"
+            exit 1
+          fi
+
+          echo "OTA files included in deploy:"
+          ls -la deploy-bundle/public/ota/production/ || true
+
+          # Azure App Service runs npm start — point it at the standalone server.
           node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...(j.scripts||{}),start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
 
       - name: Upload artifact for deployment job
@@ -67,6 +120,14 @@ jobs:
         with:
           name: node-app
           path: deploy
+
+      - name: Verify deploy package
+        run: |
+          set -euo pipefail
+          ls -la deploy
+          test -f deploy/server.js
+          test -d deploy/.next/static
+          test -d deploy/public
 
       - name: Login to Azure
         uses: azure/login@v2
