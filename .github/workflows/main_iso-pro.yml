@@ -13,35 +13,61 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read #This is required for actions/checkout
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production app
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Prepare standalone deployment package
+        run: |
+          rm -rf deploy-bundle
+          mkdir -p deploy-bundle/.next
+          cp -R .next/standalone/. deploy-bundle/
+          cp -R .next/static deploy-bundle/.next/static
+          cp -R public deploy-bundle/public
+          if [ ! -f deploy-bundle/server.js ]; then
+            echo "standalone server.js missing after build"
+            exit 1
+          fi
+          # Azure App Service runs `npm start` — point it at the standalone server.
+          node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...(j.scripts||{}),start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: deploy-bundle
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: node-app
-      
+          path: deploy
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -49,11 +75,11 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_93A496B41837400886A6CC0EF868F676 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_DFEF0328E0294B11AFAE43FA0B2ECEC4 }}
 
-      - name: 'Deploy to Azure Web App'
+      - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'iso-pro'
           slot-name: 'Production'
-          package: .
-          
+          package: deploy
+          startup-command: 'node server.js'
