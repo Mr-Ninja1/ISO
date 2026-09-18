@@ -174,6 +174,59 @@ describe("seedRows sanitize and defaults", () => {
     assert.ok(fields.some((field) => field.type === "display" && field.content === "Issue Date: 03/08/2025"));
   });
 
+  it("keeps complete printed key/value labels as read-only display fields", () => {
+    const schema = sanitizeAiFormSchema({
+      version: 1,
+      sections: [{
+        type: "fields",
+        title: "Header",
+        fields: [
+          { id: "doc_number", type: "text", label: "DOC NUMBER:983923923" },
+          { id: "shift", type: "label", label: "SHIFT: AM" },
+          { id: "rev", type: "text", label: "REV NO: 00" },
+        ],
+      }],
+    });
+
+    const fields = schema.sections?.[0]?.type === "fields" ? schema.sections[0].fields : [];
+    assert.ok(fields.every((field) => field.type === "display"));
+    assert.deepEqual(fields.map((field) => field.type === "display" ? field.content : ""), [
+      "DOC NUMBER:983923923",
+      "SHIFT: AM",
+      "REV NO: 00",
+    ]);
+  });
+
+  it("keeps signature roles separate from checkbox-like day columns", () => {
+    const schema = sanitizeAiFormSchema({
+      version: 1,
+      sections: [{
+        type: "grid",
+        id: "form_data",
+        title: "Cleaning checklist",
+        rows: "dynamic",
+        columns: [
+          { id: "area", type: "text", label: "Area to be cleaned" },
+          { id: "frequency", type: "text", label: "Frequency" },
+          { id: "mon", type: "checkbox", label: "Mon" },
+          { id: "tue", type: "checkbox", label: "Tue" },
+          { id: "wed", type: "checkbox", label: "Wed" },
+          { id: "hseq_sign", type: "checkbox", label: "HSEQ sign" },
+          { id: "manager_sign", type: "checkbox", label: "Complex manager / FSCS sign" },
+        ],
+        seedRows: [{ area: "Door", frequency: "2", mon: "", tue: "", wed: "" }],
+      }],
+    });
+
+    const grid = schema.sections?.find((section) => section.type === "grid");
+    const signFieldSection = schema.sections?.find((section) => section.type === "fields" && section.title === "Sign-off");
+
+    assert.ok(grid && grid.type === "grid");
+    assert.equal(grid.columns.some((col) => /hseq|sign/i.test(col.label)), false);
+    assert.ok(signFieldSection && signFieldSection.type === "fields");
+    assert.equal(signFieldSection.fields.filter((field) => field.type === "signature").length, 2);
+  });
+
   it("ignores handwriting and keeps static form items aligned with their original grid position", () => {
     assert.match(FORM_ENGINE_SYSTEM_PROMPT, /ignore handwritten|handwriting/i);
     assert.match(FORM_ENGINE_SYSTEM_PROMPT, /typed|printed text/i);

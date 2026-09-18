@@ -102,28 +102,34 @@ function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
 }
 
 function sectionColumnsClass(columns?: number) {
-  if (columns === 2) return "grid grid-cols-1 gap-4 md:grid-cols-2";
-  if (columns === 3) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
-  if (columns === 4) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4";
-  return "grid grid-cols-1 gap-4 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]";
+  if (columns === 2) return "grid grid-cols-1 gap-2.5 md:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3";
+  if (columns === 4) return "grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4";
+  return "grid grid-cols-1 gap-2.5 md:[grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]";
+}
+
+function isCompactMetadataDisplay(field: FieldDef) {
+  if (field.type !== "display") return false;
+  const content = `${field.content || ""}`.trim();
+  return content.length > 0 && content.length <= 96 && content.includes(":");
 }
 
 function formStyleTokens(style: FormStyle) {
   if (style === "compact") {
     return {
-      section: "gap-3 p-3 sm:p-4",
-      fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
+      section: "gap-2 p-2.5 sm:p-3",
+      fieldCard: "rounded-md border border-foreground/20 bg-background p-1.5 shadow-sm",
     };
   }
   if (style === "report") {
     return {
-      section: "gap-4 p-5 sm:p-6",
-      fieldCard: "rounded-lg border border-foreground/20 bg-background p-3 shadow-sm",
+      section: "gap-3 p-3 sm:p-4",
+      fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
     };
   }
   return {
-    section: "gap-4 p-4 sm:p-5",
-    fieldCard: "rounded-lg border border-foreground/20 bg-background p-3 shadow-sm",
+    section: "gap-2.5 p-2.5 sm:p-3",
+    fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
   };
 }
 
@@ -745,11 +751,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
                   <div
                     key={field.id}
                     className={
-                      field.type === "display" ||
+                      (field.type === "display" && !isCompactMetadataDisplay(field)) ||
                       field.type === "dynamic-table" ||
                       field.type === "photo" ||
                       field.type === "signature"
                         ? `md:[grid-column:1/-1] ${styleTokens.fieldCard}`
+                        : isCompactMetadataDisplay(field)
+                          ? `p-2 ${styleTokens.fieldCard}`
                         : styleTokens.fieldCard
                     }
                   >
@@ -863,7 +871,7 @@ function Field({
     return (
       <div
         className={
-          "rounded-md border border-foreground/10 bg-foreground/[0.02] px-3 py-2.5 whitespace-pre-wrap " +
+          "rounded-md border border-foreground/10 bg-foreground/[0.02] px-2.5 py-1.5 whitespace-pre-wrap " +
           displayAlignClass(displayField.textAlign) +
           " " +
           displayVariantClass(variant)

@@ -1914,11 +1914,12 @@ export function FormBuilder({
     let topFieldsColumns: 1 | 2 | 3 | 4 = builderConfig.headerColumnsDefault;
     let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
     let grid: GridSection | null = null;
+    let gridSeen = false;
 
     if (initialSections?.length) {
       for (const section of initialSections) {
         if (section.type === "fields") {
-          const bucket = sectionTitleForBuilder(section, formType);
+          const bucket = gridSeen ? "bottom" : sectionTitleForBuilder(section, formType);
           if (bucket === "bottom") {
             bottomFields.push(...section.fields);
             bottomFieldsColumns = section.columns || bottomFieldsColumns;
@@ -1928,9 +1929,12 @@ export function FormBuilder({
           }
           continue;
         }
-        if (section.type === "grid" && !grid) {
-          grid = section;
-          continue;
+        if (section.type === "grid") {
+          gridSeen = true;
+          if (!grid) {
+            grid = section;
+            continue;
+          }
         }
       }
     }

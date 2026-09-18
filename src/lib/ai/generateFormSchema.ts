@@ -76,9 +76,15 @@ function parseJsonResponse(raw: string): unknown {
   }
 }
 
-function coerceFieldType(raw: unknown, gridColumn: boolean): string {
+function coerceFieldType(raw: unknown, gridColumn: boolean, labelText = ""): string {
   const typeRaw = String(raw || "text").trim().toLowerCase();
+  const signLike = /(sign(?:ature)?|signed by|approved by|checked by|initials|sup sign|hseq sign|inspector|supervisor|manager(?: sign)?)/i.test(labelText);
+  const dayLike = /(mon|tue|wed|thu|fri|sat|sun|day|week|month|year|shift|am|pm|time|date|frequency|qty|quantity|count|hours?|minutes?)/i.test(labelText);
+
+  if (!gridColumn && (typeRaw === "label" || typeRaw === "static" || typeRaw === "instruction")) return "display";
   if (gridColumn && typeRaw === "dynamic-table") return "text";
+  if (gridColumn && signLike && (typeRaw === "checkbox" || typeRaw === "yesno" || typeRaw === "text" || !typeRaw)) return "signature";
+  if (gridColumn && typeRaw === "checkbox" && dayLike && !signLike) return "text";
   if (!FIELD_TYPES.has(typeRaw)) return "text";
   if (gridColumn && !GRID_COLUMN_TYPES.has(typeRaw)) return "text";
   return typeRaw;
@@ -97,11 +103,11 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
           ? String(rawValue)
           : String(rawValue).trim();
 
-  const resolvedType = coerceFieldType(obj.type, gridColumn);
   const metadataKey = obj.name ?? obj.fieldName ?? obj.key ?? obj.title;
   const rawLabel = metadataKey ?? obj.label;
   const label = String(rawLabel || `Field ${index + 1}`).trim() || `Field ${index + 1}`;
-  const labelText = typeof obj.label === "string" ? obj.label.trim() : "";
+  const labelText = typeof obj.label === "string" ? obj.label.trim() : typeof rawLabel === "string" ? rawLabel.trim() : "";
+  const resolvedType = coerceFieldType(obj.type, gridColumn, labelText || label);
   const completeLabel =
     !staticValueText && !metadataKey && labelText.includes(":")
       ? labelText
@@ -115,12 +121,21 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
     readOnly: obj.readOnly === true ? true : undefined,
   };
 
-  if (staticValueText && (obj.name || obj.label) && !obj.content && resolvedType !== "display") {
+  const looksLikeCompleteStaticLabel =
+    !gridColumn &&
+    resolvedType === "text" &&
+    label.includes(":") &&
+    obj.required !== true &&
+    typeof obj.placeholder !== "string";
+
+  if ((staticValueText && (obj.name || obj.label) && !obj.content && resolvedType !== "display") || looksLikeCompleteStaticLabel) {
     const staticLabel = label.trim();
     return {
       ...base,
       type: "display",
-      content: staticLabel && staticValueText ? `${staticLabel}: ${staticValueText}` : staticValueText,
+      content: staticLabel && staticValueText && !staticLabel.includes(":")
+        ? `${staticLabel}: ${staticValueText}`
+        : staticLabel || staticValueText,
       variant: "body",
     } as SimpleFieldDef;
   }
@@ -238,6 +253,37 @@ function sanitizeField(raw: unknown, index: number): FieldDef | FormSection | nu
   return simple as FieldDef;
 }
 
+function splitSignatureFooterColumns(section: FormSection): FormSection[] {
+  if (section.type !== "grid") return [section];
+  const signaturePattern = /(sign(?:ature)?|signed by|approved by|checked by|initials|sup sign|hseq sign|inspector|supervisor|manager(?: sign)?)/i;
+  const signatureColumns = section.columns.filter((column) => signaturePattern.test(column.label));
+  if (!signatureColumns.length) return [section];
+
+  const remainingColumns = section.columns.filter((column) => !signaturePattern.test(column.label));
+  if (remainingColumns.length === section.columns.length) return [section];
+
+  const footerFields = signatureColumns.map((column) => ({
+    ...column,
+    type: "signature" as const,
+    required: false,
+  }));
+
+  const gridSection: FormSection = {
+    ...section,
+    columns: remainingColumns,
+    seedRows: section.seedRows,
+  };
+
+  const footerSection: FormSection = {
+    type: "fields",
+    title: "Sign-off",
+    columns: Math.min(2, Math.max(1, footerFields.length)) as 1 | 2 | 3 | 4,
+    fields: footerFields,
+  };
+
+  return [gridSection, footerSection];
+}
+
 function sanitizeSections(raw: unknown): FormSection[] {
   if (!Array.isArray(raw)) return [];
   const sections: FormSection[] = [];
@@ -275,7 +321,7 @@ function sanitizeSections(raw: unknown): FormSection[] {
             ? "dynamic"
             : Math.max(5, Math.min(60, Number(rowsRaw) || 12));
 
-      sections.push({
+      const gridSections = splitSignatureFooterColumns({
         type: "grid",
         id: typeof obj.id === "string" && obj.id.trim() ? obj.id.trim() : "form_data",
         title: typeof obj.title === "string" ? obj.title : "Data table",
@@ -283,6 +329,7 @@ function sanitizeSections(raw: unknown): FormSection[] {
         columns: normalizedColumns,
         seedRows,
       });
+      sections.push(...gridSections);
       return;
     }
 

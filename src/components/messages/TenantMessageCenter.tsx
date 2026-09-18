@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -66,6 +67,11 @@ type MessageContextValue = {
 };
 
 const MessageContext = createContext<MessageContextValue | null>(null);
+
+/** Keeps page tree from re-rendering when inbox poll/toast state updates. */
+const StableChildren = memo(function StableChildren({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+});
 
 function normalizeTenantSlug(value: string | null | undefined) {
   const slug = (value || "").trim();
@@ -209,11 +215,14 @@ export function TenantMessageProvider({ children }: Props) {
     [enqueueModal, showToast]
   );
 
-  const loadMessages = useCallback(async () => {
+  const loadMessages = useCallback(async (opts?: { showLoading?: boolean }) => {
     if (!tenantSlug || !accessToken) return;
     if (isTenantDeactivatedBlocked(tenantSlug)) return;
-    setLoading(true);
-    setInboxError("");
+    const showLoading = opts?.showLoading === true;
+    if (showLoading) {
+      setLoading(true);
+      setInboxError("");
+    }
     try {
       const url = new URL(apiUrl("/api/tenant-alerts"));
       url.searchParams.set("tenantSlug", tenantSlug);
@@ -250,12 +259,33 @@ export function TenantMessageProvider({ children }: Props) {
         delivery: normalizeDelivery(a.delivery),
       }));
 
-      setMessages(next);
-      processNewMessages(next, tenantSlug);
+      let changed = true;
+      setMessages((prev) => {
+        if (
+          prev.length === next.length &&
+          prev.every((m, i) => {
+            const n = next[i];
+            return (
+              m.id === n.id &&
+              m.isRead === n.isRead &&
+              m.title === n.title &&
+              m.message === n.message &&
+              m.createdAt === n.createdAt &&
+              m.source === n.source &&
+              m.delivery === n.delivery
+            );
+          })
+        ) {
+          changed = false;
+          return prev;
+        }
+        return next;
+      });
+      if (changed) processNewMessages(next, tenantSlug);
     } catch {
       setInboxError("Could not load messages.");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [accessToken, tenantSlug, userId, processNewMessages]);
 
@@ -276,7 +306,7 @@ export function TenantMessageProvider({ children }: Props) {
       setNudgeBanner(null);
       return;
     }
-    void loadMessages();
+    void loadMessages({ showLoading: true });
     const timer = window.setInterval(() => void loadMessages(), 20_000);
     return () => window.clearInterval(timer);
   }, [tenantSlug, accessToken, loadMessages]);
@@ -285,10 +315,13 @@ export function TenantMessageProvider({ children }: Props) {
     function onVisible() {
       if (document.visibilityState === "visible") void loadMessages();
     }
-    window.addEventListener("online", loadMessages);
+    function onOnline() {
+      void loadMessages();
+    }
+    window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      window.removeEventListener("online", loadMessages);
+      window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [loadMessages]);
@@ -360,20 +393,27 @@ export function TenantMessageProvider({ children }: Props) {
     dismissModal();
   }
 
-  const ctx: MessageContextValue = {
-    tenantSlug,
-    unreadCount,
-    openInbox,
-    refresh: () => void loadMessages(),
-  };
+  const refresh = useCallback(() => {
+    void loadMessages({ showLoading: true });
+  }, [loadMessages]);
+
+  const ctx = useMemo<MessageContextValue>(
+    () => ({
+      tenantSlug,
+      unreadCount,
+      openInbox,
+      refresh,
+    }),
+    [tenantSlug, unreadCount, openInbox, refresh]
+  );
 
   if (!tenantSlug || !accessToken) {
-    return <>{children}</>;
+    return <StableChildren>{children}</StableChildren>;
   }
 
   return (
     <MessageContext.Provider value={ctx}>
-      {children}
+      <StableChildren>{children}</StableChildren>
 
       {nudgeBanner && !inboxOpen ? (
         <button
@@ -430,7 +470,7 @@ export function TenantMessageProvider({ children }: Props) {
             <button
               type="button"
               className="rounded-md border border-foreground/15 px-2 py-1 text-xs hover:bg-foreground/5"
-              onClick={() => void loadMessages()}
+              onClick={refresh}
               disabled={loading}
             >
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Refresh"}

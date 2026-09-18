@@ -9,16 +9,16 @@ export function displayFieldText(field: DisplayField): string {
 export function displayVariantClass(variant: DisplayVariant = "body"): string {
   switch (variant) {
     case "title":
-      return "text-lg font-bold tracking-tight text-foreground sm:text-xl";
+      return "text-base font-semibold tracking-tight text-foreground sm:text-lg";
     case "subtitle":
-      return "text-base font-semibold text-foreground/90";
+      return "text-sm font-semibold text-foreground/90";
     case "caption":
-      return "text-xs text-foreground/65";
+      return "text-[11px] leading-snug text-foreground/65";
     case "code":
-      return "font-mono text-sm font-medium tracking-wide text-foreground/90";
+      return "font-mono text-xs font-medium tracking-wide text-foreground/90";
     case "body":
     default:
-      return "text-sm text-foreground/85 leading-relaxed";
+      return "text-sm text-foreground/85 leading-normal";
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { NAVIGATION_START_EVENT } from "@/lib/client/navigationLoading";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const MIN_VISIBLE_MS = 240;
 const MAX_VISIBLE_MS = 12000;
@@ -28,8 +28,9 @@ export function NavigationProgressBar() {
   const holdTimerRef = useRef<number | null>(null);
   const hardTimeoutRef = useRef<number | null>(null);
   const lastHrefRef = useRef<string>("");
+  const activeRef = useRef(false);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     if (holdTimerRef.current) {
       window.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -38,34 +39,39 @@ export function NavigationProgressBar() {
       window.clearTimeout(hardTimeoutRef.current);
       hardTimeoutRef.current = null;
     }
-  };
+  }, []);
 
-  const begin = () => {
-    if (active) return;
+  const begin = useCallback(() => {
+    if (activeRef.current) return;
+    activeRef.current = true;
     clearTimers();
     startRef.current = Date.now();
     setDone(false);
     setActive(true);
     hardTimeoutRef.current = window.setTimeout(() => {
       setDone(true);
-      window.setTimeout(() => setActive(false), 220);
+      window.setTimeout(() => {
+        activeRef.current = false;
+        setActive(false);
+      }, 220);
     }, MAX_VISIBLE_MS);
-  };
+  }, [clearTimers]);
 
-  const complete = () => {
-    if (!active) return;
+  const complete = useCallback(() => {
+    if (!activeRef.current) return;
     const elapsed = Date.now() - startRef.current;
     const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
     if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
     holdTimerRef.current = window.setTimeout(() => {
       setDone(true);
       window.setTimeout(() => {
+        activeRef.current = false;
         setActive(false);
         setDone(false);
       }, 220);
       clearTimers();
     }, remaining);
-  };
+  }, [clearTimers]);
 
   useEffect(() => {
     function onClick(ev: MouseEvent) {
@@ -88,19 +94,18 @@ export function NavigationProgressBar() {
       document.removeEventListener("click", onClick, true);
       window.removeEventListener(NAVIGATION_START_EVENT, onProgrammaticStart);
     };
-  }, [active]);
+  }, [begin]);
 
   useEffect(() => {
     // Route/search change means navigation has committed.
     complete();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, searchParams?.toString()]);
+  }, [pathname, searchParams?.toString(), complete]);
 
   useEffect(
     () => () => {
       clearTimers();
     },
-    [],
+    [clearTimers],
   );
 
   return (
@@ -118,4 +123,3 @@ export function NavigationProgressBar() {
     </>
   );
 }
-

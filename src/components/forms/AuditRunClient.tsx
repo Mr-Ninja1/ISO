@@ -72,11 +72,17 @@ export function AuditRunClient({
   const accessToken = session?.access_token || "";
   const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
 
-  const [data, setData] = useState<AuditTemplatePayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<AuditTemplatePayload | null>(() =>
+    tenantSlug && templateId ? readAuditTemplateCache(tenantSlug, templateId) : null
+  );
+  const [loading, setLoading] = useState(
+    () => !(tenantSlug && templateId && readAuditTemplateCache(tenantSlug, templateId))
+  );
   const [error, setError] = useState("");
   const [revalidateTick, setRevalidateTick] = useState(0);
-  const [durableCacheChecked, setDurableCacheChecked] = useState(false);
+  const [durableCacheChecked, setDurableCacheChecked] = useState(
+    () => Boolean(tenantSlug && templateId && readAuditTemplateCache(tenantSlug, templateId))
+  );
   const offlineFromHook = useAppOffline();
 
   // Hydrate from localStorage + IndexedDB before deciding the user must sign in again.

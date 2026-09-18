@@ -12,7 +12,6 @@ import {
   runOfflineBootstrap,
   type OfflineBootstrapProgress,
 } from '@/lib/client/offlineBootstrap';
-import { isCapacitorNativeApp } from '@/lib/capacitor/runtime';
 import { isTenantTemplateBulkCached } from '@/lib/client/offlineTemplateWarmup';
 import { readWorkspaceCache, readWorkspaceCacheResolved } from '@/lib/client/workspaceCache';
 import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
@@ -72,10 +71,10 @@ function FirstTimeDownloadScreen({
             <Loader2 className='h-5 w-5 animate-spin text-foreground/70' />
           </div>
           <div className='min-w-0'>
-            <h1 className='text-lg font-semibold sm:text-xl'>Preparing your brand for offline use</h1>
+            <h1 className='text-lg font-semibold sm:text-xl'>Preparing your brand for fast offline use</h1>
             <p className='mt-1 text-sm text-foreground/70'>
-              First-time setup downloads your workspace, categories, and every form schema so you can start audits
-              offline. Full saved-form history loads when you open Saved forms while online.
+              One-time setup downloads your workspace, every category, and every form schema to this device. After this,
+              switching categories and opening forms stays local and sharp.
             </p>
           </div>
         </div>
@@ -91,10 +90,10 @@ function FirstTimeDownloadScreen({
 
         <div className='mt-5 grid gap-2 text-sm text-foreground/75 sm:grid-cols-2'>
           <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
-            Categories, form cards, and checklists are saved on this device.
+            Categories and form cards are saved locally so tab switches stay instant.
           </div>
           <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
-            After this you can open forms and submit offline. Drafts stay on this device only.
+            Form schemas are cached so audits open without waiting on the network.
           </div>
         </div>
 
@@ -118,7 +117,7 @@ function FirstTimeDownloadScreen({
           <p className='mt-4 text-xs text-foreground/55'>
             {offline
               ? 'Waiting for internet to start download...'
-              : 'Do not close the app - large brands may take several minutes.'}
+              : 'Do not close this page — large brands may take a few minutes the first time only.'}
           </p>
         )}
       </div>
@@ -126,25 +125,22 @@ function FirstTimeDownloadScreen({
   );
 }
 
-function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
+/** True when every category snapshot + every form schema is on-device. */
+export function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
   if (!isOfflineBootstrapComplete(userId, tenantSlug)) return false;
   const workspace = readWorkspaceCacheResolved(userId, tenantSlug, null);
   if (!workspace) return false;
   if (workspace.categories.some((category) => !readWorkspaceCache(userId, tenantSlug, category.id))) {
     return false;
   }
-  if (!isCapacitorNativeApp()) return true;
-  return (
-    isTenantTemplateBulkCached(tenantSlug) &&
-    Boolean(workspace)
-  );
+  return isTenantTemplateBulkCached(tenantSlug);
 }
 
 /**
- * Blocks the UI until the active brand has been fully cached for offline (first login / new device).
+ * Blocks the UI until the active brand has been fully cached (first login / new device).
+ * Runs on web and native — that first download is what makes later category/form opens local.
  */
 export function OfflineBootstrapGate({ children }: { children: React.ReactNode }) {
-  const nativeApp = isCapacitorNativeApp();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -160,13 +156,13 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const forceBootstrap = searchParams.get('forceBootstrap') === '1';
   const skip = shouldSkipBootstrap(pathname);
   const needsBootstrap =
-    nativeApp &&
     !skip &&
     Boolean(user) &&
     Boolean(tenantSlug) &&
     (forceBootstrap || !offlineCacheLooksReady(userId, tenantSlug!));
 
-  const [ready, setReady] = useState(!needsBootstrap);
+  // Start ready so SSR/hydration never flash the download screen; client effect decides.
+  const [ready, setReady] = useState(true);
   const [progress, setProgress] = useState<OfflineBootstrapProgress>({
     stage: 'workspace',
     label: 'Starting download...',
@@ -174,6 +170,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   });
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
   const runIdRef = useRef(0);
   const bootstrapInFlightRef = useRef(false);
   const autoStartKeyRef = useRef<string | null>(null);
@@ -227,7 +224,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   startBootstrapRef.current = startBootstrap;
 
   useEffect(() => {
-    if (!nativeApp) return;
+    setClientReady(true);
+  }, []);
+
+  useEffect(() => {
     const update = () => setOffline(isAppOffline());
     update();
     window.addEventListener('online', update);
@@ -236,10 +236,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       window.removeEventListener('online', update);
       window.removeEventListener('offline', update);
     };
-  }, [nativeApp]);
+  }, []);
 
   useEffect(() => {
-    if (!nativeApp) return;
+    if (!clientReady) return;
     if (authLoading) return;
     if (!user) {
       setReady(true);
@@ -275,15 +275,17 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     autoStartKeyRef.current = autoKey;
 
     void startBootstrapRef.current();
-  }, [authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId, nativeApp]);
+  }, [clientReady, authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId]);
 
-  if (!nativeApp) return <>{children}</>;
+  if (!clientReady) {
+    return <>{children}</>;
+  }
 
-  if (authLoading) {
+  if (authLoading && needsBootstrap) {
     return (
       <WorkspaceLoadingShell
         title="Signing in"
-        subtitle="Restoring your session before opening the workspace…"
+        subtitle="Restoring your session before preparing this brand…"
       />
     );
   }

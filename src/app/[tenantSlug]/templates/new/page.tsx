@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Laptop, Loader2, Sparkles } from "lucide-react";
@@ -8,7 +9,6 @@ import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { readWorkspaceCacheResolved, writeWorkspaceCache } from "@/lib/client/workspaceCache";
-import { FormBuilder } from "@/components/forms/FormBuilder";
 import { FormTypePicker } from "@/components/forms/FormTypePicker";
 import { AiFormChatModal, type AiChatMessage } from "@/components/forms/AiFormChatModal";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
@@ -36,6 +36,18 @@ import type { AiClarificationQuestion, AiExtractionSummary } from "@/lib/ai/type
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
 
+const FormBuilder = dynamic(
+  () => import("@/components/forms/FormBuilder").then((m) => m.FormBuilder),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[320px] items-center justify-center gap-2 rounded-xl border border-foreground/10 bg-foreground/[0.02] text-sm text-foreground/60">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading form builder…
+      </div>
+    ),
+  }
+);
 type CategorySummary = {
   id: string;
   name: string;

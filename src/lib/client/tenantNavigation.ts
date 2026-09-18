@@ -12,9 +12,14 @@ export function pushTenantRoute(
   tenantSlug: string,
   pathAfterTenant: string,
   query?: Record<string, string | null | undefined>,
-  method: "push" | "replace" = "push"
+  method: "push" | "replace" = "push",
+  options?: { silent?: boolean }
 ) {
   const href = buildTenantHref(tenantSlug, pathAfterTenant, query);
+  if (options?.silent) {
+    router[method](href);
+    return;
+  }
   navigateWithFeedback(router, href, method);
 }
 

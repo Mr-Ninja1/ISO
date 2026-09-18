@@ -175,6 +175,13 @@ export function AiFormChatModal({
     if (!open) setShowHints(false);
   }, [open]);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`;
+  }, [prompt]);
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -232,16 +239,16 @@ export function AiFormChatModal({
   ] as const;
 
   return (
-    <CenteredOverlay open={open} maxWidthClass="max-w-lg" zIndexClass="z-[110]" onClose={onClose}>
-      <div className="flex max-h-[min(90dvh,720px)] min-h-0 flex-col">
+    <CenteredOverlay open={open} maxWidthClass="max-w-xl" zIndexClass="z-[110]" onClose={onClose}>
+      <div className="flex max-h-[min(92dvh,760px)] min-h-0 flex-col bg-[color-mix(in_srgb,var(--hse-cream)_35%,white)]">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-foreground/10 bg-gradient-to-r from-[color-mix(in_srgb,var(--hse-teal)_12%,white)] to-background px-3 py-3 sm:gap-3 sm:px-4">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-foreground/10 bg-background/90 px-3 py-3 backdrop-blur sm:gap-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm shadow-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]">
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold">{DC_AI_SHORT} · Form builder</div>
+              <div className="text-sm font-semibold tracking-tight">{DC_AI_SHORT} · Form builder</div>
               <div className="truncate text-[11px] text-foreground/55">
                 {step === "clarify"
                   ? "Step 2 of 2 — answer a few questions"
@@ -250,6 +257,9 @@ export function AiFormChatModal({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] px-2 py-0.5 text-[10px] font-medium text-[var(--hse-teal)] sm:inline">
+              {step === "clarify" ? "Review details" : sourceFile ? "Source attached" : "Ready when you are"}
+            </span>
             {aiQuota && !aiQuota.unlimited ? (
               <span
                 className={
@@ -277,9 +287,9 @@ export function AiFormChatModal({
         </div>
 
         {/* Chat area */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5">
           {step === "input" ? (
-            <div className="mb-4 space-y-3 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] p-3">
+            <div className="mb-4 space-y-3 rounded-2xl border border-[color-mix(in_srgb,var(--hse-teal)_18%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)] p-3.5 shadow-sm">
               <div className="flex items-start gap-2">
                 <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--hse-teal)]" />
                 <div className="min-w-0 flex-1">
@@ -319,7 +329,7 @@ export function AiFormChatModal({
                       }
                       fileInputRef.current?.click();
                     }}
-                    className="rounded-xl border border-foreground/10 bg-white/80 px-3 py-2.5 text-left transition-colors hover:border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] disabled:opacity-50"
+                    className="group rounded-xl border border-foreground/10 bg-white/80 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] hover:shadow-sm disabled:opacity-50"
                   >
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]">
                       <Icon className="h-4 w-4" />
@@ -434,7 +444,7 @@ export function AiFormChatModal({
 
         {/* Hints panel */}
         {showHints && step === "input" ? (
-          <div className="border-t border-foreground/10 bg-foreground/[0.02] px-4 py-3">
+          <div className="border-t border-foreground/10 bg-background/70 px-4 py-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground/70">Example prompts</span>
               <span className="text-[10px] text-foreground/45">Tap to use · be specific for best results</span>
@@ -469,7 +479,7 @@ export function AiFormChatModal({
 
         {/* Composer — input step only */}
         {step === "input" ? (
-          <div className="shrink-0 border-t border-foreground/10 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+          <div className="shrink-0 border-t border-foreground/10 bg-background/90 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.03)] sm:px-5">
             {aiQuota && !aiQuota.unlimited ? (
               <div className="mb-2 text-center text-[10px] text-foreground/50 sm:hidden">
                 {aiQuota.remaining} AI credit{aiQuota.remaining === 1 ? "" : "s"} left this month
@@ -498,13 +508,17 @@ export function AiFormChatModal({
             ) : null}
 
             {sourceFile ? (
-              <div className="mb-2 flex items-center gap-2 rounded-lg border border-foreground/10 bg-foreground/[0.03] px-3 py-1.5">
+              <div className="mb-2 flex items-center gap-2 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)] px-3 py-2">
                 {sourceFile.type === "application/pdf" ? (
                   <FileText className="h-4 w-4 text-foreground/50" />
                 ) : (
                   <ImageIcon className="h-4 w-4 text-foreground/50" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-xs text-foreground/70">{sourceFile.name}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-foreground/75">
+                  <span className="font-medium text-[var(--hse-teal)]">Ready to build</span>
+                  <span className="mx-1 text-foreground/35">·</span>
+                  {sourceFile.name}
+                </span>
                 <button
                   type="button"
                   className="text-foreground/40 hover:text-foreground"
@@ -564,16 +578,18 @@ export function AiFormChatModal({
 
               <button
                 type="button"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--hse-teal)] text-white hover:opacity-90 disabled:opacity-40"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--hse-teal)] px-3.5 text-xs font-semibold text-white shadow-sm shadow-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)] transition-all hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-40 sm:px-4"
                 disabled={!canSend}
                 onClick={onSend}
-                aria-label="Send"
+                aria-label={sourceFile && !prompt.trim() ? "Build form from attachment" : "Send form request"}
+                title={sourceFile && !prompt.trim() ? "Build form from attachment" : "Send"}
               >
                 {generating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
+                <span className="hidden sm:inline">{generating ? "Working" : sourceFile && !prompt.trim() ? "Go" : "Send"}</span>
               </button>
             </div>
 

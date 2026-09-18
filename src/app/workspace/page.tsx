@@ -43,7 +43,7 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
-import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
+import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete, markOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
   cacheAllTenantTemplates,
   clearTenantTemplateBulkCached,
@@ -279,6 +279,18 @@ function isWorkspaceCacheFresh(userId: string | null, tenantSlug: string, catego
   if (!envelope) return false;
   return Date.now() - envelope.ts <= ttlMs;
 }
+
+/** Exact category snapshot only — never fall back to another category's templates. */
+function readExactCategoryCache(
+  userId: string | null,
+  tenantSlug: string,
+  categoryId: string | null
+): WorkspaceData | null {
+  return readWorkspaceCache(userId, tenantSlug, categoryId);
+}
+
+/** Skip blocking network when a category was already cached (background refresh can still run). */
+const CATEGORY_SWITCH_CACHE_TTL_MS = 30 * 60_000;
 
 function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
   if (!tenantSlug) return;
@@ -799,6 +811,26 @@ function WorkspacePageInner() {
     writeRecentTemplateIds(tenantSlug, next);
   }
 
+  function openTemplate(templateId: string, tenantSlugForRoute: string) {
+    setSwitchingCategory(false);
+    setUiActiveCategoryId(null);
+    setOpeningTemplateId(templateId);
+    rememberRecentTemplate(templateId);
+    const locallyCached = Boolean(readAuditTemplateCache(tenantSlugForRoute, templateId));
+    if (!locallyCached) {
+      void prefetchTemplateSchema(templateId).catch(() => {});
+    }
+    // Cached schemas should open without the global Loading chip — the form is already on-device.
+    pushTenantRoute(
+      router,
+      tenantSlugForRoute,
+      "audits/new",
+      { templateId },
+      "push",
+      { silent: locallyCached }
+    );
+  }
+
   function markWorkspaceTourSeen() {
     if (!workspaceTourSeenKey) return;
     try {
@@ -1035,45 +1067,59 @@ function WorkspacePageInner() {
   async function primeOfflineCachesInBackground() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
-    const schemasReady = isTenantTemplateBulkCached(tenantSlug);
-    if (schemasReady && offlinePreparedAt) return;
+    if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug)) {
+      const missingCategory = workspace.categories.some(
+        (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
+      );
+      if (!missingCategory) {
+        setOfflinePreparedAt((prev) => prev ?? "cached");
+        return;
+      }
+    }
 
     setNativeWarmupRunning(true);
     const timeoutId = window.setTimeout(() => {
       setNativeWarmupRunning(false);
       if (
         tenantSlug &&
-        readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId) &&
+        isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
         isTenantTemplateBulkCached(tenantSlug)
       ) {
         setOfflinePreparedAt((prev) => prev ?? "cached");
       }
-    }, 45_000);
+    }, 90_000);
 
     try {
-      // One workspace snapshot only — parallel GET /api/workspace per category hammers Prisma and causes 503s + infinite retry UX on mobile shells.
-      const data = isCapacitorNativeApp()
-        ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, null)) as WorkspaceData)
-        : await (async () => {
-            const url = new URL(apiUrl("/api/workspace"));
-            url.searchParams.set("tenantSlug", tenantSlug);
-            const res = await fetch(url.toString(), {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (!res.ok) return null;
-            return (await res.json().catch(() => null)) as WorkspaceData | null;
-          })();
-
-      if (data) {
-        writeWorkspaceCache(cacheUserId, tenantSlug, null, data);
-        if (data.selectedCategoryId) {
-          writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
+      // Same contract as first-login bootstrap: every category snapshot + every form schema.
+      const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
+      for (const cid of targets) {
+        if (cid && isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) {
+          continue;
+        }
+        try {
+          const data = isCapacitorNativeApp()
+            ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData)
+            : await (async () => {
+                const url = new URL(apiUrl("/api/workspace"));
+                url.searchParams.set("tenantSlug", tenantSlug);
+                if (cid) url.searchParams.set("categoryId", cid);
+                const res = await fetch(url.toString(), {
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                if (!res.ok) return null;
+                return (await res.json().catch(() => null)) as WorkspaceData | null;
+              })();
+          if (data) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
+        } catch {
+          // continue other categories
         }
       }
 
-      if (!schemasReady) {
+      if (!isTenantTemplateBulkCached(tenantSlug)) {
         await cacheAllTenantTemplates(accessToken, tenantSlug);
       }
+
+      markOfflineBootstrapComplete(cacheUserId, tenantSlug);
 
       const now = new Date().toISOString();
       localStorage.setItem("offlineModeEnabled", "1");
@@ -1643,19 +1689,30 @@ function WorkspacePageInner() {
         })
       );
       if (cancelled) return;
-      setDraftTemplateIds(new Set(pairs.filter(([, hasDraft]) => hasDraft).map(([id]) => id)));
+      const next = new Set(pairs.filter(([, hasDraft]) => hasDraft).map(([id]) => id));
+      setDraftTemplateIds((prev) => {
+        if (prev.size === next.size && [...next].every((id) => prev.has(id))) return prev;
+        return next;
+      });
     }
-    loadDraftIndicators();
+    // Don't contend with category paint — drafts are decorative badges.
+    const timer = window.setTimeout(() => {
+      void loadDraftIndicators();
+    }, 0);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [workspace?.tenant?.slug, workspace?.templates]);
+  }, [workspace?.tenant?.slug, workspaceTemplatesPrefetchKey]);
 
   // Hydrate instantly from local cache, independent of auth/network timing.
   useEffect(() => {
     if (!tenantSlug) return;
     if (isTenantDeactivatedBlocked(tenantSlug)) return;
-    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
+    // Prefer the exact category cache so tab switches never flash another category's forms.
+    const cached = categoryId
+      ? readExactCategoryCache(cacheUserId, tenantSlug, categoryId)
+      : readWorkspaceCacheResolved(cacheUserId, tenantSlug, null);
     if (!cached) return;
 
     setWorkspace(cached);
@@ -1674,7 +1731,17 @@ function WorkspacePageInner() {
       const custom = event as CustomEvent<{ tenantSlug?: string; categoryId?: string | null }>;
       if (custom.detail?.tenantSlug !== tenantSlug) return;
       const currentCategoryId = categoryId || null;
-      const cached = readWorkspaceCache(cacheUserId, tenantSlug, currentCategoryId) || readWorkspaceCache(cacheUserId, tenantSlug, null);
+      // Ignore warm writes for other categories so background prefetch can't hijack the UI.
+      if (
+        custom.detail?.categoryId != null &&
+        currentCategoryId &&
+        custom.detail.categoryId !== currentCategoryId
+      ) {
+        return;
+      }
+      const cached = currentCategoryId
+        ? readExactCategoryCache(cacheUserId, tenantSlug, currentCategoryId)
+        : readWorkspaceCache(cacheUserId, tenantSlug, null);
       if (!cached) return;
       // Avoid updating state if the cached value matches current workspace
       const sameTenant = workspace?.tenant.slug === cached.tenant.slug && workspace?.tenant.name === cached.tenant.name && workspace?.tenant.logoUrl === cached.tenant.logoUrl;
@@ -1813,7 +1880,12 @@ function WorkspacePageInner() {
       workspaceBusyRetriesRef.current = 0;
     }
 
-    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
+    const exactCached = readExactCategoryCache(cacheUserId, tenantSlug, categoryId);
+    // Only fall back to tenant-wide cache when no category is selected — never flash
+    // another category's forms while switching tabs.
+    const cached =
+      exactCached ??
+      (categoryId ? null : readWorkspaceCache(cacheUserId, tenantSlug, null));
     const hasCached = Boolean(cached);
     if (cached) {
       setWorkspace(cached);
@@ -1840,7 +1912,13 @@ function WorkspacePageInner() {
 
     let keepLoading = false;
 
-    const hasFreshCache = isWorkspaceCacheFresh(cacheUserId, tenantSlug, categoryId, 2 * 60_000);
+    // Category tabs: trust local snapshot for 30m. First paint already used cache above.
+    const hasFreshCache = isWorkspaceCacheFresh(
+      cacheUserId,
+      tenantSlug,
+      categoryId,
+      categoryId ? CATEGORY_SWITCH_CACHE_TTL_MS : 2 * 60_000
+    );
     const forceNetworkRefetch = forceWorkspaceNetworkRefetchRef.current;
     if (forceNetworkRefetch) {
       forceWorkspaceNetworkRefetchRef.current = false;
@@ -1874,7 +1952,20 @@ function WorkspacePageInner() {
       };
     }
 
-    // Online + cache still within TTL: skip duplicate fetch unless forced (still show cache instantly above).
+    // Category tab with a local snapshot: never block on network (warming/sync refresh later).
+    if (categoryId && exactCached && !forceRefresh && !forceNetworkRefetch) {
+      setWorkspace(exactCached);
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      return () => {
+        if (workspaceRetryTimerRef.current !== null) {
+          window.clearTimeout(workspaceRetryTimerRef.current);
+          workspaceRetryTimerRef.current = null;
+        }
+      };
+    }
+
+    // Online + tenant-wide cache still within TTL: skip duplicate fetch unless forced.
     if (hasFreshCache && cached && !forceRefresh && !forceNetworkRefetch) {
       setWorkspace(cached);
       setWorkspaceLoading(false);
@@ -1889,6 +1980,7 @@ function WorkspacePageInner() {
 
     // Online + stale / missing cache / ?refresh=1 → revalidate (prefer direct Supabase, fall back to /api/workspace).
 
+    const controller = new AbortController();
     (async () => {
       let data: WorkspaceData | null = null;
 
@@ -1900,7 +1992,10 @@ function WorkspacePageInner() {
       }
 
       if (!data) {
-        const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
         const parsed = await res.json().catch(() => ({}));
         if (!res.ok) {
           const err = new Error((parsed as any)?.error || `Failed to load workspace (${res.status})`) as Error & {
@@ -1971,6 +2066,7 @@ function WorkspacePageInner() {
         }
       })
       .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
         if (isTenantDeactivatedError(err)) {
           keepLoading = false;
@@ -2030,6 +2126,7 @@ function WorkspacePageInner() {
       });
 
     return () => {
+      controller.abort();
       if (workspaceRetryTimerRef.current !== null) {
         window.clearTimeout(workspaceRetryTimerRef.current);
         workspaceRetryTimerRef.current = null;
@@ -2122,7 +2219,9 @@ function WorkspacePageInner() {
   useEffect(() => {
     if (!tenantSlug) return;
     if (isTenantDeactivatedBlocked(tenantSlug)) return;
-    const cached = readWorkspaceCacheResolved(cacheUserId, tenantSlug, categoryId);
+    const cached = categoryId
+      ? readExactCategoryCache(cacheUserId, tenantSlug, categoryId)
+      : readWorkspaceCacheResolved(cacheUserId, tenantSlug, null);
     if (!cached) return;
     setWorkspace((prev) => prev ?? cached);
     setWorkspaceLoading(false);
@@ -2158,27 +2257,32 @@ function WorkspacePageInner() {
   }, []);
 
   useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
     if (!workspace || !tenantSlug || !accessToken) return;
     if (offlineFromHook) return;
-    if (offlinePreparedAt && isTenantTemplateBulkCached(tenantSlug)) return;
+    if (
+      offlinePreparedAt &&
+      isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
+      isTenantTemplateBulkCached(tenantSlug)
+    ) {
+      return;
+    }
 
     primeOfflineCachesInBackground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook]);
+  }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook, cacheUserId]);
 
   useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
     if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
     const categoryIds = workspace.categories
       .map((category) => category.id)
-      .filter((id) => id !== workspace.selectedCategoryId);
+      .filter((id) => id !== (categoryId || workspace.selectedCategoryId));
     if (!categoryIds.length) return;
 
     let active = true;
     const warmCategories = async () => {
       for (const cid of categoryIds) {
-        if (!active || isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, 2 * 60_000)) continue;
+        // Keep sibling category snapshots warm so tab switches stay local.
+        if (!active || isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) continue;
         try {
           let data: WorkspaceData;
           if (isCapacitorNativeApp()) {
@@ -2200,12 +2304,12 @@ function WorkspacePageInner() {
       }
     };
 
-    const timer = window.setTimeout(() => void warmCategories(), 1200);
+    const timer = window.setTimeout(() => void warmCategories(), 800);
     return () => {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [workspace?.tenant.slug, workspace?.selectedCategoryId, workspace?.categories, tenantSlug, accessToken, cacheUserId, offlineFromHook]);
+  }, [workspace?.tenant.slug, workspace?.selectedCategoryId, workspace?.categories, categoryId, tenantSlug, accessToken, cacheUserId, offlineFromHook]);
 
   useEffect(() => {
     if (!tenantSlug) return;
@@ -2865,12 +2969,18 @@ function WorkspacePageInner() {
                     onClick={() => {
                       if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
-                      const cachedCategoryData = readWorkspaceCache(cacheUserId, tenant.slug, c.id);
+                      const cachedCategoryData = readExactCategoryCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {
                         setWorkspace(cachedCategoryData);
                         setUiActiveCategoryId(null);
                         setSwitchingCategory(false);
                       } else {
+                        // Keep brand chrome; clear forms until this category loads.
+                        setWorkspace((prev) =>
+                          prev
+                            ? { ...prev, selectedCategoryId: c.id, templates: [] }
+                            : prev
+                        );
                         setUiActiveCategoryId(c.id);
                         setSwitchingCategory(true);
                       }
@@ -2879,7 +2989,8 @@ function WorkspacePageInner() {
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
                       preserveWorkspaceViewInParams(next, canSeeAdminHub ? "admin" : "forms");
-                      navigateWithFeedback(router, `/workspace?${next.toString()}`);
+                      // Silent replace — no global Loading chip for in-page tab switches.
+                      router.replace(`/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}
                     className={
@@ -3134,10 +3245,7 @@ function WorkspacePageInner() {
                                 }}
                                 onClick={() => {
                                   setRecentOpen(false);
-                                  setOpeningTemplateId(t.id);
-                                  rememberRecentTemplate(t.id);
-                                  prefetchTemplateSchema(t.id).catch(() => {});
-                                  pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
+                                    openTemplate(t.id, tenant.slug);
                                   window.setTimeout(() => setOpeningTemplateId(null), 600);
                                 }}
                                 className="rounded-md px-2 py-2 text-left text-sm hover:bg-foreground/5"
@@ -3258,19 +3366,13 @@ function WorkspacePageInner() {
                         router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                       }}
                       onClick={() => {
-                        setOpeningTemplateId(t.id);
-                        rememberRecentTemplate(t.id);
-                        prefetchTemplateSchema(t.id).catch(() => {});
-                        pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
+                        openTemplate(t.id, tenant.slug);
                         window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       onKeyDown={(e) => {
                         if (e.key !== "Enter" && e.key !== " ") return;
                         e.preventDefault();
-                        setOpeningTemplateId(t.id);
-                        rememberRecentTemplate(t.id);
-                        prefetchTemplateSchema(t.id).catch(() => {});
-                        pushTenantRoute(router, tenant.slug, "audits/new", { templateId: t.id });
+                        openTemplate(t.id, tenant.slug);
                         window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       className={

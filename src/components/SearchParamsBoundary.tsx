@@ -9,23 +9,9 @@ type Props = {
   fullScreen?: boolean;
 };
 
-/** Lightweight overlay — avoids stacking two WorkspaceLoadingShell instances (split screen). */
-function AppSuspenseFallback() {
-  return (
-    <div
-      className="fixed inset-0 z-[9997] flex items-center justify-center bg-background"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-2 text-sm text-foreground/70">
-        <div className="iso-loading-spinner h-5 w-5" aria-hidden />
-        Loading…
-      </div>
-    </div>
-  );
-}
-
 export function SearchParamsBoundary({ children, fullScreen = false }: Props) {
-  const fallback = fullScreen ? <AppSuspenseFallback /> : <RouteLoadingFallback />;
+  // Prefer a non-blocking fallback so soft navigations don't flash a full-screen
+  // overlay over the whole app while useSearchParams resolves.
+  const fallback = fullScreen ? null : <RouteLoadingFallback />;
   return <Suspense fallback={fallback}>{children}</Suspense>;
 }
