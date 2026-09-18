@@ -105,6 +105,8 @@ jobs:
         with:
           name: node-app
           path: deploy-bundle
+          # Required: .next/static is a hidden path; without this, deploy gets server.js but no CSS/JS.
+          include-hidden-files: true
           if-no-files-found: error
 
   deploy:
@@ -125,9 +127,16 @@ jobs:
         run: |
           set -euo pipefail
           ls -la deploy
-          test -f deploy/server.js
-          test -d deploy/.next/static
-          test -d deploy/public
+          test -f deploy/server.js || { echo "missing server.js"; exit 1; }
+          test -d deploy/public || { echo "missing public/"; exit 1; }
+          if [ ! -d deploy/.next/static ]; then
+            echo "missing .next/static — artifact likely uploaded without include-hidden-files"
+            ls -la deploy/.next 2>/dev/null || true
+            find deploy -maxdepth 3 -type d | sort
+            exit 1
+          fi
+          echo "Deploy package OK"
+          du -sh deploy deploy/.next/static deploy/public | cat
 
       - name: Login to Azure
         uses: azure/login@v2
