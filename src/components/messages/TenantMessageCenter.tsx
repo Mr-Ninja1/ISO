@@ -307,7 +307,10 @@ export function TenantMessageProvider({ children }: Props) {
       return;
     }
     void loadMessages({ showLoading: true });
-    const timer = window.setInterval(() => void loadMessages(), 20_000);
+    const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void loadMessages();
+    }, 45_000);
     return () => window.clearInterval(timer);
   }, [tenantSlug, accessToken, loadMessages]);
 

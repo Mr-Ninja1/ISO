@@ -57,7 +57,7 @@ export function TenantLayoutClient({
   return (
     <div className="tenant-shell">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
-        <header className="sticky top-0 z-20 overflow-visible rounded-2xl border border-border/80 bg-surface/95 shadow-lg backdrop-blur-xl print:hidden">
+        <header className="sticky top-0 z-20 overflow-visible rounded-2xl border border-border/80 bg-surface/98 shadow-lg print:hidden">
           <div className="ws-header-accent" />
           <div className="flex flex-wrap items-start justify-between gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
             <TenantLayoutClientHeader tenantSlug={tenantSlug} name={name} />
@@ -65,7 +65,7 @@ export function TenantLayoutClient({
           </div>
         </header>
 
-        <main className="flex flex-col gap-6 rounded-2xl border border-border/70 bg-surface/90 p-4 pb-20 shadow-lg backdrop-blur-sm sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
+        <main className="flex flex-col gap-6 rounded-2xl border border-border/70 bg-surface/90 p-4 pb-20 shadow-lg sm:p-5 sm:pb-5 print:rounded-none print:border-0 print:bg-white print:p-0 print:pb-0 print:shadow-none">
           {children}
         </main>
       </div>

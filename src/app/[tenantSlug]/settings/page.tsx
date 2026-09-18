@@ -14,6 +14,18 @@ import { AccountSettingsPanel } from "@/components/settings/AccountSettingsPanel
 import { SettingsPageClient } from "@/components/settings/SettingsPageClient";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
+const SSR_BUDGET_MS = 400;
+
+type BudgetResult<T> = { timedOut: false; value: T } | { timedOut: true };
+
+async function withBudget<T>(promise: Promise<T>, ms: number): Promise<BudgetResult<T>> {
+  return Promise.race([
+    promise.then((value) => ({ timedOut: false as const, value })),
+    new Promise<BudgetResult<T>>((resolve) => {
+      setTimeout(() => resolve({ timedOut: true }), ms);
+    }),
+  ]);
+}
 
 export default async function TenantSettingsPage({
   params,
@@ -27,14 +39,26 @@ export default async function TenantSettingsPage({
   }
 
   try {
-    const tenant = await ssrTenantBySlug(tenantSlug);
+    const tenantResult = await withBudget(ssrTenantBySlug(tenantSlug), SSR_BUDGET_MS);
 
+    if (tenantResult.timedOut) {
+      // Slow DB — paint client shell immediately instead of holding navigation.
+      return <SettingsPageClient routeSlug={tenantSlug} />;
+    }
+    const tenant = tenantResult.value;
     if (!tenant) notFound();
 
-    const [categories, templatesRaw] = await Promise.all([
-      ssrCategoriesForTenant(tenant.id),
-      ssrTemplatesForTenant(tenant.id),
+    const [categoriesResult, templatesResult] = await Promise.all([
+      withBudget(ssrCategoriesForTenant(tenant.id), SSR_BUDGET_MS),
+      withBudget(ssrTemplatesForTenant(tenant.id), SSR_BUDGET_MS),
     ]);
+
+    if (categoriesResult.timedOut || templatesResult.timedOut) {
+      return <SettingsPageClient routeSlug={tenantSlug} />;
+    }
+
+    const categories = categoriesResult.value;
+    const templatesRaw = templatesResult.value;
 
     const categoryById = new Map(categories.map((c) => [c.id, c.name]));
     const templates = templatesRaw.map((t: Record<string, unknown>) => ({

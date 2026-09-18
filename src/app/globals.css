@@ -91,15 +91,13 @@
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     transition:
-        transform 110ms ease,
-        filter 140ms ease,
-        opacity 140ms ease;
-    will-change: transform;
+        transform 80ms ease,
+        opacity 100ms ease;
 }
 
 .nav-pressable:active {
-    transform: scale(0.985);
-    filter: brightness(0.97);
+    transform: scale(0.99);
+    opacity: 0.92;
 }
 
 :root,

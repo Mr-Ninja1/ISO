@@ -3,13 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/components/AuthProvider";
-import { fetchNavCapabilities, readCachedNavCapabilities, type NavCapabilities } from "@/lib/client/navCapabilities";
 import { Loader2 } from "lucide-react";
+import { useNavCapabilities } from "@/hooks/useNavCapabilities";
 
-const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms: false };
-
-function tabClass(active: boolean, loading: boolean) {
+function tabClass(active: boolean) {
   return (
     "nav-pressable inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md text-xs font-medium transition-all " +
     (active ? "bg-[var(--hse-teal)] text-white shadow-sm" : "text-[var(--hse-teal-mid)] hover:bg-[var(--hse-sky)]")
@@ -17,90 +14,79 @@ function tabClass(active: boolean, loading: boolean) {
 }
 
 export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
-  const { session } = useAuth();
   const pathname = usePathname();
+  const caps = useNavCapabilities(tenantSlug);
   const formsPath = `/${tenantSlug}/audits`;
   const offlinePath = `/${tenantSlug}/audits/local`;
   const activityPath = `/${tenantSlug}/activity`;
   const correctiveActionsPath = `/${tenantSlug}/corrective-actions`;
   const templatesPath = `/${tenantSlug}/templates`;
-  const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = session?.access_token || "";
-    if (!token || !tenantSlug) return;
+    setLoadingPath(null);
+  }, [pathname]);
 
-    let cancelled = false;
-    const cached = readCachedNavCapabilities(tenantSlug);
-    if (cached) {
-      setCaps(cached);
-    }
-
-    fetchNavCapabilities(token, tenantSlug)
-      .then((nextCaps) => {
-        if (cancelled) return;
-        setCaps(nextCaps);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setCaps(DEFAULT_CAPS);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.access_token, tenantSlug]);
+  // Safety unlock if soft navigation stalls.
+  useEffect(() => {
+    if (!loadingPath) return;
+    const timer = window.setTimeout(() => setLoadingPath(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loadingPath]);
 
   const handleLinkClick = (path: string) => {
     setLoadingPath(path);
-    setTimeout(() => setLoadingPath(null), 500);
   };
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-[var(--hse-cream)]/95 p-2 backdrop-blur md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-[var(--hse-cream)]/98 p-2 md:hidden">
       <div className="mx-auto flex max-w-[760px] items-center gap-1">
-        <Link 
-          href={formsPath} 
-          className={tabClass(pathname?.startsWith(formsPath) ?? false, loadingPath === formsPath)}
+        <Link
+          href={formsPath}
+          className={tabClass(pathname?.startsWith(formsPath) ?? false)}
           onClick={() => handleLinkClick(formsPath)}
+          prefetch
         >
           {loadingPath === formsPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Saved forms
         </Link>
-        <Link 
-          href={offlinePath} 
-          className={tabClass(pathname?.startsWith(offlinePath) ?? false, loadingPath === offlinePath)}
+        <Link
+          href={offlinePath}
+          className={tabClass(pathname?.startsWith(offlinePath) ?? false)}
           onClick={() => handleLinkClick(offlinePath)}
+          prefetch
         >
           {loadingPath === offlinePath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Offline
         </Link>
         {caps.canSeeAdminRoutes ? (
-          <Link 
-            href={activityPath} 
-            className={tabClass(pathname?.startsWith(activityPath) ?? false, loadingPath === activityPath)}
+          <Link
+            href={activityPath}
+            className={tabClass(pathname?.startsWith(activityPath) ?? false)}
             onClick={() => handleLinkClick(activityPath)}
+            prefetch
           >
             {loadingPath === activityPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Activity
           </Link>
         ) : null}
         {caps.canSeeAdminRoutes ? (
-          <Link 
-            href={correctiveActionsPath} 
-            className={tabClass(pathname?.startsWith(correctiveActionsPath) ?? false, loadingPath === correctiveActionsPath)}
+          <Link
+            href={correctiveActionsPath}
+            className={tabClass(pathname?.startsWith(correctiveActionsPath) ?? false)}
             onClick={() => handleLinkClick(correctiveActionsPath)}
+            prefetch
           >
             {loadingPath === correctiveActionsPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Actions
           </Link>
         ) : null}
         {caps.canCreateForms ? (
-          <Link 
-            href={templatesPath} 
-            className={tabClass(pathname === templatesPath, loadingPath === templatesPath)}
+          <Link
+            href={templatesPath}
+            className={tabClass(pathname === templatesPath)}
             onClick={() => handleLinkClick(templatesPath)}
+            prefetch
           >
             {loadingPath === templatesPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Templates

@@ -1,11 +1,11 @@
 "use client";
 
 import { NAVIGATION_START_EVENT } from "@/lib/client/navigationLoading";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const MIN_VISIBLE_MS = 240;
-const MAX_VISIBLE_MS = 12000;
+const MIN_VISIBLE_MS = 60;
+const MAX_VISIBLE_MS = 8000;
 
 function isInternalNavigableAnchor(target: EventTarget | null): HTMLAnchorElement | null {
   if (!(target instanceof Element)) return null;
@@ -21,7 +21,6 @@ function isInternalNavigableAnchor(target: EventTarget | null): HTMLAnchorElemen
 
 export function NavigationProgressBar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [active, setActive] = useState(false);
   const [done, setDone] = useState(false);
   const startRef = useRef<number>(0);
@@ -53,7 +52,7 @@ export function NavigationProgressBar() {
       window.setTimeout(() => {
         activeRef.current = false;
         setActive(false);
-      }, 220);
+      }, 160);
     }, MAX_VISIBLE_MS);
   }, [clearTimers]);
 
@@ -68,7 +67,7 @@ export function NavigationProgressBar() {
         activeRef.current = false;
         setActive(false);
         setDone(false);
-      }, 220);
+      }, 160);
       clearTimers();
     }, remaining);
   }, [clearTimers]);
@@ -97,9 +96,12 @@ export function NavigationProgressBar() {
   }, [begin]);
 
   useEffect(() => {
-    // Route/search change means navigation has committed.
+    // Path change means a real route navigation committed.
+    // Ignore searchParams-only updates (e.g. workspace category tabs) so the
+    // progress chip does not flash and hold the UI for in-page switches.
+    lastHrefRef.current = pathname || "";
     complete();
-  }, [pathname, searchParams?.toString(), complete]);
+  }, [pathname, complete]);
 
   useEffect(
     () => () => {

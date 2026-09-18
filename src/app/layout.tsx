@@ -5,22 +5,14 @@ import { AuthProvider } from '@/components/AuthProvider';
 import { ThemeBootstrap } from '@/components/ThemeBootstrap';
 import { SmallScreenModal } from '@/components/SmallScreenModal';
 import { CapacitorBootstrap } from '@/components/CapacitorBootstrap';
-import { CapacitorRouteRewrite } from '@/components/CapacitorRouteRewrite';
-import { CapacitorRouterRewrite } from '@/components/CapacitorRouterRewrite';
-import { CapacitorAppRecovery } from '@/components/CapacitorAppRecovery';
-import { CapacitorEntryRedirect } from '@/components/CapacitorEntryRedirect';
-import { CapacitorBackButtonHandler } from '@/components/CapacitorBackButtonHandler';
-import { PushNotificationsBootstrap } from '@/components/PushNotificationsBootstrap';
 import { RequiresInternetDialogHost } from '@/components/RequiresInternetDialog';
 import { OfflineNavigationGuard } from '@/components/OfflineNavigationGuard';
 import { OfflineBootstrapGate } from '@/components/OfflineBootstrapGate';
 import { InternetStatusBar } from '@/components/InternetStatusBar';
 import { SearchParamsBoundary } from '@/components/SearchParamsBoundary';
-import { NativeUpdateGate } from '@/components/NativeUpdateGate';
-import { LiveUpdateBootstrap } from '@/components/LiveUpdateBootstrap';
 import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter';
-import { CapacitorStylesGuard } from '@/components/CapacitorStylesGuard';
 import { NavigationProgressBar } from '@/components/NavigationProgressBar';
+import { NativeRuntimeShell } from '@/components/NativeRuntimeShell';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
 
 export const metadata: Metadata = {
@@ -77,17 +69,7 @@ export default function RootLayout({
         <InternetStatusBar />
         <AuthProvider>
           <CapacitorBootstrap />
-          <CapacitorRouteRewrite />
-          <CapacitorRouterRewrite />
-          <LiveUpdateBootstrap />
-          <CapacitorStylesGuard />
-          <NativeUpdateGate />
-          <CapacitorEntryRedirect />
-          <CapacitorAppRecovery />
-          <CapacitorBackButtonHandler />
-          <SearchParamsBoundary>
-            <PushNotificationsBootstrap />
-          </SearchParamsBoundary>
+          <NativeRuntimeShell />
           <RequiresInternetDialogHost />
           <OfflineNavigationGuard />
           <SearchParamsBoundary fullScreen>

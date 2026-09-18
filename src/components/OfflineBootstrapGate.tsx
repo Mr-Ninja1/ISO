@@ -125,20 +125,40 @@ function FirstTimeDownloadScreen({
   );
 }
 
+const readyCache = new Map<string, boolean>();
+
+function readyCacheKey(userId: string | null, tenantSlug: string) {
+  return `${userId || 'anon'}:${tenantSlug}`;
+}
+
 /** True when every category snapshot + every form schema is on-device. */
 export function offlineCacheLooksReady(userId: string | null, tenantSlug: string) {
-  if (!isOfflineBootstrapComplete(userId, tenantSlug)) return false;
-  const workspace = readWorkspaceCacheResolved(userId, tenantSlug, null);
-  if (!workspace) return false;
-  if (workspace.categories.some((category) => !readWorkspaceCache(userId, tenantSlug, category.id))) {
+  const key = readyCacheKey(userId, tenantSlug);
+  const cached = readyCache.get(key);
+  if (cached === true) return true;
+
+  if (!isOfflineBootstrapComplete(userId, tenantSlug)) {
+    readyCache.set(key, false);
     return false;
   }
-  return isTenantTemplateBulkCached(tenantSlug);
+  const workspace = readWorkspaceCacheResolved(userId, tenantSlug, null);
+  if (!workspace) {
+    readyCache.set(key, false);
+    return false;
+  }
+  if (workspace.categories.some((category) => !readWorkspaceCache(userId, tenantSlug, category.id))) {
+    readyCache.set(key, false);
+    return false;
+  }
+  const ready = isTenantTemplateBulkCached(tenantSlug);
+  readyCache.set(key, ready);
+  return ready;
 }
 
 /**
  * Blocks the UI until the active brand has been fully cached (first login / new device).
- * Runs on web and native — that first download is what makes later category/form opens local.
+ * After the app has painted once for a session, downloads continue in the background
+ * so navigations are never replaced by the full-screen gate again.
  */
 export function OfflineBootstrapGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -174,6 +194,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const runIdRef = useRef(0);
   const bootstrapInFlightRef = useRef(false);
   const autoStartKeyRef = useRef<string | null>(null);
+  /** Once true, never tear down the app shell for bootstrap again this session. */
+  const hasPaintedRef = useRef(false);
 
   const startBootstrap = useCallback(async () => {
     if (!tenantSlug || !accessToken) return;
@@ -182,7 +204,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     bootstrapInFlightRef.current = true;
     const runId = ++runIdRef.current;
     setError('');
-    setReady(false);
+    // Only hard-block the shell on true first-run; otherwise warm in background.
+    if (!hasPaintedRef.current) {
+      setReady(false);
+    }
     setProgress({ stage: 'workspace', label: 'Starting download...', percent: 0 });
 
     try {
@@ -196,6 +221,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
         },
       });
       if (runId !== runIdRef.current) return;
+      if (tenantSlug) readyCache.set(readyCacheKey(userId, tenantSlug), true);
+      hasPaintedRef.current = true;
       setReady(true);
     } catch (err: unknown) {
       if (runId !== runIdRef.current) return;
@@ -207,6 +234,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
           // ignore localStorage errors
         }
         if (pathname?.startsWith('/workspace')) {
+          hasPaintedRef.current = true;
           setReady(true);
           setError('');
           router.replace('/workspace');
@@ -214,7 +242,12 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
         }
       }
       setError(message);
-      setReady(false);
+      // Keep the shell usable after first paint; only hard-block on true first-run.
+      if (hasPaintedRef.current) {
+        setReady(true);
+      } else {
+        setReady(false);
+      }
     } finally {
       bootstrapInFlightRef.current = false;
     }
@@ -254,18 +287,27 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       return;
     }
     if (!needsBootstrap) {
+      hasPaintedRef.current = true;
       setReady(true);
       return;
     }
     if (!accessToken) {
+      if (hasPaintedRef.current) {
+        setReady(true);
+        return;
+      }
       setReady(false);
       setError('Sign in is required before downloading offline data.');
       return;
     }
     if (offline) {
       if (!bootstrapInFlightRef.current) {
-        setReady(false);
-        setError('Internet is required for first-time setup. Connect and tap Try again.');
+        if (hasPaintedRef.current) {
+          setReady(true);
+        } else {
+          setReady(false);
+          setError('Internet is required for first-time setup. Connect and tap Try again.');
+        }
       }
       return;
     }
@@ -277,11 +319,17 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     void startBootstrapRef.current();
   }, [clientReady, authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId]);
 
+  useEffect(() => {
+    if (ready || !needsBootstrap) {
+      hasPaintedRef.current = true;
+    }
+  }, [ready, needsBootstrap]);
+
   if (!clientReady) {
     return <>{children}</>;
   }
 
-  if (authLoading && needsBootstrap) {
+  if (authLoading && needsBootstrap && !hasPaintedRef.current) {
     return (
       <WorkspaceLoadingShell
         title="Signing in"
@@ -290,7 +338,9 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     );
   }
 
-  if (!ready && needsBootstrap) {
+  // Only block the first paint for a brand. After that, keep navigating freely
+  // while bootstrap continues in the background.
+  if (!ready && needsBootstrap && !hasPaintedRef.current) {
     return (
       <FirstTimeDownloadScreen
         progress={progress}

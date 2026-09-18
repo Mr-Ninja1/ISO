@@ -89,7 +89,10 @@ export function BrandAlertListener({ tenantSlug }: { tenantSlug: string }) {
 
   useEffect(() => {
     void loadAlerts();
-    const timer = window.setInterval(() => void loadAlerts(), 15000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void loadAlerts();
+    }, 60_000);
     return () => window.clearInterval(timer);
   }, [loadAlerts]);
 

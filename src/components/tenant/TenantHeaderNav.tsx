@@ -5,15 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2, Mail } from "lucide-react";
 import { buildGeneralSupportMailto } from "@/lib/supportContact";
-import { useAuth } from "@/components/AuthProvider";
-import { fetchNavCapabilities, readCachedNavCapabilities, type NavCapabilities } from "@/lib/client/navCapabilities";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
 import { HeaderKebabMenu, HeaderMenuItem } from "@/components/ui/HeaderKebabMenu";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
-
-const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms: false };
+import { useNavCapabilities } from "@/hooks/useNavCapabilities";
 
 function navLinkClass(active: boolean) {
   return (
@@ -25,9 +22,9 @@ function navLinkClass(active: boolean) {
 }
 
 export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
-  const { session } = useAuth();
   const pathname = usePathname();
   const offline = useAppOffline();
+  const caps = useNavCapabilities(tenantSlug);
   const settingsBase = buildTenantHref(tenantSlug, "settings");
   const auditsBase = buildTenantHref(tenantSlug, "audits");
   const dashboardBase = buildTenantHref(tenantSlug, "dashboard");
@@ -45,33 +42,17 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const onTemplates = pathname?.includes("/templates") ?? false;
   const onCategories = pathname?.includes("/categories") ?? false;
 
-  const [caps, setCaps] = useState<NavCapabilities>(DEFAULT_CAPS);
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    const token = session?.access_token || "";
-    if (!token || !tenantSlug) return;
-
-    let cancelled = false;
-    const cached = readCachedNavCapabilities(tenantSlug);
-    if (cached) setCaps(cached);
-
-    fetchNavCapabilities(token, tenantSlug)
-      .then((nextCaps) => {
-        if (!cancelled) setCaps(nextCaps);
-      })
-      .catch(() => {
-        if (!cancelled) setCaps(DEFAULT_CAPS);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.access_token, tenantSlug]);
 
   useEffect(() => {
     setLoadingPath(null);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!loadingPath) return;
+    const timer = window.setTimeout(() => setLoadingPath(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loadingPath]);
 
   const handleLinkClick = (path: string) => {
     setLoadingPath(path);
@@ -214,7 +195,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
 
   return (
     <nav className="flex items-center gap-2 text-sm">
-      <Link href={auditsBase} onClick={() => handleLinkClick(auditsBase)} className={"hidden sm:inline-flex " + navLinkClass(onAudits)}>
+      <Link href={auditsBase} prefetch onClick={() => handleLinkClick(auditsBase)} className={"hidden sm:inline-flex " + navLinkClass(onAudits)}>
         {loadingPath === auditsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Saved forms
       </Link>

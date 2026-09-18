@@ -782,7 +782,42 @@ function WorkspacePageInner() {
     setOpeningActivity(false);
     setOpeningAdminDashboard(false);
     setOpeningAudits(false);
+    setOpeningTemplateId(null);
   }, [pathname]);
+
+  // Safety: never leave nav buttons permanently locked if a soft navigation stalls.
+  useEffect(() => {
+    const anyOpening =
+      openingSettings ||
+      openingStaff ||
+      openingActivity ||
+      openingAdminDashboard ||
+      openingAudits ||
+      openingTemplateId ||
+      openingAdminNav ||
+      openingFormsNav;
+    if (!anyOpening) return;
+    const timer = window.setTimeout(() => {
+      setOpeningSettings(false);
+      setOpeningStaff(false);
+      setOpeningActivity(false);
+      setOpeningAdminDashboard(false);
+      setOpeningAudits(false);
+      setOpeningTemplateId(null);
+      setOpeningAdminNav(false);
+      setOpeningFormsNav(false);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [
+    openingSettings,
+    openingStaff,
+    openingActivity,
+    openingAdminDashboard,
+    openingAudits,
+    openingTemplateId,
+    openingAdminNav,
+    openingFormsNav,
+  ]);
 
   useEffect(() => {
     if (!openingAdminNav && !openingFormsNav) return;
@@ -2706,7 +2741,7 @@ function WorkspacePageInner() {
     <div className="workspace-shell min-h-dvh">
       <DueReminderPoller tenantSlug={tenant.slug} reminders={reminderTargets} accessToken={accessToken} />
       <div className="ws-header-accent" />
-      <div className="ws-header sticky top-0 isolate backdrop-blur-xl" style={{ zIndex: Z_STICKY_HEADER }}>
+      <div className="ws-header sticky top-0 isolate bg-background/98" style={{ zIndex: Z_STICKY_HEADER }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
           <div className="min-w-0 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-copper)_35%,var(--hse-teal))] bg-gradient-to-br from-[var(--hse-sky)] to-white shadow-sm">
@@ -2969,10 +3004,11 @@ function WorkspacePageInner() {
                     onClick={() => {
                       if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
+                      // Optimistic tab highlight immediately — do not wait on URL commit.
+                      setUiActiveCategoryId(c.id);
                       const cachedCategoryData = readExactCategoryCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {
                         setWorkspace(cachedCategoryData);
-                        setUiActiveCategoryId(null);
                         setSwitchingCategory(false);
                       } else {
                         // Keep brand chrome; clear forms until this category loads.
@@ -2981,7 +3017,6 @@ function WorkspacePageInner() {
                             ? { ...prev, selectedCategoryId: c.id, templates: [] }
                             : prev
                         );
-                        setUiActiveCategoryId(c.id);
                         setSwitchingCategory(true);
                       }
 
@@ -2989,8 +3024,10 @@ function WorkspacePageInner() {
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
                       preserveWorkspaceViewInParams(next, canSeeAdminHub ? "admin" : "forms");
-                      // Silent replace — no global Loading chip for in-page tab switches.
-                      router.replace(`/workspace?${next.toString()}`);
+                      // Defer URL sync so the tab paint is not blocked by App Router work.
+                      startTransition(() => {
+                        router.replace(`/workspace?${next.toString()}`);
+                      });
                     }}
                     disabled={offlineWarmupBlocking}
                     className={

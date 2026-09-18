@@ -94,7 +94,7 @@ export function BackgroundSyncManager() {
     window.addEventListener("offline", updateOnline);
     window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, updateOnline);
 
-    const poll = window.setInterval(refreshPending, 2500);
+    const poll = window.setInterval(refreshPending, 8_000);
 
     return () => {
       window.removeEventListener("online", updateOnline);
@@ -205,12 +205,16 @@ export function BackgroundSyncManager() {
         // ignore
       });
     };
-    const interval = window.setInterval(maybeFlush, 8000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      maybeFlush();
+    }, 15_000);
     const pullInterval = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       runPullSync().catch(() => {
         // ignore
       });
-    }, 45_000);
+    }, 90_000);
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);

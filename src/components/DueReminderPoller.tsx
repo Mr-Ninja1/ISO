@@ -11,7 +11,7 @@ import {
 import { apiUrl } from "@/lib/client/apiBase";
 import { isPastDue, resolveReminderDueInstants, type TemplateReminderTarget } from "@/lib/dueRules";
 
-const POLL_MS = 10_000;
+const POLL_MS = 30_000;
 
 type Props = {
   tenantSlug?: string | null;
@@ -97,7 +97,10 @@ export function DueReminderPoller({ tenantSlug, reminders, accessToken }: Props)
     };
 
     void tick();
-    const intervalId = window.setInterval(() => void tick(), POLL_MS);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void tick();
+    }, POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void tick();

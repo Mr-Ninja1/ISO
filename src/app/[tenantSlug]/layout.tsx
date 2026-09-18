@@ -66,7 +66,7 @@ export default async function TenantLayout({
   let dbUnavailable = false;
 
   try {
-    const dbTenant = await findTenantWithTimeout(tenantSlug, 1200);
+    const dbTenant = await findTenantWithTimeout(tenantSlug, 350);
     if (dbTenant) {
       tenant = {
         name: dbTenant.name,
@@ -107,7 +107,7 @@ export default async function TenantLayout({
   return (
     <div className="tenant-shell min-h-dvh">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-4 sm:p-6 print:max-w-none print:p-0">
-        <header className="sticky top-0 z-20 overflow-visible rounded-2xl border border-border/80 bg-surface/95 shadow-lg backdrop-blur-xl print:hidden">
+        <header className="sticky top-0 z-20 overflow-visible rounded-2xl border border-border/80 bg-surface/98 shadow-lg print:hidden">
           <div className="ws-header-accent" />
           <div className="flex flex-wrap items-start justify-between gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
             <TenantLayoutHeader tenant={tenant} dbUnavailable={dbUnavailable} />
