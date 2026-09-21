@@ -8,9 +8,11 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Laptop, Loader2, Sparkle
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
-import { readWorkspaceCacheResolved, writeWorkspaceCache } from "@/lib/client/workspaceCache";
+import { readWorkspaceCacheResolved, patchWorkspaceTemplateCaches } from "@/lib/client/workspaceCache";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { FormTypePicker } from "@/components/forms/FormTypePicker";
 import { AiFormChatModal, type AiChatMessage } from "@/components/forms/AiFormChatModal";
+import { FormBuilderModeChooser } from "@/components/forms/FormBuilderModeChooser";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
 import { PlanLimitReachedError, isPlanLimitError } from "@/lib/planLimitErrors";
 import {
@@ -22,6 +24,9 @@ import {
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { dbGetTemplate } from "@/lib/client/formsDb";
+import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import type { FieldDef, FormSchemaV1, FormSection, FormStyle, FormType } from "@/types/forms";
 import { columnHeaderDisplayLabel, isColumnHeaderPlaceholder } from "@/lib/formFieldConstants";
 import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
@@ -35,6 +40,8 @@ import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import type { AiClarificationQuestion, AiExtractionSummary } from "@/lib/ai/types";
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
+import { normalizeFormSchema } from "@/lib/normalizeFormSchema";
+import { looksLikeMeaningfulFormRequest } from "@/lib/ai/generateFormSchema";
 
 const FormBuilder = dynamic(
   () => import("@/components/forms/FormBuilder").then((m) => m.FormBuilder),
@@ -70,11 +77,6 @@ type WorkspaceData = {
   };
 };
 
-type WorkspaceCacheEnvelope = {
-  ts: number;
-  data: WorkspaceData;
-};
-
 type EditInfoResponse = {
   template: {
     id: string;
@@ -98,8 +100,9 @@ type FlatItem = {
 };
 
 function schemaToSections(schema: { sections?: FormSection[]; fields?: any[] }): FormSection[] {
-  if (Array.isArray(schema.sections) && schema.sections.length) return schema.sections;
-  return [{ type: "fields", title: "Fields", fields: schema.fields ?? [] }];
+  const normalized = normalizeFormSchema(schema as unknown);
+  if (Array.isArray(normalized.sections) && normalized.sections.length) return normalized.sections;
+  return [{ type: "fields", title: "Fields", fields: normalized.fields ?? [] }];
 }
 
 function flattenSections(sections: FormSection[]): FlatItem[] {
@@ -128,55 +131,6 @@ function flattenSections(sections: FormSection[]): FlatItem[] {
     }
   }
   return items;
-}
-
-function patchWorkspaceTemplateCaches(
-  userId: string | null,
-  tenantSlug: string,
-  nextTemplate: { id: string; title: string; categoryId: string | null; updatedAt: string }
-) {
-  if (!tenantSlug) return;
-
-  const prefixV1 = `workspace-cache:v1:${tenantSlug}:`;
-  const prefixV2 = `workspace-cache:v2:`;
-  const keys: string[] = [];
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i);
-    if (!key) continue;
-    if (key.startsWith(prefixV1) || (key.startsWith(prefixV2) && key.includes(`:${tenantSlug}:`))) keys.push(key);
-  }
-
-  for (const key of keys) {
-    const raw = localStorage.getItem(key);
-    if (!raw) continue;
-
-    try {
-      const envelope = JSON.parse(raw) as WorkspaceCacheEnvelope;
-      if (!envelope?.data) continue;
-
-      const currentTemplates = Array.isArray(envelope.data.templates)
-        ? envelope.data.templates
-        : [];
-
-      const withoutOld = currentTemplates.filter((t) => t.id !== nextTemplate.id);
-
-      const selected = envelope.data.selectedCategoryId;
-      const shouldInclude = selected ? selected === nextTemplate.categoryId : true;
-      const nextTemplates = shouldInclude
-        ? [nextTemplate, ...withoutOld].sort(
-            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-          )
-        : withoutOld;
-
-      // write updated templates into v1 and any matching v2 caches
-      writeWorkspaceCache(userId, tenantSlug, selected, {
-        ...envelope.data,
-        templates: nextTemplates,
-      } as import("@/lib/client/workspaceCache").WorkspaceData);
-    } catch {
-      // ignore malformed cache items
-    }
-  }
 }
 
 function buildLocalTemplateId() {
@@ -453,6 +407,15 @@ function NewTemplatePageInner() {
   const [aiAssessSummary, setAiAssessSummary] = useState("");
   const [aiExtraction, setAiExtraction] = useState<AiExtractionSummary | null>(null);
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [aiBuilderDraft, setAiBuilderDraft] = useState<{
+    title: string;
+    sections: FormSection[];
+    formType: FormType;
+    formStyle: FormStyle;
+    cardIcon: string;
+    cardColor: string;
+    schemaMeta: Record<string, unknown>;
+  } | null>(null);
   const [aiQuota, setAiQuota] = useState<{
     used: number;
     limit: number;
@@ -500,11 +463,16 @@ function NewTemplatePageInner() {
     return [{ id: "welcome", role: "assistant", content: AI_WELCOME_MESSAGE }];
   }
 
-  if (offline) {
+  const cachedWorkspaceForGate = tenantSlug
+    ? readWorkspaceCacheResolved(userId, tenantSlug, null)
+    : null;
+  const canBuildFromCache = Boolean(cachedWorkspaceForGate?.categories?.length);
+  // AI still needs internet; builder itself can run from cached workspace / template schema.
+  if (offline && !canBuildFromCache && !isEditMode) {
     return (
       <OfflineRouteBlock
-        title="Create form needs internet"
-        message="The form builder must load and sync schema data from the database before it can be used. Connect once to create forms, then the cached workspace can open them offline."
+        title="Create form needs a cached brand"
+        message="Connect once so this brand downloads to the device. After that you can build forms offline (AI still needs internet)."
         backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
         backLabel="Back to workspace"
       />
@@ -547,6 +515,11 @@ function NewTemplatePageInner() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Native phones must be able to build forms — do not lock the builder.
+    if (isCapacitorNativeApp()) {
+      setBuilderBlockedSmallScreen(false);
+      return;
+    }
     const mediaQuery = window.matchMedia("(max-width: 960px)");
     const update = () => setBuilderBlockedSmallScreen(mediaQuery.matches);
     update();
@@ -582,34 +555,20 @@ function NewTemplatePageInner() {
 
   useEffect(() => {
     if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
-    const raw = localStorage.getItem(builderDraftKey);
-    if (!raw) {
-      setBuilderMode("choose");
-      setBuilderDraftHydrated(true);
-      return;
-    }
+
+    // A fresh form-creation visit should always show the mode chooser in the native app.
+    // Restoring previous local draft state makes the builder skip the chooser after the first visit.
+    setBuilderMode("choose");
+    setSections([]);
+    setTitle("Add form title");
+    setFormType("custom");
+    setFormStyle("default");
+    setBuilderDraftHydrated(true);
 
     try {
-      const draft = JSON.parse(raw) as {
-        title?: string;
-        formType?: FormType;
-        formStyle?: FormStyle;
-        sections?: FormSection[];
-        builderMode?: "choose" | "ai" | "manual";
-      };
-      if (typeof draft.title === "string" && draft.title.trim()) setTitle(draft.title);
-      if (Array.isArray(draft.sections) && draft.sections.length) {
-        setSections(draft.sections);
-        setBuilderMode(draft.builderMode === "manual" ? "manual" : draft.builderMode === "ai" ? "ai" : "choose");
-      } else {
-        setBuilderMode(draft.builderMode === "manual" ? "manual" : draft.builderMode === "ai" ? "ai" : "choose");
-      }
-      if (draft.formType) setFormType(parseFormType(draft.formType));
-      if (draft.formStyle) setFormStyle(draft.formStyle);
+      localStorage.removeItem(builderDraftKey);
     } catch {
-      setBuilderMode("choose");
-    } finally {
-      setBuilderDraftHydrated(true);
+      // Ignore storage failures while preserving the chooser flow.
     }
   }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey]);
 
@@ -708,13 +667,84 @@ function NewTemplatePageInner() {
     if (authLoading || !user) return;
     if (!tenantSlug || !editTemplateId) return;
 
-    if (!online) {
-      setLoadingEditInfo(false);
-      setError("Offline mode: opening existing form versions for editing requires a prior online load.");
-      return;
-    }
+    let cancelled = false;
 
-    if (!accessToken) return;
+    const applyLoaded = (data: {
+      title: string;
+      categoryId: string | null;
+      schema: FormSchemaV1;
+      version?: number;
+      hasAudits?: boolean;
+      auditCount?: number;
+      templateId: string;
+    }) => {
+      if (cancelled) return;
+      const loadedSections = schemaToSections(data.schema);
+      const nextMeta =
+        data.schema?.meta && typeof data.schema.meta === "object"
+          ? (data.schema.meta as Record<string, unknown>)
+          : {};
+      setTitle(data.title || data.schema.title || "Add form title");
+      setSelectedCategoryId(data.categoryId ?? null);
+      setSections(loadedSections);
+      setSchemaMeta(nextMeta);
+      setFormType(parseFormType(nextMeta.formType));
+      setFormStyle((nextMeta.formStyle as FormStyle) || "default");
+      setCardIcon(typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : "clipboard");
+      setCardColor(typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : "default");
+      setBaseSections(loadedSections);
+      setBaseVersion(data.version || 1);
+      setHasAudits(Boolean(data.hasAudits));
+      setAuditCount(data.auditCount || 0);
+      setBuilderResetKey(`edit-${data.templateId}-${Date.now()}`);
+      setError("");
+    };
+
+    const loadFromDeviceCache = async () => {
+      const cached = readAuditTemplateCache(tenantSlug, editTemplateId);
+      if (cached?.template?.schema) {
+        applyLoaded({
+          title: cached.template.title,
+          categoryId: null,
+          schema: cached.template.schema,
+          templateId: cached.template.id,
+        });
+        return true;
+      }
+      try {
+        const tpl = await dbGetTemplate(tenantSlug, editTemplateId);
+        if (tpl?.schema) {
+          applyLoaded({
+            title: tpl.title,
+            categoryId: null,
+            schema: tpl.schema,
+            templateId: tpl.templateId,
+          });
+          return true;
+        }
+      } catch {
+        // ignore
+      }
+      return false;
+    };
+
+    if (!online || !accessToken) {
+      setLoadingEditInfo(true);
+      void loadFromDeviceCache()
+        .then((ok) => {
+          if (!ok && !cancelled) {
+            setError(
+              "This form is not cached on the device yet. Open it once while online, then you can edit offline."
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingEditInfo(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     setLoadingEditInfo(true);
     setError("");
@@ -730,26 +760,27 @@ function NewTemplatePageInner() {
         return data as EditInfoResponse;
       })
       .then((data) => {
-        const loadedSections = schemaToSections(data.template.schema);
-        const nextMeta = data.template.schema?.meta && typeof data.template.schema.meta === "object"
-          ? (data.template.schema.meta as Record<string, unknown>)
-          : {};
-        setTitle(data.template.title || data.template.schema.title || "Add form title");
-        setSelectedCategoryId(data.template.categoryId ?? null);
-        setSections(loadedSections);
-        setSchemaMeta(nextMeta);
-        setFormType(parseFormType(nextMeta.formType));
-        setFormStyle((nextMeta.formStyle as FormStyle) || "default");
-        setCardIcon(typeof nextMeta.cardIcon === "string" ? nextMeta.cardIcon : "clipboard");
-        setCardColor(typeof nextMeta.cardColor === "string" ? nextMeta.cardColor : "default");
-        setBaseSections(loadedSections);
-        setBaseVersion(data.template.version || 1);
-        setHasAudits(data.lock.hasAudits);
-        setAuditCount(data.lock.auditCount);
-        setBuilderResetKey(`edit-${data.template.id}-${Date.now()}`);
+        applyLoaded({
+          title: data.template.title || data.template.schema.title || "Add form title",
+          categoryId: data.template.categoryId ?? null,
+          schema: data.template.schema as FormSchemaV1,
+          version: data.template.version || 1,
+          hasAudits: data.lock.hasAudits,
+          auditCount: data.lock.auditCount,
+          templateId: data.template.id,
+        });
       })
-      .catch((err) => setError(err?.message || "Failed to load template"))
-      .finally(() => setLoadingEditInfo(false));
+      .catch(async (err) => {
+        const ok = await loadFromDeviceCache();
+        if (!ok && !cancelled) setError(err?.message || "Failed to load template");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEditInfo(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isEditMode, authLoading, user, accessToken, tenantSlug, editTemplateId, online]);
 
   async function handleSave(): Promise<boolean> {
@@ -837,12 +868,17 @@ function NewTemplatePageInner() {
 
       const savedTemplateId = (data?.templateId as string | undefined) || editTemplateId || "";
       if (savedTemplateId) {
-        patchWorkspaceTemplateCaches(userId, tenantSlug, {
-          id: savedTemplateId,
-          title,
-          categoryId: selectedCategoryId ?? null,
-          updatedAt: new Date().toISOString(),
-        });
+        patchWorkspaceTemplateCaches(
+          userId,
+          tenantSlug,
+          {
+            id: savedTemplateId,
+            title,
+            categoryId: selectedCategoryId ?? null,
+            updatedAt: new Date().toISOString(),
+          },
+          { replaceLocalId: offlineDraftTemplateId }
+        );
       }
 
       if (!isEditMode && builderDraftKey) {
@@ -853,20 +889,7 @@ function NewTemplatePageInner() {
         }
       }
 
-      // Clear all workspace caches for this tenant to force fresh data
-      try {
-        const userId = user?.id ?? null;
-        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:`;
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-          }
-        }
-      } catch {
-        // ignore cache clear failures
-      }
-
+      requestWorkspaceRevalidate(tenantSlug);
       writeWorkspaceNotice(isEditMode ? "Form changes saved." : "Form created successfully.", "success");
       const next = new URLSearchParams();
       next.set("tenantSlug", tenantSlug);
@@ -955,13 +978,26 @@ function NewTemplatePageInner() {
         ? schema.meta
         : {};
     const nextFormType = parseFormType(meta.formType);
+    const nextTitle = (data?.title as string) || schema?.title || "Imported Form";
+    const nextFormStyle = (meta.formStyle as FormStyle) || "default";
+    const nextCardIcon = typeof meta.cardIcon === "string" ? meta.cardIcon : getFormBuilderConfig(nextFormType).cardIcon;
+    const nextCardColor = typeof meta.cardColor === "string" ? meta.cardColor : "default";
 
-    setTitle((data?.title as string) || schema?.title || "Imported Form");
+    setAiBuilderDraft({
+      title: nextTitle,
+      sections: importedSections,
+      formType: nextFormType,
+      formStyle: nextFormStyle,
+      cardIcon: nextCardIcon,
+      cardColor: nextCardColor,
+      schemaMeta: { ...meta },
+    });
+    setTitle(nextTitle);
     setSections(importedSections);
     setFormType(nextFormType);
-    setFormStyle((meta.formStyle as FormStyle) || "default");
-    setCardIcon(typeof meta.cardIcon === "string" ? meta.cardIcon : getFormBuilderConfig(nextFormType).cardIcon);
-    setCardColor(typeof meta.cardColor === "string" ? meta.cardColor : "default");
+    setFormStyle(nextFormStyle);
+    setCardIcon(nextCardIcon);
+    setCardColor(nextCardColor);
     setSchemaMeta({});
     setBaseSections(importedSections);
     setBuilderResetKey(`${resetKeyPrefix}-${Date.now()}`);
@@ -1109,6 +1145,14 @@ function NewTemplatePageInner() {
       setError("Describe your form, attach a PDF/JPG/PNG, or both.");
       return;
     }
+    if (prompt && isLikelyGarbageAiPrompt(prompt)) {
+      setError("Please give a real form description or attach a readable document so the AI can build a usable draft.");
+      return;
+    }
+    if (prompt && !looksLikeMeaningfulFormRequest(prompt)) {
+      setError("This does not look like a usable form request. Please describe the form more clearly or attach a document.");
+      return;
+    }
 
     const displayContent =
       prompt || (aiSourceFile ? `Attached ${aiSourceFile.name}` : "");
@@ -1200,6 +1244,15 @@ function NewTemplatePageInner() {
       .map((q) => `${q.question} → ${aiAnswers[q.id]}`)
       .join("\n");
 
+    if (!answerSummary.trim() && !aiPrompt.trim() && !aiSourceFile) {
+      setError("Please provide a real form description or attachment before generating.");
+      return;
+    }
+    if (aiPrompt.trim() && isLikelyGarbageAiPrompt(aiPrompt.trim())) {
+      setError("Please give a real form description or attach a readable document so the AI can build a usable draft.");
+      return;
+    }
+
     setAiMessages((prev) => [
       ...prev,
       { id: `answers-${Date.now()}`, role: "user", content: answerSummary },
@@ -1238,6 +1291,19 @@ function NewTemplatePageInner() {
     }
   }
 
+  function isLikelyGarbageAiPrompt(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (trimmed.length < 8) return true;
+    const lowSignal = /^(hello|hi|test|demo|asdf|qwerty|random|junk|nothing|sample|placeholder|form)$/i.test(trimmed);
+    if (lowSignal) return true;
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return true;
+
+    const hasMeaningfulWord = /(checklist|inspection|report|log|safety|temperature|form|table|field|header|date|shift|incident|survey|audit|training|supplier|staff|photo|document|inventory|delivery|visitor|recipe|schedule)/i.test(trimmed);
+    return !hasMeaningfulWord;
+  }
+
   function handleAiExampleSelect(example: ExamplePrompt) {
     setAiPrompt(example.prompt);
   }
@@ -1251,10 +1317,20 @@ function NewTemplatePageInner() {
   async function openAiGenerateModal() {
     setError("");
     setAiExtraction(null);
+    if (offline || (typeof navigator !== "undefined" && !navigator.onLine)) {
+      setError("AI form creation needs an internet connection. You can still build forms manually offline.");
+      return;
+    }
     resetAiModalState();
-    const allowed = await refreshAiQuota();
-    if (!allowed) return;
+    setBuilderMode("ai");
+    // Open instantly — quota refresh runs in the background so the engine feels immediate.
     setShowAiGenerate(true);
+    void refreshAiQuota().then((allowed) => {
+      if (!allowed) {
+        setShowAiGenerate(false);
+        setBuilderMode("choose");
+      }
+    });
   }
 
   function closeAiGenerateModal() {
@@ -1264,15 +1340,32 @@ function NewTemplatePageInner() {
     resetAiModalState();
   }
 
-  function openManualBuilderMode() {
+  function openManualBuilderMode(useAiDraft = false) {
     setBuilderMode("manual");
     setShowAiCompleteModal(false);
     setShowAiGenerate(false);
+
+    if (useAiDraft && aiBuilderDraft) {
+      setTitle(aiBuilderDraft.title);
+      setSections(aiBuilderDraft.sections);
+      setFormType(aiBuilderDraft.formType);
+      setFormStyle(aiBuilderDraft.formStyle);
+      setCardIcon(aiBuilderDraft.cardIcon);
+      setCardColor(aiBuilderDraft.cardColor);
+      setSchemaMeta(aiBuilderDraft.schemaMeta);
+      setBuilderResetKey(`manual-ai-${Date.now()}`);
+      return;
+    }
+
+    setAiBuilderDraft(null);
+    setSections(blankCanvasForType(formType));
     setBuilderResetKey(`manual-${Date.now()}`);
   }
 
-  const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim() || builderBlockedSmallScreen;
-  const showBuilderModeChooser = !isEditMode && builderMode === "choose" && !sections.length;
+  const disableSave = saving || workspaceLoading || loadingEditInfo || !title.trim();
+  // Keep the AI/Manual cards visible while the Form Engine sheet is open (no empty builder flash).
+  const showBuilderModeChooser =
+    !isEditMode && !sections.length && (builderMode === "choose" || (builderMode === "ai" && showAiGenerate));
 
   function handleFormTypeChange(next: FormType) {
     if (next === formType) return;
@@ -1319,127 +1412,75 @@ function NewTemplatePageInner() {
       <div className="overflow-visible">
         <div className="grid grid-cols-1">
           <div className="min-w-0">
-            <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/95 px-3 py-2 backdrop-blur sm:px-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.06] disabled:opacity-50"
-                  disabled={saving || loadingEditInfo}
-                  onClick={() => setShowFormTypeModal(true)}
-                >
-                  {getFormBuilderConfig(formType).label}
-                  <ChevronDown className="h-3.5 w-3.5 text-foreground/50" />
-                </button>
-
-                <label className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 text-xs">
-                  <span className="pl-1 text-foreground/55">Style</span>
-                  <select
-                    className="h-6 rounded-md border-0 bg-transparent pr-1 text-xs font-medium text-foreground focus:outline-none"
-                    value={formStyle}
-                    onChange={(e) => setFormStyle(e.target.value as FormStyle)}
-                    disabled={saving || loadingEditInfo}
-                  >
-                    <option value="default">Default</option>
-                    <option value="compact">Compact</option>
-                    <option value="report">Report</option>
-                  </select>
-                </label>
-
-                <div className="flex-1" />
-
-                {!isEditMode ? (
+            {!showBuilderModeChooser ? (
+              <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/95 px-3 py-2 backdrop-blur sm:px-4">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
-                    disabled={generatingAi || saving || workspaceLoading}
-                    onClick={() => void openAiGenerateModal()}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.06] disabled:opacity-50"
+                    disabled={saving || loadingEditInfo}
+                    onClick={() => setShowFormTypeModal(true)}
                   >
-                    {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    {generatingAi ? "Working…" : "Create with AI"}
+                    {getFormBuilderConfig(formType).label}
+                    <ChevronDown className="h-3.5 w-3.5 text-foreground/50" />
                   </button>
-                ) : null}
 
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
-                  onClick={() => setShowFormPreview(true)}
-                  disabled={workspaceLoading || builderBlockedSmallScreen}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Preview
-                </button>
+                  <label className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 text-xs">
+                    <span className="pl-1 text-foreground/55">Style</span>
+                    <select
+                      className="h-6 rounded-md border-0 bg-transparent pr-1 text-xs font-medium text-foreground focus:outline-none"
+                      value={formStyle}
+                      onChange={(e) => setFormStyle(e.target.value as FormStyle)}
+                      disabled={saving || loadingEditInfo}
+                    >
+                      <option value="default">Default</option>
+                      <option value="compact">Compact</option>
+                      <option value="report">Report</option>
+                    </select>
+                  </label>
 
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
-                  onClick={() => setShowSaveConfirm(true)}
-                  disabled={disableSave}
-                >
-                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {saving ? "Saving…" : isEditMode ? "Save changes" : "Save form"}
-                </button>
-              </div>
-            </div>
+                  <div className="flex-1" />
 
-            {showBuilderModeChooser ? (
-              <div className="p-4 sm:p-6">
-                <div className="mx-auto max-w-3xl rounded-2xl border border-foreground/15 bg-foreground/[0.02] p-5 sm:p-7">
-                  <div className="text-center">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/55">
-                      Start with the fastest path
-                    </div>
-                    <h2 className="mt-3 text-2xl font-semibold text-foreground">Choose how you want to build this form</h2>
-                    <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-foreground/70">
-                      AI mode turns a photo or pasted form into a working draft in seconds, while manual mode keeps the full toolkit available for custom layouts.
-                    </p>
-                  </div>
-
-                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  {!isEditMode ? (
                     <button
                       type="button"
-                      className="rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] p-5 text-left transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_15%,white)]"
-                      onClick={() => {
-                        setBuilderMode("ai");
-                        void openAiGenerateModal();
-                      }}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
+                      disabled={generatingAi || saving || workspaceLoading}
+                      onClick={() => void openAiGenerateModal()}
                     >
-                      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-                        <Sparkles className="h-4 w-4 text-[var(--hse-teal)]" />
-                        AI mode
-                      </div>
-                      <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-[var(--hse-teal)]">
-                        Best for: imported forms and quick drafts
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-foreground/70">
-                        Upload a PDF or photo, or describe the form. ISO Grid focuses on typed labels and keeps static item rows in their original table positions instead of burying them in a separate modal.
-                      </p>
+                      {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {generatingAi ? "Working…" : "Create with AI"}
                     </button>
+                  ) : null}
 
-                    <button
-                      type="button"
-                      className="rounded-xl border border-foreground/15 bg-background p-5 text-left transition hover:bg-foreground/[0.02]"
-                      onClick={() => {
-                        setBuilderMode("manual");
-                        setSections(blankCanvasForType(formType));
-                        setBuilderResetKey(`manual-${Date.now()}`);
-                      }}
-                    >
-                      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-foreground/20 text-[10px]">
-                          M
-                        </span>
-                        Manual mode
-                      </div>
-                      <div className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-foreground/60">
-                        Best for: exact control and layout tweaks
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-foreground/70">
-                        Start from a blank canvas or switch to the full editing toolkit whenever you need to fine-tune fields, tables, signatures, and section layout exactly the way you want.
-                      </p>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
+                    onClick={() => setShowFormPreview(true)}
+                    disabled={workspaceLoading || builderBlockedSmallScreen}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Preview
+                  </button>
+
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+                    onClick={() => setShowSaveConfirm(true)}
+                    disabled={disableSave}
+                  >
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {saving ? "Saving…" : isEditMode ? "Save changes" : "Save form"}
+                  </button>
                 </div>
               </div>
+            ) : null}
+
+            {showBuilderModeChooser ? (
+              <FormBuilderModeChooser
+                onChooseAi={() => void openAiGenerateModal()}
+                onChooseManual={() => openManualBuilderMode(false)}
+              />
             ) : (
               <FormBuilder
                 onChangeSections={setSections}
@@ -1765,11 +1806,38 @@ function NewTemplatePageInner() {
                       </ul>
                     </div>
                   ) : null}
-                  {typeof aiExtraction.staticItemCount === "number" && aiExtraction.staticItemCount > 0 ? (
-                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
-                      {aiExtraction.staticItemCount} static item
-                      {aiExtraction.staticItemCount === 1 ? "" : "s"} were imported into the primary table. Confirm or
-                      edit them in the builder&apos;s Static item list before publishing.
+                  {aiExtraction.staticColumns?.length ||
+                  (typeof aiExtraction.staticItemCount === "number" && aiExtraction.staticItemCount > 0) ? (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-950">
+                      <div className="mb-1 font-semibold text-amber-950">
+                        Printed items were skipped on purpose
+                      </div>
+                      <p>
+                        {aiExtraction.staticColumns?.length === 1 ? (
+                          <>
+                            Column <span className="font-semibold">&quot;{aiExtraction.staticColumns[0]}&quot;</span> looks
+                            like fixed text that stays the same every time (for example a prep-list item column).
+                          </>
+                        ) : aiExtraction.staticColumns && aiExtraction.staticColumns.length > 1 ? (
+                          <>
+                            Columns{" "}
+                            <span className="font-semibold">
+                              {aiExtraction.staticColumns.map((label) => `"${label}"`).join(", ")}
+                            </span>{" "}
+                            look like fixed text that stays the same every time.
+                          </>
+                        ) : (
+                          <>Some table columns look like printed fixed text (items / labels).</>
+                        )}
+                        {typeof aiExtraction.staticItemCount === "number" && aiExtraction.staticItemCount > 0 ? (
+                          <> The source had about {aiExtraction.staticItemCount} printed rows.</>
+                        ) : null}
+                      </p>
+                      <p className="mt-1.5">
+                        I only built the table structure so long lists stay easy to manage. Add those items now in the
+                        builder with <span className="font-semibold">Edit static items</span>, or after you save the
+                        form — they stay on the template and do not clear when someone fills it out.
+                      </p>
                     </div>
                   ) : null}
                   {aiExtraction.uncertainItems?.length ? (
@@ -1785,16 +1853,26 @@ function NewTemplatePageInner() {
                       </ul>
                     </div>
                   ) : null}
-                  {aiExtraction.prefilledContent?.length ? (
-                    <div className="rounded-md border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 text-foreground/75">
-                      <div className="mb-1 font-medium text-foreground/85">Setup tasks from source content</div>
-                      <ul className="list-disc space-y-0.5 pl-4">
-                        {aiExtraction.prefilledContent.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                  {(() => {
+                    const setupTasks = (aiExtraction.prefilledContent || []).filter(
+                      (item) =>
+                        !(
+                          aiExtraction.staticColumns?.length &&
+                          /static|printed items|Edit static items|skipped copying/i.test(item)
+                        ),
+                    );
+                    if (!setupTasks.length) return null;
+                    return (
+                      <div className="rounded-md border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 text-foreground/75">
+                        <div className="mb-1 font-medium text-foreground/85">Setup tasks from source content</div>
+                        <ul className="list-disc space-y-0.5 pl-4">
+                          {setupTasks.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : null}
 
@@ -1802,9 +1880,9 @@ function NewTemplatePageInner() {
                 <button
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => openManualBuilderMode()}
+                  onClick={() => openManualBuilderMode(true)}
                 >
-                  Edit in builder
+                  {aiExtraction?.staticColumns?.length ? "Edit in builder (add items)" : "Edit in builder"}
                 </button>
                 <button
                   type="button"
@@ -1831,7 +1909,7 @@ function NewTemplatePageInner() {
                 <button
                   type="button"
                   className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => openManualBuilderMode()}
+                  onClick={() => openManualBuilderMode(true)}
                 >
                   Edit in builder
                 </button>

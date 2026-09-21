@@ -98,15 +98,18 @@ export function AuditReportPageClient({
 
       let localDisplayable = Boolean(fromStorage || fromList);
       const schemaFromCache = await applyLocal(fromStorage || fromList);
-      if (schemaFromCache) {
+      // Show local payload immediately — do not wait on schema enrichment or network.
+      if (fromStorage || fromList) {
+        setLoading(false);
+      } else if (schemaFromCache) {
         setLoading(false);
       }
 
       const fromDevice = await fromDevicePromise;
       if (fromDevice) {
         localDisplayable = true;
-        const deviceReady = await applyLocal(fromDevice);
-        if (deviceReady) setLoading(false);
+        await applyLocal(fromDevice);
+        if (!cancelled) setLoading(false);
       }
 
       if (offline || !accessToken) {
@@ -215,7 +218,9 @@ export function AuditReportPageClient({
     );
   }
 
-  if (audit && !schemaReady) {
+  // Schema may still be enriching, but never spin forever — AuditReportDisplay
+  // already falls back to a key/value payload view when schema is missing.
+  if (audit && !schemaReady && loading) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-foreground/20 bg-foreground/5 px-3 py-4 text-sm text-foreground/70">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -252,6 +257,7 @@ export function AuditReportPageClient({
         tenantName={audit.tenant.name}
         templateId={audit.templateId}
         payload={audit.payload}
+        schema={schema}
       />
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <Link

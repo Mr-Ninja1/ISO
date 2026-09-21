@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
-import { assessFormSchemaContext, generateFormSchemaFromInput } from "@/lib/ai/generateFormSchema";
+import {
+  assessFormSchemaContext,
+  generateFormSchemaFromInput,
+  looksLikeMeaningfulFormRequest,
+} from "@/lib/ai/generateFormSchema";
 import { getGeminiModelName, isGeminiConfigured } from "@/lib/ai/gemini";
 import { validateSourceDocument } from "@/lib/ai/sourceDocument";
 import { ensureTenantPlan, getAiQuotaStatus, recordAiUsage } from "@/lib/tenantPlan";
@@ -100,6 +104,14 @@ export async function POST(req: Request) {
     if (!prompt && !file) {
       return NextResponse.json(
         { error: "Provide a description, a PDF/JPG/PNG document, or both." },
+        { status: 400 },
+      );
+    }
+    if (prompt && !looksLikeMeaningfulFormRequest(prompt)) {
+      return NextResponse.json(
+        {
+          error: "This does not look like a usable form request. Please describe the form more clearly or attach a document.",
+        },
         { status: 400 },
       );
     }

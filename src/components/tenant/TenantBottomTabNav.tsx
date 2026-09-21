@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useNavCapabilities } from "@/hooks/useNavCapabilities";
+import { buildTenantHref } from "@/lib/client/tenantHref";
 
 function tabClass(active: boolean) {
   return (
@@ -16,18 +17,17 @@ function tabClass(active: boolean) {
 export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
   const pathname = usePathname();
   const caps = useNavCapabilities(tenantSlug);
-  const formsPath = `/${tenantSlug}/audits`;
-  const offlinePath = `/${tenantSlug}/audits/local`;
-  const activityPath = `/${tenantSlug}/activity`;
-  const correctiveActionsPath = `/${tenantSlug}/corrective-actions`;
-  const templatesPath = `/${tenantSlug}/templates`;
+  const formsPath = buildTenantHref(tenantSlug, "audits");
+  const offlinePath = buildTenantHref(tenantSlug, "audits/local");
+  const activityPath = buildTenantHref(tenantSlug, "activity");
+  const correctiveActionsPath = buildTenantHref(tenantSlug, "corrective-actions");
+  const templatesPath = buildTenantHref(tenantSlug, "templates");
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
 
   useEffect(() => {
     setLoadingPath(null);
   }, [pathname]);
 
-  // Safety unlock if soft navigation stalls.
   useEffect(() => {
     if (!loadingPath) return;
     const timer = window.setTimeout(() => setLoadingPath(null), 4000);
@@ -38,12 +38,22 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
     setLoadingPath(path);
   };
 
+  const pathActive = (href: string) => {
+    if (!pathname) return false;
+    try {
+      const target = new URL(href, "https://local.invalid");
+      return pathname.startsWith(target.pathname);
+    } catch {
+      return pathname.includes(href.split("?")[0] || href);
+    }
+  };
+
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-[var(--hse-cream)]/98 p-2 md:hidden">
       <div className="mx-auto flex max-w-[760px] items-center gap-1">
         <Link
           href={formsPath}
-          className={tabClass(pathname?.startsWith(formsPath) ?? false)}
+          className={tabClass(pathActive(formsPath) && !pathActive(offlinePath))}
           onClick={() => handleLinkClick(formsPath)}
           prefetch
         >
@@ -52,7 +62,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
         </Link>
         <Link
           href={offlinePath}
-          className={tabClass(pathname?.startsWith(offlinePath) ?? false)}
+          className={tabClass(pathActive(offlinePath))}
           onClick={() => handleLinkClick(offlinePath)}
           prefetch
         >
@@ -62,7 +72,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canSeeAdminRoutes ? (
           <Link
             href={activityPath}
-            className={tabClass(pathname?.startsWith(activityPath) ?? false)}
+            className={tabClass(pathActive(activityPath))}
             onClick={() => handleLinkClick(activityPath)}
             prefetch
           >
@@ -73,7 +83,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canSeeAdminRoutes ? (
           <Link
             href={correctiveActionsPath}
-            className={tabClass(pathname?.startsWith(correctiveActionsPath) ?? false)}
+            className={tabClass(pathActive(correctiveActionsPath))}
             onClick={() => handleLinkClick(correctiveActionsPath)}
             prefetch
           >
@@ -84,7 +94,7 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
         {caps.canCreateForms ? (
           <Link
             href={templatesPath}
-            className={tabClass(pathname === templatesPath)}
+            className={tabClass(pathActive(templatesPath))}
             onClick={() => handleLinkClick(templatesPath)}
             prefetch
           >

@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { flushAuditSyncQueue, getPendingAuditSyncCount } from "@/lib/client/auditSyncQueue";
+import {
+  AUDIT_OUTBOX_CHANGED_EVENT,
+  flushAuditSyncQueue,
+  getPendingAuditSyncCountAsync,
+  notifyAuditOutboxChanged,
+} from "@/lib/client/auditSyncQueue";
 import { flushTemplateSyncQueue, getPendingTemplateSyncCount } from "@/lib/client/templateSyncQueue";
 import {
   flushBackgroundMutationQueue,
@@ -15,12 +20,9 @@ import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOfflin
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
-function readPendingCount() {
-  return (
-    getPendingAuditSyncCount() +
-    getPendingTemplateSyncCount() +
-    getPendingBackgroundMutationCount()
-  );
+async function readPendingCountAsync() {
+  const auditPending = await getPendingAuditSyncCountAsync();
+  return auditPending + getPendingTemplateSyncCount() + getPendingBackgroundMutationCount();
 }
 
 type WorkspaceData = {
@@ -84,8 +86,14 @@ export function BackgroundSyncManager() {
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
 
+    let cancelled = false;
+
     const updateOnline = () => setOnline(!isAppOffline());
-    const refreshPending = () => setPendingCount(readPendingCount());
+    const refreshPending = () => {
+      void readPendingCountAsync().then((count) => {
+        if (!cancelled) setPendingCount(count);
+      });
+    };
 
     updateOnline();
     refreshPending();
@@ -93,13 +101,16 @@ export function BackgroundSyncManager() {
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOnline);
     window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, updateOnline);
+    window.addEventListener(AUDIT_OUTBOX_CHANGED_EVENT, refreshPending);
 
     const poll = window.setInterval(refreshPending, 8_000);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("online", updateOnline);
       window.removeEventListener("offline", updateOnline);
       window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, updateOnline);
+      window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, refreshPending);
       window.clearInterval(poll);
     };
   }, []);
@@ -159,6 +170,7 @@ export function BackgroundSyncManager() {
       if (!active) return;
       setSyncing(true);
       try {
+        // Always flush audit outbox when online — do not gate on localStorage-only counts.
         await flushAuditSyncQueue(accessToken);
         await flushTemplateSyncQueue(accessToken);
         await flushBackgroundMutationQueue(accessToken);
@@ -166,19 +178,17 @@ export function BackgroundSyncManager() {
       } finally {
         if (!active) return;
         setSyncing(false);
-        setPendingCount(readPendingCount());
+        const count = await readPendingCountAsync();
+        if (active) setPendingCount(count);
+        notifyAuditOutboxChanged();
       }
     };
 
     const maybeFlush = () => {
-      if (readPendingCount() > 0) {
-        flushAll().catch(() => {
-          if (!active) return;
-          setSyncing(false);
-        });
-      } else {
-        setPendingCount(0);
-      }
+      flushAll().catch(() => {
+        if (!active) return;
+        setSyncing(false);
+      });
     };
 
     maybeFlush();

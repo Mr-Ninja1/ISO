@@ -67,12 +67,7 @@ export function collectReportEvidencePhotos(
   return out;
 }
 
-export function reportFieldSpansFullWidth(field: FieldDef): boolean {
-  return field.type === "signature" || field.type === "photo" || field.type === "dynamic-table";
-}
-
-export function reportFieldCellClass(field: FieldDef, sectionColumns?: number): string {
-  if (!reportFieldSpansFullWidth(field)) return "";
-  if (!sectionColumns || sectionColumns <= 1) return "col-span-1";
-  return "col-span-full";
-}
+export {
+  fieldSpansFullWidth as reportFieldSpansFullWidth,
+  reportFieldCardClass as reportFieldCellClass,
+} from "@/lib/fieldLayout";

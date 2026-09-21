@@ -72,6 +72,7 @@ function SignatureModal({
               {...SIGNATURE_CANVAS_PEN}
               canvasProps={{
                 className: "h-56 w-full",
+                style: { touchAction: "none" },
               }}
             />
           </div>
@@ -189,13 +190,13 @@ export function GridField({
     const cellInputClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
     const cellSelectClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
 
-    if (col.readOnly) {
+    const isLegacyStaticCell = col.readOnly === true && col.type !== "display";
+    if (isLegacyStaticCell || col.type === "static") {
       return (
         <input
           type="text"
-          readOnly
-          tabIndex={-1}
-          className={`${cellHeight} w-full bg-foreground/5 px-2 text-sm text-center outline-none`}
+          className={`${cellHeight} w-full bg-background px-2 text-sm text-center outline-none`}
+          placeholder={col.type === "static" ? "Static value" : undefined}
           {...register(cellName as any)}
         />
       );

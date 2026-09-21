@@ -1,6 +1,8 @@
 "use client";
 
 import { apiUrl } from "@/lib/client/apiBase";
+import { patchWorkspaceTemplateCaches } from "@/lib/client/workspaceCache";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 type TemplateSyncMode = "create" | "save-changes";
 
 type TemplateSyncPayload = {
@@ -193,7 +195,27 @@ export async function flushTemplateSyncQueue(accessToken: string) {
         const data = (await res.json().catch(() => ({}))) as { templateId?: string };
         if (item.payload.templateId && data?.templateId) {
           localIdToServerId.set(item.payload.templateId, data.templateId);
+          patchWorkspaceTemplateCaches(
+            null,
+            item.payload.tenantSlug,
+            {
+              id: data.templateId,
+              title: item.payload.title,
+              categoryId: item.payload.categoryId,
+              updatedAt: new Date().toISOString(),
+            },
+            { replaceLocalId: item.payload.templateId }
+          );
+          requestWorkspaceRevalidate(item.payload.tenantSlug);
         }
+      } else if (item.mode === "save-changes" && item.payload.templateId) {
+        patchWorkspaceTemplateCaches(null, item.payload.tenantSlug, {
+          id: String(payload.templateId),
+          title: item.payload.title,
+          categoryId: item.payload.categoryId,
+          updatedAt: new Date().toISOString(),
+        });
+        requestWorkspaceRevalidate(item.payload.tenantSlug);
       }
 
       processed += 1;

@@ -33,6 +33,7 @@ const FIELD_TYPES = new Set([
   "checkbox",
   "yesno",
   "time",
+  "static",
   "display",
   "dynamic-table",
 ]);
@@ -47,8 +48,12 @@ const GRID_COLUMN_TYPES = new Set([
   "checkbox",
   "yesno",
   "time",
+  "static",
   "display",
 ]);
+
+const STATIC_COLUMN_LABEL =
+  /^(item|items|equipment|task|tasks|area|product|ingredient|description|uom|unit(?: of measure)?|unit of measure)$/i;
 
 const DISPLAY_VARIANTS = new Set<DisplayVariant>(["title", "subtitle", "body", "caption", "code"]);
 const FORM_TYPES = new Set<FormType>([
@@ -81,7 +86,9 @@ function coerceFieldType(raw: unknown, gridColumn: boolean, labelText = ""): str
   const signLike = /(sign(?:ature)?|signed by|approved by|checked by|initials|sup sign|hseq sign|inspector|supervisor|manager(?: sign)?)/i.test(labelText);
   const dayLike = /(mon|tue|wed|thu|fri|sat|sun|day|week|month|year|shift|am|pm|time|date|frequency|qty|quantity|count|hours?|minutes?)/i.test(labelText);
 
+  // Non-grid "static" means display copy; grid "static" is a seeded column datatype.
   if (!gridColumn && (typeRaw === "label" || typeRaw === "static" || typeRaw === "instruction")) return "display";
+  if (gridColumn && (typeRaw === "static" || typeRaw === "static-text" || typeRaw === "static_text")) return "static";
   if (gridColumn && typeRaw === "dynamic-table") return "text";
   if (gridColumn && signLike && (typeRaw === "checkbox" || typeRaw === "yesno" || typeRaw === "text" || !typeRaw)) return "signature";
   if (gridColumn && typeRaw === "checkbox" && dayLike && !signLike) return "text";
@@ -118,7 +125,7 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
     type: resolvedType as SimpleFieldDef["type"],
     label,
     required: obj.required === true,
-    readOnly: obj.readOnly === true ? true : undefined,
+    readOnly: obj.readOnly === true && resolvedType !== "static" ? true : undefined,
   };
 
   const looksLikeCompleteStaticLabel =
@@ -138,6 +145,14 @@ function sanitizeSimpleField(raw: unknown, index: number, gridColumn: boolean): 
         : staticLabel || staticValueText,
       variant: "body",
     } as SimpleFieldDef;
+  }
+
+  if (resolvedType === "static") {
+    return { ...base, type: "static" } as SimpleFieldDef;
+  }
+
+  if (gridColumn && obj.readOnly === true && (resolvedType === "text" || resolvedType === "display")) {
+    return { ...base, type: "static" } as SimpleFieldDef;
   }
 
   if (resolvedType === "temp") {
@@ -204,24 +219,12 @@ function sanitizeSeedRows(
 
 function sanitizePrintedRows(
   raw: unknown,
-  columns: SimpleFieldDef[],
+  _columns: SimpleFieldDef[],
 ): Array<Record<string, string | number | boolean>> | undefined {
-  if (!Array.isArray(raw) || !raw.length || !columns.length) return undefined;
-  const objectRows = raw.filter((item) => item && typeof item === "object" && !Array.isArray(item));
-  if (objectRows.length) return sanitizeSeedRows(objectRows, columns);
-
-  const itemColumn =
-    columns.find((column) => column.readOnly)?.id ||
-    columns.find((column) => /item|equipment|task|area|name|description/i.test(column.label))?.id ||
-    columns[0]?.id;
-  if (!itemColumn) return undefined;
-
-  const rows = raw
-    .map((item) => (typeof item === "string" || typeof item === "number" || typeof item === "boolean" ? item : null))
-    .filter((item): item is string | number | boolean => item !== null)
-    .slice(0, MAX_SEED_ROWS)
-    .map((item) => ({ [itemColumn]: item }));
-  return rows.length ? rows : undefined;
+  // Ignore table cell values / printed item lists entirely. The AI should create the
+  // structure and leave the actual content for the user to paste into the builder later.
+  void raw;
+  return undefined;
 }
 
 function dynamicTableToGrid(raw: Record<string, unknown>, index: number): FormSection | null {
@@ -300,22 +303,26 @@ function sanitizeSections(raw: unknown): FormSection[] {
         .filter((col): col is SimpleFieldDef => Boolean(col));
       if (!columns.length) return;
 
-      const seedRows =
-        sanitizeSeedRows(obj.seedRows, columns) ||
-        sanitizePrintedRows(obj.staticItems ?? obj.printedItems ?? obj.items ?? obj.rows, columns);
-      const seededColumnId = seedRows?.length
-        ? columns.find((column) => column.readOnly)?.id ||
-          columns.find((column) => /item|equipment|task|area|name|description/i.test(column.label))?.id ||
-          columns[0]?.id
-        : undefined;
-      const normalizedColumns = seededColumnId
-        ? columns.map((column) =>
-            column.id === seededColumnId ? ({ ...column, readOnly: true } as SimpleFieldDef) : column,
-          )
-        : columns;
+      // Ignore table values entirely; only detect structure. If the table has a fixed
+      // item / prep / equipment column, keep that column type as static without copying
+      // the actual values into the generated schema.
+      const staticColumnId =
+        columns.find((column) => column.type === "static")?.id ||
+        columns.find((column) => column.readOnly)?.id ||
+        columns.find((column) => STATIC_COLUMN_LABEL.test(column.label.trim()))?.id ||
+        columns.find((column) => /item|equipment|task|area|product|ingredient|description|uom|unit/i.test(column.label))?.id ||
+        columns[0]?.id;
+
+      const normalizedColumns = columns.map((column) =>
+        column.id === staticColumnId || column.type === "static" || column.readOnly
+          ? ({ ...column, type: "static" } as SimpleFieldDef)
+          : column,
+      );
+
+      const hasStaticColumn = normalizedColumns.some((column) => column.type === "static");
       const rowsRaw = obj.rows;
       const rows =
-        seedRows?.length
+        hasStaticColumn
           ? "dynamic"
           : rowsRaw === "dynamic"
             ? "dynamic"
@@ -327,7 +334,8 @@ function sanitizeSections(raw: unknown): FormSection[] {
         title: typeof obj.title === "string" ? obj.title : "Data table",
         rows,
         columns: normalizedColumns,
-        seedRows,
+        // AI builds structure only — leave seedRows empty for the user to paste/edit.
+        seedRows: undefined,
       });
       sections.push(...gridSections);
       return;
@@ -349,9 +357,29 @@ function sanitizeSections(raw: unknown): FormSection[] {
 
     if (inlineFields.length) {
       const columnsRaw = Number(obj.columns);
-      const columns = (
+      let columns = (
         columnsRaw >= 2 && columnsRaw <= 4 ? columnsRaw : columnsRaw > 4 ? 4 : 1
       ) as 1 | 2 | 3 | 4;
+
+      // Paper-style headers: short labels should pack into 2–4 columns, not one tall stack.
+      if (columns === 1 && inlineFields.length >= 3) {
+        const shortCount = inlineFields.filter((field) => {
+          if (field.type === "photo" || field.type === "signature" || field.type === "dynamic-table") {
+            return false;
+          }
+          if (field.type === "text" && field.multiline) return false;
+          const labelLen = (field.label || "").trim().length;
+          if (field.type === "display") {
+            const content = `${(field as { content?: string }).content || field.label || ""}`.trim();
+            return content.length > 0 && content.length <= 96;
+          }
+          return labelLen > 0 && labelLen <= 28;
+        }).length;
+        if (shortCount >= Math.ceil(inlineFields.length * 0.6)) {
+          columns = inlineFields.length >= 5 ? 4 : 2;
+        }
+      }
+
       sections.push({
         type: "fields",
         title: typeof obj.title === "string" ? obj.title : "Fields",
@@ -471,6 +499,27 @@ export function sanitizeAiFormSchema(raw: unknown, fallbackTitle = "Generated fo
   return schema;
 }
 
+export function looksLikeMeaningfulFormRequest(prompt: string): boolean {
+  const cleaned = prompt
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return false;
+
+  const words = cleaned.split(/\s+/).filter((word) => word.length > 1);
+  if (words.length < 2) return false;
+
+  const weakPhrases = /(asdf|qwer|zxcv|lorem|ipsum|test test|blah|junk|random|garbage|xxxxx+)/i;
+  if (weakPhrases.test(cleaned)) return false;
+
+  const nonsenseWordCount = words.filter((word) => !/[aeiou]/i.test(word) && word.length <= 3).length;
+  if (words.length >= 4 && nonsenseWordCount >= Math.max(2, Math.ceil(words.length * 0.6))) return false;
+
+  return true;
+}
+
 function buildAssessPromptParts(options: { prompt?: string; hasImage?: boolean }) {
   const parts: string[] = [FORM_CLARIFICATION_ASSESS_PROMPT, ""];
 
@@ -500,7 +549,7 @@ function buildUserPromptParts(options: {
     );
   } else if (options.hasImage) {
     parts.push(
-      "Extract an information-preserving digital form from the attached PDF/image. Prefer one primary grid for repeated rows/item lists. Use seedRows + readOnly for printed static item lists. Include an extraction summary.",
+      "Extract an information-preserving digital form from the attached PDF/image. Prefer one primary grid for repeated rows/item lists. Preserve every meaningful data column and never silently drop a table column when simplifying. Only mark printed item/UOM columns as type \"static\". Do NOT fill seedRows with long item lists — the user adds those in the builder. Include an extraction summary with staticItemCount when a printed list was detected.",
     );
   } else if (options.prompt?.trim()) {
     parts.push(`User request:\n${options.prompt.trim()}`);
@@ -642,6 +691,18 @@ function parseDocumentAnalysis(raw: unknown): AiDocumentAnalysis | undefined {
 function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractionSummary | undefined {
   const obj = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
 
+  const staticColumnLabels: string[] = [];
+  for (const section of schema.sections || []) {
+    if (section.type !== "grid") continue;
+    for (const column of section.columns) {
+      if (column.type === "static" || column.readOnly) {
+        const label = (column.label || column.id || "Column").trim();
+        if (label && !staticColumnLabels.includes(label)) staticColumnLabels.push(label);
+      }
+    }
+  }
+  const staticColumnCount = staticColumnLabels.length;
+
   const staticItemCountFromSchema = (schema.sections || []).reduce((sum, section) => {
     if (section.type !== "grid" || !section.seedRows?.length) return sum;
     return sum + section.seedRows.length;
@@ -654,7 +715,7 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
     ? obj!.adaptations.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
     : [];
   const analysis = parseDocumentAnalysis(obj?.analysis);
-  const prefilledContent = Array.isArray(obj?.prefilledContent)
+  let prefilledContent = Array.isArray(obj?.prefilledContent)
     ? obj!.prefilledContent.map((item) => String(item).trim()).filter(Boolean).slice(0, 30)
     : [];
 
@@ -663,14 +724,47 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
       ? Math.max(0, Math.floor(obj.staticItemCount))
       : staticItemCountFromSchema || undefined;
 
+  const namedColumns =
+    staticColumnLabels.length === 0
+      ? ""
+      : staticColumnLabels.length === 1
+        ? `"${staticColumnLabels[0]}"`
+        : staticColumnLabels.slice(0, -1).map((l) => `"${l}"`).join(", ") +
+          ` and "${staticColumnLabels[staticColumnLabels.length - 1]}"`;
+
+  if (staticColumnCount > 0) {
+    const tip = namedColumns
+      ? `Column ${namedColumns} looks like printed fixed text (items / labels that stay the same every time). I built the table structure but skipped copying those long lists — add them in the builder with “Edit static items”, or after you save the form.`
+      : "Some table columns look like printed fixed text. Add those items in the builder with “Edit static items”, or after you save the form.";
+    // Replace older generic tips so the named-column message is what users see.
+    prefilledContent = [
+      tip,
+      ...prefilledContent.filter(
+        (line) => !/static item list|paste printed|static text column/i.test(line),
+      ),
+    ].slice(0, 30);
+  }
+
   const summary =
     typeof obj?.summary === "string" && obj.summary.trim()
       ? obj.summary.trim()
-      : staticItemCountFromSchema
-        ? `Form structure created with ${staticItemCountFromSchema} static item row${staticItemCountFromSchema === 1 ? "" : "s"}. Review the builder before saving.`
-        : undefined;
+      : staticColumnCount
+        ? namedColumns
+          ? `Structure ready. Column ${namedColumns} is static text — add the printed items in the builder (or after saving).`
+          : `Form structure created with ${staticColumnCount} static text column${staticColumnCount === 1 ? "" : "s"}. Add printed items in the builder before publishing.`
+        : staticItemCountFromSchema
+          ? `Form structure created with ${staticItemCountFromSchema} static item row${staticItemCountFromSchema === 1 ? "" : "s"}. Review the builder before saving.`
+          : undefined;
 
-  if (!summary && !analysis && !adaptations.length && !uncertainItems.length && !prefilledContent.length && !staticItemCount) {
+  if (
+    !summary &&
+    !analysis &&
+    !adaptations.length &&
+    !uncertainItems.length &&
+    !prefilledContent.length &&
+    !staticItemCount &&
+    !staticColumnCount
+  ) {
     return undefined;
   }
 
@@ -683,6 +777,7 @@ function parseExtractionSummary(raw: unknown, schema: FormSchemaV1): AiExtractio
     uncertainItems: uncertainItems.length ? uncertainItems : undefined,
     prefilledContent: prefilledContent.length ? prefilledContent : undefined,
     staticItemCount,
+    staticColumns: staticColumnLabels.length ? staticColumnLabels : undefined,
   };
 }
 

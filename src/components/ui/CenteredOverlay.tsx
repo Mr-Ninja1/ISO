@@ -11,6 +11,13 @@ type Props = {
   maxWidthClass?: string;
   /** z-index layer — defaults above tenant chrome */
   zIndexClass?: string;
+  /**
+   * sheet = near full-screen on phones (AI engines, immersive flows).
+   * dialog = compact centered card (default).
+   */
+  variant?: "dialog" | "sheet";
+  /** Extra classes merged onto the panel (e.g. overflow-hidden for flex column children). */
+  panelClassName?: string;
 };
 
 /**
@@ -22,6 +29,8 @@ export function CenteredOverlay({
   children,
   maxWidthClass = "max-w-md",
   zIndexClass = "z-[100]",
+  variant = "dialog",
+  panelClassName = "",
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -43,20 +52,36 @@ export function CenteredOverlay({
 
   if (!open || typeof document === "undefined") return null;
 
+  const isSheet = variant === "sheet";
+
   return createPortal(
     <div
-      className={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-4 sm:p-6`}
+      className={
+        `fixed inset-0 ${zIndexClass} flex items-end justify-center sm:items-center ` +
+        (isSheet ? "p-0 sm:p-5" : "p-4 sm:p-6")
+      }
       role="dialog"
       aria-modal="true"
     >
       <button
         type="button"
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className={
+          "absolute inset-0 backdrop-blur-[2px] " +
+          (isSheet ? "bg-slate-900/50" : "bg-slate-900/40")
+        }
         aria-label="Close"
         onClick={onClose}
       />
       <div
-        className={`relative w-full ${maxWidthClass} max-h-[min(90vh,720px)] overflow-y-auto rounded-xl border border-foreground/15 bg-background shadow-2xl`}
+        className={
+          `relative w-full border border-foreground/15 bg-background shadow-2xl ` +
+          maxWidthClass +
+          " " +
+          (isSheet
+            ? "flex max-h-[100dvh] flex-col overflow-hidden rounded-t-2xl sm:max-h-[min(92dvh,860px)] sm:rounded-2xl"
+            : "max-h-[min(90vh,720px)] overflow-y-auto rounded-xl") +
+          (panelClassName ? ` ${panelClassName}` : "")
+        }
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >

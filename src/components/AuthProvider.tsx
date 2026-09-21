@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { setAuthHydrating } from "@/lib/client/nativeStartupGate";
 
 type AuthContextType = {
   session: Session | null;
@@ -92,6 +93,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return !hasPersistedAuthCredentials() && !readPersistedSupabaseSession()?.access_token;
   });
   const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    setAuthHydrating(loading);
+    return () => setAuthHydrating(false);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;

@@ -7,6 +7,7 @@ import {
   formatPdfSavedMessage,
   generateAuditReportPdf,
   prefersNativePdfSave,
+  shareSavedPdf,
   warmPdfGenerationLibs,
   type PdfOrientation,
 } from "@/lib/pdfGenerator";
@@ -57,6 +58,10 @@ export function PdfGeneratorButton({
     });
     if (saved?.savedPathLabel) {
       alert(formatPdfSavedMessage(saved.savedPathLabel));
+      if (saved.fileUri) {
+        // Offer share so the file is easy to find on Android.
+        await shareSavedPdf(saved.fileUri, filename).catch(() => false);
+      }
     }
   }
 

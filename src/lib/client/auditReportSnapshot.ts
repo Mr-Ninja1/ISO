@@ -2,6 +2,9 @@
 
 /** Cache a submitted form payload so View report works offline on this device. */
 /** Copy a cached report snapshot to another audit id (e.g. after offline sync). */
+
+import type { FormSchemaV1 } from "@/types/forms";
+
 export function copyAuditReportSnapshot(tenantSlug: string, fromAuditId: string, toAuditId: string) {
   if (typeof window === "undefined" || !tenantSlug || !fromAuditId || !toAuditId || fromAuditId === toAuditId) {
     return;
@@ -28,6 +31,8 @@ export function writeAuditReportSnapshot(
     tenantName?: string;
     templateId?: string;
     payload: Record<string, unknown>;
+    /** Prefer embedding schema so offline open never depends on IndexedDB. */
+    schema?: FormSchemaV1 | null;
   }
 ) {
   if (typeof window === "undefined" || !tenantSlug || !auditId) return;
@@ -42,6 +47,7 @@ export function writeAuditReportSnapshot(
         tenantName: input.tenantName || tenantSlug,
         templateId: input.templateId || null,
         payload: input.payload,
+        schema: input.schema || null,
         ts: Date.now(),
       })
     );

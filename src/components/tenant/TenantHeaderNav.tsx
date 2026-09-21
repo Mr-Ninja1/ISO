@@ -132,14 +132,7 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
         <HeaderMenuItem
           href={templatesBase}
           className={onTemplates ? "bg-foreground text-background" : ""}
-          onClick={(e) => {
-            if (offline) {
-              e.preventDefault();
-              blockOffline("Templates");
-              return;
-            }
-            handleLinkClick(templatesBase);
-          }}
+          onClick={() => handleLinkClick(templatesBase)}
         >
           {loadingPath === templatesBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Templates

@@ -26,15 +26,20 @@ export function parseReportSnapshotFromLocalStorage(tenantSlug: string, auditId:
       tenantName?: string;
       templateId?: string | null;
       payload?: Record<string, unknown>;
+      schema?: FormSchemaV1 | null;
     };
     if (!parsed?.payload || typeof parsed.payload !== "object" || Array.isArray(parsed.payload)) return null;
+    const schema =
+      parsed.schema && typeof parsed.schema === "object" && !Array.isArray(parsed.schema)
+        ? (parsed.schema as FormSchemaV1)
+        : null;
     return {
       id: auditId,
       status: parsed.status || "SUBMITTED",
       createdAt: parsed.createdAt || new Date().toISOString(),
       payload: parsed.payload as Record<string, unknown>,
       tenant: { name: parsed.tenantName || tenantSlug, slug: tenantSlug, logoUrl: null },
-      template: { title: parsed.title || "Form", schema: null },
+      template: { title: parsed.title || "Form", schema },
       templateId: typeof parsed.templateId === "string" ? parsed.templateId : undefined,
     };
   } catch {

@@ -2,6 +2,7 @@
 
 import Dexie, { type Table } from "dexie";
 import type { FormSchemaV1 } from "@/types/forms";
+import { readClientSubmissionId } from "@/lib/submissionMeta";
 
 export type DbTemplateRow = {
   tenantSlug: string;
@@ -30,6 +31,8 @@ export type DbOutboxRow = {
   mode: "draft" | "submit";
   auditId?: string | null;
   payload: Record<string, unknown>;
+  /** Indexed for idempotent enqueue / retry. */
+  clientSubmissionId?: string | null;
   createdAt: number;
   tries: number;
   lastError?: string | null;
@@ -46,6 +49,19 @@ class IsoFormsDb extends Dexie {
       templates: "&key, tenantSlug, templateId, updatedAt, cachedAt",
       drafts: "&key, tenantSlug, templateId, updatedAtLocal",
       outbox: "&id, tenantSlug, templateId, createdAt",
+    });
+    this.version(2).stores({
+      templates: "&key, tenantSlug, templateId, updatedAt, cachedAt",
+      drafts: "&key, tenantSlug, templateId, updatedAtLocal",
+      outbox: "&id, tenantSlug, templateId, createdAt, clientSubmissionId",
+    }).upgrade(async (tx) => {
+      const rows = await tx.table("outbox").toArray();
+      for (const row of rows) {
+        const submissionId = readClientSubmissionId((row as DbOutboxRow).payload);
+        if (submissionId) {
+          await tx.table("outbox").update((row as DbOutboxRow).id, { clientSubmissionId: submissionId });
+        }
+      }
     });
 
     this.templates.mapToClass(class {});
@@ -111,14 +127,52 @@ export async function dbListDraftsForTenant(tenantSlug: string): Promise<DbDraft
   return await db.drafts.where("tenantSlug").equals(tenantSlug).toArray();
 }
 
-export async function dbEnqueueOutbox(row: Omit<DbOutboxRow, "id" | "createdAt" | "tries">): Promise<DbOutboxRow | null> {
+export async function dbFindOutboxByClientSubmissionId(
+  clientSubmissionId: string
+): Promise<DbOutboxRow | null> {
+  const db = getDb();
+  if (!db || !clientSubmissionId.trim()) return null;
+  const byIndex = await db.outbox.where("clientSubmissionId").equals(clientSubmissionId).first();
+  if (byIndex) return byIndex;
+  // Fallback for rows written before the indexed field existed.
+  const all = await db.outbox.toArray();
+  return all.find((row) => readClientSubmissionId(row.payload) === clientSubmissionId) ?? null;
+}
+
+/**
+ * Enqueue (or replace) an outbox row. Same clientSubmissionId never stacks duplicates.
+ */
+export async function dbEnqueueOutbox(
+  row: Omit<DbOutboxRow, "id" | "createdAt" | "tries" | "clientSubmissionId">
+): Promise<DbOutboxRow | null> {
   const db = getDb();
   if (!db) return null;
+
+  const clientSubmissionId = readClientSubmissionId(row.payload);
+  if (clientSubmissionId) {
+    const existing = await dbFindOutboxByClientSubmissionId(clientSubmissionId);
+    if (existing) {
+      const updated: DbOutboxRow = {
+        ...existing,
+        tenantSlug: row.tenantSlug,
+        templateId: row.templateId,
+        mode: row.mode,
+        auditId: row.auditId,
+        payload: row.payload,
+        clientSubmissionId,
+        lastError: null,
+      };
+      await db.outbox.put(updated);
+      return updated;
+    }
+  }
+
   const item: DbOutboxRow = {
     id: `ob_${Math.random().toString(16).slice(2)}_${Date.now()}`,
     createdAt: Date.now(),
     tries: 0,
     lastError: null,
+    clientSubmissionId: clientSubmissionId || null,
     ...row,
   };
   await db.outbox.put(item);

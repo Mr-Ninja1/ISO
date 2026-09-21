@@ -10,6 +10,7 @@ import {
   navigateToPostAuthEntry,
   normalizeAppPathname,
 } from "@/lib/client/appEntryNavigation";
+import { isWithinOtaBootGracePeriod } from "@/lib/capacitor/otaBoot";
 
 export default function Home() {
   const router = useRouter();
@@ -23,8 +24,9 @@ export default function Home() {
 
     navigateToPostAuthEntry((href) => router.replace(href));
 
-    const fallbackMs = user?.id ? 2500 : 1500;
+    const fallbackMs = isWithinOtaBootGracePeriod() ? 12_000 : user?.id ? 2500 : 1500;
     const timeoutId = window.setTimeout(() => {
+      if (isWithinOtaBootGracePeriod()) return;
       const path = normalizeAppPathname(window.location.pathname);
       if (!isAppRootPath(path)) return;
       hardNavigate(user?.id ? "/workspace" : "/login");

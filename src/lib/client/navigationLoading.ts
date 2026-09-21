@@ -6,8 +6,23 @@ type AppRouterLike = {
 };
 
 /** Fire before programmatic navigation so the global progress bar reacts instantly. */
-export function signalNavigationStart() {
+function normalizeHrefPathWithSearch(href: string): string | null {
+  try {
+    const next = new URL(href, window.location.href);
+    return `${next.pathname}${next.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export function signalNavigationStart(href?: string) {
   if (typeof window === "undefined") return;
+
+  const current = `${window.location.pathname}${window.location.search}`;
+  const target = href ? normalizeHrefPathWithSearch(href) : null;
+
+  if (target && current === target) return;
+
   window.dispatchEvent(new CustomEvent(NAVIGATION_START_EVENT));
 }
 
@@ -17,6 +32,14 @@ export function navigateWithFeedback(
   href: string,
   method: "push" | "replace" = "push",
 ) {
-  signalNavigationStart();
+  const current = `${window.location.pathname}${window.location.search}`;
+  const target = normalizeHrefPathWithSearch(href);
+
+  if (target && current === target) {
+    router[method](href);
+    return;
+  }
+
+  signalNavigationStart(href);
   router[method](href);
 }

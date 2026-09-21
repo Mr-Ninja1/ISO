@@ -10,6 +10,7 @@ import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalid
 import { apiUrl } from "@/lib/client/apiBase";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import { buildTenantHref } from "@/lib/client/tenantHref";
+import { removeWorkspaceTemplateFromCaches } from "@/lib/client/workspaceCache";
 
 type TemplateItem = {
   id: string;
@@ -60,6 +61,7 @@ export function TemplateManagementPanel({
           method: "POST",
           body: { tenantSlug, templateId },
         });
+        removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
         setMessage("Offline: delete queued and will sync automatically.");
         return;
       }
@@ -79,6 +81,7 @@ export function TemplateManagementPanel({
       }
 
       setMessage("Form deleted.");
+      removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
       requestWorkspaceRevalidate(tenantSlug);
       router.refresh();
     } catch (err: any) {
@@ -90,6 +93,7 @@ export function TemplateManagementPanel({
           method: "POST",
           body: { tenantSlug, templateId },
         });
+        removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
         setMessage("Offline: delete queued and will sync automatically.");
       } else {
         setMessage(err?.message || "Delete failed");

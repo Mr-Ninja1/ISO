@@ -43,6 +43,7 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
+import { consumeWorkspaceForceRefetch } from "@/lib/client/workspaceCache";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete, markOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
   cacheAllTenantTemplates,
@@ -772,6 +773,17 @@ function WorkspacePageInner() {
     setOptimisticView(null);
   }, [requestedView]);
 
+  useEffect(() => {
+    if (!categoryId) {
+      setUiActiveCategoryId(null);
+      return;
+    }
+
+    if (uiActiveCategoryId && uiActiveCategoryId !== categoryId) {
+      setUiActiveCategoryId(null);
+    }
+  }, [categoryId, uiActiveCategoryId]);
+
   const activeView = optimisticView ?? urlView;
   const isAdminView = activeView === "admin";
   const isFormsView = activeView === "forms";
@@ -1042,10 +1054,18 @@ function WorkspacePageInner() {
           message: result.message || "You already have the latest update.",
           tone: "success",
         });
-      } else if (result.status === "error") {
+      } else if (result.status === "idle") {
         setNotification({
-          title: "Update check failed",
-          message: result.message || "Could not check for updates.",
+          title: "Updates",
+          message: result.message || "Over-the-air updates are only available in the native app.",
+          tone: "default",
+        });
+      } else if (result.status === "error") {
+        const message = result.message || "Could not check for updates.";
+        const needsApk = /newer apk|too old|minimum required|reinstall/i.test(message);
+        setNotification({
+          title: needsApk ? "APK update required" : "Update check failed",
+          message,
           tone: "warning",
         });
       }
@@ -1102,7 +1122,7 @@ function WorkspacePageInner() {
   async function primeOfflineCachesInBackground() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
-    if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug)) {
+    if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
       const missingCategory = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
       );
@@ -1118,7 +1138,7 @@ function WorkspacePageInner() {
       if (
         tenantSlug &&
         isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
-        isTenantTemplateBulkCached(tenantSlug)
+        isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)
       ) {
         setOfflinePreparedAt((prev) => prev ?? "cached");
       }
@@ -1150,16 +1170,22 @@ function WorkspacePageInner() {
         }
       }
 
-      if (!isTenantTemplateBulkCached(tenantSlug)) {
+      if (!isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
         await cacheAllTenantTemplates(accessToken, tenantSlug);
       }
 
-      markOfflineBootstrapComplete(cacheUserId, tenantSlug);
-
-      const now = new Date().toISOString();
-      localStorage.setItem("offlineModeEnabled", "1");
-      localStorage.setItem("offlinePreparedAt", now);
-      setOfflinePreparedAt(now);
+      // Only mark complete when every category slot is actually on-device — otherwise
+      // tab switches still miss cache and fetch over the network.
+      const stillMissing = workspace.categories.some(
+        (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
+      );
+      if (!stillMissing && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
+        markOfflineBootstrapComplete(cacheUserId, tenantSlug);
+        const now = new Date().toISOString();
+        localStorage.setItem("offlineModeEnabled", "1");
+        localStorage.setItem("offlinePreparedAt", now);
+        setOfflinePreparedAt(now);
+      }
     } catch {
       // silent background warm-up
     } finally {
@@ -1186,9 +1212,7 @@ function WorkspacePageInner() {
     setOptimisticView("forms");
     rememberWorkspaceViewPref("forms");
     setOpeningFormsNav(true);
-    startTransition(() => {
-      navigateWithFeedback(router, buildWorkspaceFormsHref(workspace.tenant.slug), "replace");
-    });
+    router.replace(buildWorkspaceFormsHref(workspace.tenant.slug));
   }
 
   function handleOpenAdminView() {
@@ -1197,9 +1221,7 @@ function WorkspacePageInner() {
     setOptimisticView("admin");
     rememberWorkspaceViewPref("admin");
     setOpeningAdminNav(true);
-    startTransition(() => {
-      navigateWithFeedback(router, buildWorkspaceAdminHref(workspace.tenant.slug), "replace");
-    });
+    router.replace(buildWorkspaceAdminHref(workspace.tenant.slug));
   }
 
   function handleSwitchBrand() {
@@ -1259,7 +1281,6 @@ function WorkspacePageInner() {
 
   function handleCreateCustomForm(selectedCategoryId: string | null) {
     if (!workspace) return;
-    if (blockIfOffline("Create custom form")) return;
     setAddFormOpen(false);
     navigateWithFeedback(
       router,
@@ -1954,8 +1975,9 @@ function WorkspacePageInner() {
       categoryId,
       categoryId ? CATEGORY_SWITCH_CACHE_TTL_MS : 2 * 60_000
     );
-    const forceNetworkRefetch = forceWorkspaceNetworkRefetchRef.current;
-    if (forceNetworkRefetch) {
+    const forceNetworkRefetch =
+      forceWorkspaceNetworkRefetchRef.current || consumeWorkspaceForceRefetch(tenantSlug);
+    if (forceWorkspaceNetworkRefetchRef.current) {
       forceWorkspaceNetworkRefetchRef.current = false;
     }
 
@@ -2297,9 +2319,12 @@ function WorkspacePageInner() {
     if (
       offlinePreparedAt &&
       isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
-      isTenantTemplateBulkCached(tenantSlug)
+      isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)
     ) {
-      return;
+      const missingCategory = workspace.categories.some(
+        (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
+      );
+      if (!missingCategory) return;
     }
 
     primeOfflineCachesInBackground();
@@ -2849,7 +2874,6 @@ function WorkspacePageInner() {
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                           onClick={() => {
                             setMenuOpen(false);
-                            if (blockIfOffline("Create custom form")) return;
                             navigateWithFeedback(
                               router,
                               buildTenantHref(tenant.slug, "templates/new", {
@@ -3024,10 +3048,7 @@ function WorkspacePageInner() {
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
                       preserveWorkspaceViewInParams(next, canSeeAdminHub ? "admin" : "forms");
-                      // Defer URL sync so the tab paint is not blocked by App Router work.
-                      startTransition(() => {
-                        router.replace(`/workspace?${next.toString()}`);
-                      });
+                      router.replace(`/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}
                     className={

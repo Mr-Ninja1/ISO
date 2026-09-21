@@ -29,6 +29,8 @@ export type AiExtractionSummary = {
   uncertainItems?: string[];
   prefilledContent?: string[];
   staticItemCount?: number;
+  /** Labels of grid columns marked as static text (for clear user guidance). */
+  staticColumns?: string[];
 };
 
 export type GenerateFormSchemaResult = {

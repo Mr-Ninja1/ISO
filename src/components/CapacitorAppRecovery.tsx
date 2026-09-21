@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { hasPersistedAuthCredentials } from "@/lib/auth";
 import {
   hardNavigate,
@@ -11,18 +10,31 @@ import {
 } from "@/lib/client/appEntryNavigation";
 import { isWithinOtaBootGracePeriod } from "@/lib/capacitor/otaBoot";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { shouldDeferNativeRecovery } from "@/lib/client/nativeStartupGate";
+import { useEffect } from "react";
 
 const RECOVER_KEY = "iso-blank-recover-at:v1";
-const MIN_RECOVER_GAP_MS = 3000;
+const RECOVER_COUNT_KEY = "iso-blank-recover-count:v1";
+const MIN_RECOVER_GAP_MS = 8000;
+const MAX_RECOVERIES_PER_SESSION = 1;
 
+/** Only treat as stuck when the UI is truly frozen — never normal post-auth / OTA boot copy. */
 const STUCK_LOADING_PHRASES = [
-  "taking you to your workspace",
-  "starting iso grid",
-  "loading workspace",
   "restoring your session",
-  "opening workspace",
   "signing in",
   "restoring your brand",
+];
+
+/** Legitimate first-run / OTA boot UI — never treat as a freeze. */
+const ACTIVE_BOOTSTRAP_PHRASES = [
+  "preparing your brand",
+  "starting download",
+  "categories and form cards",
+  "form schemas are cached",
+  "starting iso grid",
+  "taking you to your workspace",
+  "opening workspace",
+  "loading workspace",
 ];
 
 function pageLooksBlank() {
@@ -39,7 +51,14 @@ function pageLooksBlank() {
 function pageLooksStuckOnLoadingShell() {
   if (typeof document === "undefined") return false;
   const text = (document.body.textContent || "").toLowerCase();
+  if (ACTIVE_BOOTSTRAP_PHRASES.some((phrase) => text.includes(phrase))) return false;
   return STUCK_LOADING_PHRASES.some((phrase) => text.includes(phrase));
+}
+
+function pageLooksLikeActiveBootstrap() {
+  if (typeof document === "undefined") return false;
+  const text = (document.body.textContent || "").toLowerCase();
+  return ACTIVE_BOOTSTRAP_PHRASES.some((phrase) => text.includes(phrase));
 }
 
 function isEntryShellPath(path: string, search: string) {
@@ -52,15 +71,31 @@ function isEntryShellPath(path: string, search: string) {
 function shouldForceEntryNavigation() {
   const path = normalizeAppPathname(window.location.pathname);
   const search = window.location.search;
-  if (isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search)) return true;
+  const onEntry = isAppRootPath(path) || isWorkspaceEntryWithoutTenant(path, search);
+  if (!onEntry) return false;
+  return pageLooksBlank() || pageLooksStuckOnLoadingShell();
+}
 
-  // Workspace with a tenant is allowed to show loading shells for several seconds during bootstrap.
-  const stuckOnWorkspaceWithoutTenant = path === "/workspace" && !search.includes("tenantSlug=");
-  return pageLooksStuckOnLoadingShell() && (isAppRootPath(path) || stuckOnWorkspaceWithoutTenant);
+function recoveryCount(): number {
+  try {
+    return Number(sessionStorage.getItem(RECOVER_COUNT_KEY) || "0") || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function bumpRecoveryCount() {
+  try {
+    sessionStorage.setItem(RECOVER_COUNT_KEY, String(recoveryCount() + 1));
+  } catch {
+    // ignore
+  }
 }
 
 function tryRecover(reason: string) {
   if (isWithinOtaBootGracePeriod()) return;
+  if (shouldDeferNativeRecovery()) return;
+  if (pageLooksLikeActiveBootstrap()) return;
 
   let last = 0;
   try {
@@ -71,27 +106,33 @@ function tryRecover(reason: string) {
 
   const now = Date.now();
   if (now - last < MIN_RECOVER_GAP_MS) return;
-
-  try {
-    sessionStorage.setItem(RECOVER_KEY, String(now));
-  } catch {
-    // ignore
-  }
+  if (recoveryCount() >= MAX_RECOVERIES_PER_SESSION) return;
 
   const path = normalizeAppPathname(window.location.pathname);
   const search = window.location.search;
 
   if (shouldForceEntryNavigation()) {
+    try {
+      sessionStorage.setItem(RECOVER_KEY, String(now));
+    } catch {
+      // ignore
+    }
+    bumpRecoveryCount();
     const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
     console.warn(`[CapacitorAppRecovery] Stuck entry (${reason}); navigating to ${target}`);
     hardNavigate(target);
     return;
   }
 
-  // Never bounce users off tenant/deep routes during slow hydration or after OTA.
   if (!isEntryShellPath(path, search)) return;
-
   if (!pageLooksBlank()) return;
+
+  try {
+    sessionStorage.setItem(RECOVER_KEY, String(now));
+  } catch {
+    // ignore
+  }
+  bumpRecoveryCount();
 
   const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
   console.warn(`[CapacitorAppRecovery] Blank entry shell (${reason}); navigating to ${target}`);
@@ -100,7 +141,7 @@ function tryRecover(reason: string) {
 
 /**
  * Recovery for cold start / resume on entry shells only.
- * Does not redirect tenant routes (settings, forms, etc.) to avoid navigation bounce.
+ * Skips OTA boot grace and normal "Starting ISO Grid" / workspace routing shells.
  */
 export function CapacitorAppRecovery() {
   useEffect(() => {
@@ -110,24 +151,22 @@ export function CapacitorAppRecovery() {
       window.setTimeout(() => tryRecover(reason), delayMs);
     };
 
-    scheduleCheck("mount-1", 1200);
-    scheduleCheck("mount-2", 2800);
-    scheduleCheck("mount-3", 5000);
+    scheduleCheck("mount-1", 6000);
+    scheduleCheck("mount-2", 12000);
+    scheduleCheck("mount-3", 20000);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        scheduleCheck("visibility-1", 400);
-        scheduleCheck("visibility-2", 1800);
-        scheduleCheck("visibility-3", 4000);
+        scheduleCheck("visibility-1", 2000);
+        scheduleCheck("visibility-2", 8000);
       }
     };
 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) {
-        scheduleCheck("pageshow-1", 300);
-        scheduleCheck("pageshow-2", 1600);
-        scheduleCheck("pageshow-3", 4200);
+        scheduleCheck("pageshow-1", 2000);
+        scheduleCheck("pageshow-2", 8000);
       }
     });
 
@@ -137,9 +176,8 @@ export function CapacitorAppRecovery() {
       .then(({ App }) =>
         App.addListener("appStateChange", ({ isActive }) => {
           if (isActive) {
-            scheduleCheck("resume-1", 500);
-            scheduleCheck("resume-2", 2200);
-            scheduleCheck("resume-3", 4500);
+            scheduleCheck("resume-1", 2500);
+            scheduleCheck("resume-2", 10000);
           }
         })
       )

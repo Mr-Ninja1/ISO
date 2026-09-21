@@ -41,6 +41,7 @@ import {
   clampColumnWidthPx,
   columnHeaderDisplayLabel,
   isColumnHeaderPlaceholder,
+  isStaticColumn,
 } from "@/lib/formFieldConstants";
 import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
 import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
@@ -121,6 +122,8 @@ function defaultField(fieldType: FieldType): FieldDef {
         content: "",
         textAlign: "left",
       };
+    case "static":
+      return { id, type: "static", label: "Static text", required: false };
     default:
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { id, type: fieldType as any, label: "Field", required: false };
@@ -201,10 +204,10 @@ function defaultMetadataHeaderFields(): FieldDef[] {
 }
 
 function sectionColumnsClass(columns: 1 | 2 | 3 | 4) {
-  if (columns === 1) return "grid grid-cols-1 gap-4";
-  if (columns === 2) return "grid grid-cols-1 gap-4 md:grid-cols-2";
-  if (columns === 3) return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
-  return "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4";
+  if (columns === 1) return "grid grid-cols-1 gap-2";
+  if (columns === 2) return "grid grid-cols-1 gap-2 md:grid-cols-2";
+  if (columns === 3) return "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3";
+  return "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4";
 }
 
 function SectionColumnsSelect({
@@ -759,6 +762,7 @@ function ColumnTypeSelect({
 }) {
   const options: Array<{ value: FieldType; label: string }> = [
     { value: "text", label: "Text" },
+    { value: "static", label: "Static text" },
     { value: "number", label: "Number" },
     { value: "date", label: "Date" },
     { value: "temp", label: "Temp" },
@@ -771,7 +775,7 @@ function ColumnTypeSelect({
   return (
     <select
       className="h-8 w-full rounded-md border border-foreground/20 bg-background px-2 text-xs"
-      value={value}
+      value={value === "display" ? "text" : value}
       onChange={(e) => onChange(e.target.value as FieldType)}
     >
       {options.map((o) => (
@@ -786,11 +790,19 @@ function ColumnTypeSelect({
 function StaticItemListEditor({
   grid,
   onApply,
+  expandSignal,
+  focusColumnId,
 }: {
   grid: GridSection;
   onApply: (next: GridSection, options?: { skipHistory?: boolean }) => void;
+  /** Increment to force-open the editor (e.g. from a column header button). */
+  expandSignal?: number;
+  focusColumnId?: string | null;
 }) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const defaultColumnId =
+    (focusColumnId && grid.columns.some((c) => c.id === focusColumnId) ? focusColumnId : "") ||
+    grid.columns.find((col) => col.type === "static")?.id ||
     grid.columns.find((col) => col.readOnly)?.id ||
     grid.columns.find((col) => col.type === "text" || col.type === "display")?.id ||
     grid.columns[0]?.id ||
@@ -801,16 +813,20 @@ function StaticItemListEditor({
     if (!colId || !grid.seedRows?.length) return "";
     return grid.seedRows.map((row) => String(row[colId] ?? "")).join("\n");
   });
-  const [expanded, setExpanded] = useState(Boolean(grid.seedRows?.length));
+  const hasStatic = grid.columns.some((col) => isStaticColumn(col));
+  const needsItems = hasStatic && !(grid.seedRows?.length);
+  const [expanded, setExpanded] = useState(hasStatic || Boolean(grid.seedRows?.length));
 
   useEffect(() => {
     const nextDefault =
+      (focusColumnId && grid.columns.some((c) => c.id === focusColumnId) ? focusColumnId : "") ||
+      grid.columns.find((col) => col.type === "static")?.id ||
       grid.columns.find((col) => col.readOnly)?.id ||
       grid.columns.find((col) => col.type === "text" || col.type === "display")?.id ||
       grid.columns[0]?.id ||
       "";
     setStaticColumnId((prev) => (grid.columns.some((c) => c.id === prev) ? prev : nextDefault));
-  }, [grid.columns]);
+  }, [grid.columns, focusColumnId]);
 
   useEffect(() => {
     if (!staticColumnId) return;
@@ -818,6 +834,17 @@ function StaticItemListEditor({
       (grid.seedRows || []).map((row) => String(row[staticColumnId] ?? "")).join("\n"),
     );
   }, [grid.seedRows, staticColumnId]);
+
+  useEffect(() => {
+    if (!expandSignal) return;
+    setExpanded(true);
+    if (focusColumnId && grid.columns.some((c) => c.id === focusColumnId)) {
+      setStaticColumnId(focusColumnId);
+    }
+    requestAnimationFrame(() => {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [expandSignal, focusColumnId, grid.columns]);
 
   if (!grid.columns.length) return null;
 
@@ -839,11 +866,12 @@ function StaticItemListEditor({
 
     onApply({
       ...grid,
-      rows: seedRows?.length ? "dynamic" : grid.rows,
+      rows:
+        seedRows?.length || grid.columns.some((col) => isStaticColumn(col))
+          ? "dynamic"
+          : grid.rows,
       columns: grid.columns.map((col) =>
-        col.id === colId
-          ? ({ ...col, readOnly: items.length > 0 ? true : col.readOnly } as SimpleFieldDef)
-          : col,
+        col.id === colId ? ({ ...col, type: "static" } as SimpleFieldDef) : col,
       ),
       seedRows,
     });
@@ -855,36 +883,58 @@ function StaticItemListEditor({
       ...grid,
       seedRows: undefined,
       columns: grid.columns.map((col) =>
-        col.id === staticColumnId ? ({ ...col, readOnly: undefined } as SimpleFieldDef) : col,
+        col.id === staticColumnId ? ({ ...col, type: "text", readOnly: undefined } as SimpleFieldDef) : col,
       ),
     });
   }
 
+  const staticLabels = grid.columns.filter((col) => isStaticColumn(col)).map((col) => col.label || col.id);
+
   return (
-    <div className="mt-3 rounded-md border border-foreground/15 bg-foreground/[0.02] px-3 py-2">
+    <div
+      ref={panelRef}
+      className={
+        "mt-3 rounded-md border px-3 py-2 " +
+        (needsItems
+          ? "border-amber-300 bg-amber-50/80"
+          : hasStatic
+            ? "border-amber-200/80 bg-amber-50/40"
+            : "border-foreground/15 bg-foreground/[0.02]")
+      }
+    >
       <button
         type="button"
         className="flex w-full items-center justify-between gap-2 text-left"
         onClick={() => setExpanded((v) => !v)}
       >
         <div>
-          <div className="text-xs font-semibold text-foreground/80">Static item list</div>
-          <div className="text-[11px] text-foreground/55">
-            Paste printed checklist items (one per line). They become read-only seeded rows.
-            {grid.seedRows?.length ? ` · ${grid.seedRows.length} items` : ""}
+          <div className="text-xs font-semibold text-foreground/85">
+            {needsItems ? "Add printed items" : "Edit static items"}
+          </div>
+          <div className="text-[11px] text-foreground/60">
+            {needsItems
+              ? staticLabels.length
+                ? `Paste the printed values for ${staticLabels.map((l) => `"${l}"`).join(", ")} (one per line). They stay on the template.`
+                : "Paste printed checklist / prep items (one per line). They stay on the template."
+              : grid.seedRows?.length
+                ? `${grid.seedRows.length} item${grid.seedRows.length === 1 ? "" : "s"} on this template — edit anytime, even after saving.`
+                : "Paste printed items (one per line). They stay on the template and never clear when the form is filled."}
           </div>
         </div>
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-foreground/50" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-foreground/50" />
-        )}
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-foreground/20 bg-background px-2 py-1 text-[11px] font-medium text-foreground/80">
+          {expanded ? "Hide" : "Open"}
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+        </span>
       </button>
 
       {expanded ? (
         <div className="mt-3 grid gap-2">
           <div className="grid gap-1">
-            <div className="text-[11px] font-medium text-foreground/65">Item column</div>
+            <div className="text-[11px] font-medium text-foreground/65">Which column?</div>
             <select
               className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
               value={staticColumnId}
@@ -893,13 +943,14 @@ function StaticItemListEditor({
               {grid.columns.map((col) => (
                 <option key={col.id} value={col.id}>
                   {col.label || col.id}
+                  {isStaticColumn(col) ? " (static)" : ""}
                 </option>
               ))}
             </select>
           </div>
           <textarea
-            className="min-h-[96px] w-full rounded-md border border-foreground/20 bg-background px-2 py-1.5 text-xs leading-5"
-            placeholder={"Fire doors\nEmergency lighting\nFirst aid kit"}
+            className="min-h-[110px] w-full rounded-md border border-foreground/20 bg-background px-2 py-1.5 text-xs leading-5"
+            placeholder={"Beetroot - Fresh, Cut\nSpinach - Fresh\nGelato-vanilla/strawberry/chocolate"}
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
           />
@@ -909,7 +960,7 @@ function StaticItemListEditor({
               className="inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background"
               onClick={applyStaticList}
             >
-              Apply list
+              Save items to template
             </button>
             <button
               type="button"
@@ -935,6 +986,7 @@ function ColumnEditorModal({
   onUpdateColumn,
   onApplyGridChange,
   onDelete,
+  onEditStaticItems,
 }: {
   activeCol: SimpleFieldDef;
   grid: GridSection;
@@ -944,6 +996,7 @@ function ColumnEditorModal({
   onUpdateColumn: (colId: string, patch: Partial<SimpleFieldDef>) => void;
   onApplyGridChange: (next: GridSection) => void;
   onDelete: () => void;
+  onEditStaticItems?: (columnId: string) => void;
 }) {
   return (
     <CenteredOverlay open maxWidthClass="max-w-sm" onClose={onClose}>
@@ -980,14 +1033,39 @@ function ColumnEditorModal({
               onChange={(nextType) => {
                 const patch: Partial<SimpleFieldDef> = { type: nextType as SimpleFieldDef["type"] };
                 if (nextType === "temp" && !("unit" in activeCol)) (patch as { unit?: "C" | "F" }).unit = "C";
+                if (nextType === "static") {
+                  patch.readOnly = true;
+                } else if (activeCol.type === "static" || activeCol.readOnly) {
+                  patch.readOnly = undefined;
+                }
                 onApplyGridChange({
                   ...grid,
+                  rows: nextType === "static" || grid.columns.some((c) => c.id !== activeCol.id && isStaticColumn(c))
+                    ? "dynamic"
+                    : grid.rows,
                   columns: grid.columns.map((c) =>
                     c.id === activeCol.id ? ({ ...c, ...patch } as SimpleFieldDef) : c
                   ),
                 });
               }}
             />
+            {activeCol.type === "static" || activeCol.readOnly ? (
+              <div className="text-[11px] leading-4 text-foreground/55">
+                Static text stays on the saved template. Auditors see it read-only.
+              </div>
+            ) : null}
+            {(activeCol.type === "static" || activeCol.readOnly) && onEditStaticItems ? (
+              <button
+                type="button"
+                className="inline-flex h-9 w-full items-center justify-center rounded-md border border-amber-300 bg-amber-50 text-sm font-medium text-amber-950 hover:bg-amber-100"
+                onClick={() => {
+                  onEditStaticItems(activeCol.id);
+                  onClose();
+                }}
+              >
+                Edit static items
+              </button>
+            ) : null}
           </div>
           <div className="grid gap-1">
             <div className="text-xs font-medium text-foreground/70">Column size</div>
@@ -1157,6 +1235,8 @@ function GridBuilder({
 }) {
   const [activeColId, setActiveColId] = useState<string | null>(null);
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
+  const [staticExpandSignal, setStaticExpandSignal] = useState(0);
+  const [staticFocusColumnId, setStaticFocusColumnId] = useState<string | null>(null);
   const [selection, setSelection] = useState<{
     startRow: number;
     startCol: number;
@@ -1402,6 +1482,38 @@ function GridBuilder({
     setSelection(null);
   }
 
+  function updateSeedCell(rowIndex: number, colId: string, value: string) {
+    const nextSeeds = [...(grid.seedRows || [])];
+    while (nextSeeds.length <= rowIndex) {
+      nextSeeds.push({});
+    }
+    nextSeeds[rowIndex] = { ...nextSeeds[rowIndex], [colId]: value };
+    applyGridChange(
+      {
+        ...grid,
+        rows: "dynamic",
+        seedRows: nextSeeds,
+      },
+      { skipHistory: true },
+    );
+  }
+
+  function addSeedRow() {
+    const nextSeeds = [...(grid.seedRows || []), {}];
+    applyGridChange({
+      ...grid,
+      rows: "dynamic",
+      seedRows: nextSeeds,
+    });
+  }
+
+  const hasStaticColumns = grid.columns.some((col) => isStaticColumn(col));
+
+  function openStaticItemsEditor(columnId?: string) {
+    if (columnId) setStaticFocusColumnId(columnId);
+    setStaticExpandSignal((n) => n + 1);
+  }
+
   return (
     <div className={"rounded-lg border border-foreground/20 bg-background flex flex-col h-full " + (compact ? "p-3" : "p-4")}>
       <div className={"flex items-center justify-between gap-4 border-b border-foreground/20 " + (compact ? "pb-3" : "pb-4")}>
@@ -1409,6 +1521,7 @@ function GridBuilder({
           <div className="text-sm font-semibold">Data Log Table</div>
           <div className="text-xs text-foreground/70 mt-0.5">
             Click headers to edit columns · {grid.columns.length} columns
+            {hasStaticColumns ? " · static columns editable below" : ""}
           </div>
           <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
             Wide tables scroll horizontally and PDF export fits every column automatically.
@@ -1422,9 +1535,25 @@ function GridBuilder({
               type="number"
               min={1}
               className="h-8 w-16 rounded-md border border-foreground/20 bg-background px-2 text-xs"
-              value={typeof grid.rows === "number" ? grid.rows : 1}
+              value={
+                hasStaticColumns || grid.seedRows?.length
+                  ? Math.max(grid.seedRows?.length || 0, typeof grid.rows === "number" ? grid.rows : 1)
+                  : typeof grid.rows === "number"
+                    ? grid.rows
+                    : 1
+              }
               onChange={(e) => {
                 const next = Math.max(1, Number(e.target.value || 1));
+                if (hasStaticColumns || grid.seedRows?.length) {
+                  const seeds = [...(grid.seedRows || [])];
+                  while (seeds.length < next) seeds.push({});
+                  applyGridChange({
+                    ...grid,
+                    rows: "dynamic",
+                    seedRows: seeds.slice(0, next),
+                  });
+                  return;
+                }
                 applyGridChange({ ...grid, rows: next });
               }}
             />
@@ -1432,13 +1561,27 @@ function GridBuilder({
               type="button"
               className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
               onClick={() => {
+                if (hasStaticColumns || grid.seedRows?.length) {
+                  addSeedRow();
+                  return;
+                }
                 const current = typeof grid.rows === "number" ? Math.max(1, grid.rows) : 1;
                 applyGridChange({ ...grid, rows: current + 1 });
               }}
-              title="Add one row"
+              title={hasStaticColumns ? "Add static item row" : "Add one row"}
             >
               + Row
             </button>
+            {hasStaticColumns ? (
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+                onClick={() => openStaticItemsEditor()}
+                title="Paste or edit printed items for static columns"
+              >
+                Edit static items
+              </button>
+            ) : null}
           </div>
           <button
             type="button"
@@ -1472,7 +1615,12 @@ function GridBuilder({
         </div>
       </div>
 
-      <StaticItemListEditor grid={grid} onApply={applyGridChange} />
+      <StaticItemListEditor
+        grid={grid}
+        onApply={applyGridChange}
+        expandSignal={staticExpandSignal}
+        focusColumnId={staticFocusColumnId}
+      />
 
       <div className="mt-4 overflow-x-auto flex-1 flex flex-col">
         <table className="w-full min-w-max border-collapse text-xs border border-foreground/35">
@@ -1483,7 +1631,8 @@ function GridBuilder({
                   key={col.id}
                   className={
                     "relative border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
-                    (col.type === "checkbox" ? "text-center" : "")
+                    (col.type === "checkbox" ? "text-center" : "") +
+                    (isStaticColumn(col) ? " bg-amber-50/60" : "")
                   }
                   style={
                     col.type === "checkbox"
@@ -1558,9 +1707,28 @@ function GridBuilder({
                         {isColumnHeaderPlaceholder(col.label) ? (
                           <PenLine className="h-3.5 w-3.5 shrink-0" />
                         ) : null}
+                        {isStaticColumn(col) ? (
+                          <span className="ml-1 rounded bg-amber-200/80 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-950">
+                            Static
+                          </span>
+                        ) : null}
                       </span>
                     )}
                   </button>
+                  {isStaticColumn(col) ? (
+                    <button
+                      type="button"
+                      className="mt-1 w-full rounded-md border border-amber-300 bg-amber-100 px-1.5 py-1 text-[10px] font-semibold text-amber-950 hover:bg-amber-200"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openStaticItemsEditor(col.id);
+                      }}
+                      title={`Edit printed items for ${columnHeaderDisplayLabel(col.label)}`}
+                    >
+                      Edit items
+                    </button>
+                  ) : null}
                 </th>
               ))}
             </tr>
@@ -1711,17 +1879,27 @@ function GridBuilder({
                           longPressRef.current = null;
                         }
                       }}
-                      title="Click to select cell"
+                      title={isStaticColumn(col) ? "Edit static text for this row" : "Click to select cell"}
                     >
-                      {cell.mergeId
-                        ? col.label || "Merged cell"
-                        : grid.seedRows?.[rowIndex]?.[col.id] != null
-                          ? String(grid.seedRows[rowIndex][col.id])
-                          : rowIndex === 0
-                            ? col.type === "yesno"
-                              ? "yes/no"
-                              : col.type
-                            : ""}
+                      {cell.mergeId ? (
+                        col.label || "Merged cell"
+                      ) : isStaticColumn(col) ? (
+                        <input
+                          type="text"
+                          className="h-7 w-full min-w-0 bg-amber-50/80 px-1 text-xs outline-none ring-0"
+                          value={String(grid.seedRows?.[rowIndex]?.[col.id] ?? "")}
+                          placeholder="Static text…"
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onChange={(e) => updateSeedCell(rowIndex, col.id, e.target.value)}
+                        />
+                      ) : grid.seedRows?.[rowIndex]?.[col.id] != null ? (
+                        String(grid.seedRows[rowIndex][col.id])
+                      ) : rowIndex === 0 ? (
+                        col.type === "yesno" ? "yes/no" : col.type
+                      ) : (
+                        ""
+                      )}
                     </td>
                   );
                 })}
@@ -1874,6 +2052,7 @@ function GridBuilder({
           onClose={() => setEditingColumnId(null)}
           onUpdateColumn={updateColumn}
           onApplyGridChange={applyGridChange}
+          onEditStaticItems={openStaticItemsEditor}
           onDelete={() => {
             applyGridChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
             setEditingColumnId(null);

@@ -26,17 +26,27 @@ import type {
   FormStyle,
 } from "@/types/forms";
 import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
+import {
+  fieldCardShellClass,
+  formStyleTokens,
+  isCompactDisplayField,
+  sectionFieldsGridClass,
+} from "@/lib/fieldLayout";
 import { buildDefaultValues, buildZodSchema, mergeDraftValuesIntoDefaults } from "@/lib/schemaDrivenForm";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
-import { addOfflineSubmittedForm } from "@/lib/client/auditSyncQueue";
+import { addOfflineSubmittedForm, notifyAuditOutboxChanged } from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
-import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/client/formsDb";
+import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox, dbFindOutboxByClientSubmissionId, dbDeleteOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
-import { createClientSubmissionId, withClientSubmissionId } from "@/lib/submissionMeta";
+import {
+  clearClientSubmissionAttempt,
+  resolveClientSubmissionId,
+  withClientSubmissionId,
+} from "@/lib/submissionMeta";
 import { isDraftPayloadDirty } from "@/lib/client/draftPayloadDirty";
 import { pushTenantRoute } from "@/lib/client/tenantNavigation";
 
@@ -101,37 +111,6 @@ function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
   };
 }
 
-function sectionColumnsClass(columns?: number) {
-  if (columns === 2) return "grid grid-cols-1 gap-2.5 md:grid-cols-2";
-  if (columns === 3) return "grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3";
-  if (columns === 4) return "grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-4";
-  return "grid grid-cols-1 gap-2.5 md:[grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]";
-}
-
-function isCompactMetadataDisplay(field: FieldDef) {
-  if (field.type !== "display") return false;
-  const content = `${field.content || ""}`.trim();
-  return content.length > 0 && content.length <= 96 && content.includes(":");
-}
-
-function formStyleTokens(style: FormStyle) {
-  if (style === "compact") {
-    return {
-      section: "gap-2 p-2.5 sm:p-3",
-      fieldCard: "rounded-md border border-foreground/20 bg-background p-1.5 shadow-sm",
-    };
-  }
-  if (style === "report") {
-    return {
-      section: "gap-3 p-3 sm:p-4",
-      fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
-    };
-  }
-  return {
-    section: "gap-2.5 p-2.5 sm:p-3",
-    fieldCard: "rounded-md border border-foreground/20 bg-background p-2 shadow-sm",
-  };
-}
 
 function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string) {
   return `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
@@ -484,7 +463,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
 
     const normalizedCorrectiveAction = correctiveAction.trim();
-    const clientSubmissionId = createClientSubmissionId();
+    const clientSubmissionId = resolveClientSubmissionId({
+      tenantSlug,
+      templateId,
+      draftAuditId,
+      existingPayload: values,
+    });
     const payloadWithMeta: FormValues = withClientSubmissionId(
       {
         ...values,
@@ -559,6 +543,17 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
       const json = (await res.json()) as { auditId: string };
       setDraftAuditId(json.auditId);
+      clearClientSubmissionAttempt(tenantSlug, templateId, draftAuditId);
+      // Drop any outbox row queued from a prior timeout of this same attempt.
+      try {
+        const stale = await dbFindOutboxByClientSubmissionId(clientSubmissionId);
+        if (stale) {
+          await dbDeleteOutbox(stale.id);
+          notifyAuditOutboxChanged();
+        }
+      } catch {
+        // ignore
+      }
       const savedAt = new Date().toISOString();
       upsertCachedAuditRow(currentUserId, tenantSlug, {
         id: json.auditId,
@@ -576,6 +571,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         tenantName: tenantName || tenantSlug,
         templateId,
         payload: payloadWithMeta as Record<string, unknown>,
+        schema: effectiveSchema,
       });
       clearLocalDraft(currentUserId, tenantSlug, templateId);
       setDraftAuditId(null);
@@ -587,6 +583,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return true;
     } catch (error: unknown) {
       const timedOut = isTimedOutRequest(error);
+      // Timeout may mean the server already saved — queue with the same clientSubmissionId
+      // so server-side idempotency + outbox upsert cannot create duplicates.
       const shouldQueue = allowQueue && (isNetworkFailure(error) || isOfflineQueueableServerError(error) || timedOut);
       if (!shouldQueue) {
         if (!silent) {
@@ -618,10 +616,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return false;
       }
 
+      notifyAuditOutboxChanged();
+
       if (!silent) {
         setNotification({
-          title: "Submission queued",
-          message: "Your submission will sync automatically when the connection returns.",
+          title: timedOut ? "Checking connection" : "Submission queued",
+          message: timedOut
+            ? "The request timed out. Your form is queued and will sync once — it will not create duplicates."
+            : "Your submission will sync automatically when the connection returns.",
           tone: "warning",
         });
       }
@@ -634,6 +636,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           tenantName: tenantName || tenantSlug,
           templateId,
           payload: payloadWithMeta as Record<string, unknown>,
+          schema: effectiveSchema,
         });
         addOfflineSubmittedForm({
           queueId: outboxItem.id,
@@ -746,26 +749,15 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
                   </div>
                 ) : null
               ) : null}
-              <div className={sectionColumnsClass(section.columns)}>
+              <div className={sectionFieldsGridClass(section.columns)}>
                 {section.fields.map((field) => (
-                  <div
-                    key={field.id}
-                    className={
-                      (field.type === "display" && !isCompactMetadataDisplay(field)) ||
-                      field.type === "dynamic-table" ||
-                      field.type === "photo" ||
-                      field.type === "signature"
-                        ? `md:[grid-column:1/-1] ${styleTokens.fieldCard}`
-                        : isCompactMetadataDisplay(field)
-                          ? `p-2 ${styleTokens.fieldCard}`
-                        : styleTokens.fieldCard
-                    }
-                  >
+                  <div key={field.id} className={fieldCardShellClass(field, formStyle)}>
                     <Field
                       field={field}
                       control={form.control}
                       register={form.register}
                       errors={form.formState.errors}
+                      dense
                     />
                   </div>
                 ))}
@@ -851,27 +843,37 @@ function Field({
   control,
   register,
   errors,
+  dense = false,
 }: {
   field: FieldDef;
   control: Control<FormValues>;
   register: UseFormRegister<FormValues>;
   errors: FieldErrors<FormValues>;
+  dense?: boolean;
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
-  const lineInputClass =
-    "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
-  const lineSelectClass =
-    "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
-  const lineTextareaClass =
-    "min-h-20 w-full resize-y border-0 border-b border-foreground/25 bg-transparent px-1 py-2 text-sm outline-none focus:border-foreground/60";
+  const lineInputClass = dense
+    ? "h-8 w-full border-0 border-b border-foreground/25 bg-transparent px-0.5 text-sm outline-none focus:border-foreground/60"
+    : "h-10 w-full border-0 border-b border-foreground/25 bg-transparent px-1 text-sm outline-none focus:border-foreground/60";
+  const lineSelectClass = lineInputClass;
+  const lineTextareaClass = dense
+    ? "min-h-16 w-full resize-y border-0 border-b border-foreground/25 bg-transparent px-0.5 py-1.5 text-sm outline-none focus:border-foreground/60"
+    : "min-h-20 w-full resize-y border-0 border-b border-foreground/25 bg-transparent px-1 py-2 text-sm outline-none focus:border-foreground/60";
+  const stackClass = dense ? "flex flex-col gap-0.5" : "flex flex-col gap-2";
+  const labelClass = dense
+    ? "text-[11px] font-semibold uppercase tracking-wide text-foreground/55"
+    : "text-sm font-medium";
 
   if (field.type === "display") {
     const displayField = field as DisplayField;
     const variant = displayField.variant || "body";
+    const compactMeta = isCompactDisplayField(field);
     return (
       <div
         className={
-          "rounded-md border border-foreground/10 bg-foreground/[0.02] px-2.5 py-1.5 whitespace-pre-wrap " +
+          (compactMeta
+            ? "px-0.5 py-0.5 whitespace-pre-wrap "
+            : "rounded-md border border-foreground/10 bg-foreground/[0.02] px-2 py-1.5 whitespace-pre-wrap ") +
           displayAlignClass(displayField.textAlign) +
           " " +
           displayVariantClass(variant)
@@ -885,10 +887,10 @@ function Field({
 
   if (field.type === "text") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={stackClass}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
         {field.multiline ? (
           <textarea
@@ -905,11 +907,11 @@ function Field({
             {...register(field.id)}
           />
         )}
-        {field.helpText ? (
+        {field.helpText && !dense ? (
           <p className="text-sm text-foreground/70">{field.helpText}</p>
         ) : null}
         {errorMessage ? (
-          <p className="text-sm text-red-700">{errorMessage}</p>
+          <p className="text-xs text-red-700">{errorMessage}</p>
         ) : null}
       </div>
     );
@@ -917,10 +919,10 @@ function Field({
 
   if (field.type === "date") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={stackClass}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
         <input
           id={field.id}
@@ -929,17 +931,17 @@ function Field({
           placeholder={(field as any).placeholder || undefined}
           {...register(field.id)}
         />
-        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+        {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
       </div>
     );
   }
 
   if (field.type === "number") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={stackClass}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
         <input
           id={field.id}
@@ -950,13 +952,13 @@ function Field({
           placeholder={(field as any).placeholder || undefined}
           {...register(field.id)}
         />
-        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+        {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
       </div>
     );
   }
 
   if (field.type === "temp") {
-    return <TempFieldInput field={field} control={control} errors={errors} />;
+    return <TempFieldInput field={field} control={control} errors={errors} dense={dense} />;
   }
 
   if (field.type === "photo") {
@@ -969,58 +971,49 @@ function Field({
 
   if (field.type === "checkbox") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={dense ? "flex items-center gap-2" : "flex flex-col gap-2"}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
         <input
           id={field.id}
           type="checkbox"
-          className="h-6 w-6 accent-foreground"
+          className={dense ? "h-5 w-5 accent-foreground" : "h-6 w-6 accent-foreground"}
           {...register(field.id)}
         />
-        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+        {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
       </div>
     );
   }
 
   if (field.type === "yesno") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={stackClass}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
-        <select
-          id={field.id}
-          className={lineSelectClass}
-          {...register(field.id)}
-        >
+        <select id={field.id} className={lineSelectClass} {...register(field.id)}>
           <option value="">Select…</option>
           <option value="yes">Yes</option>
           <option value="no">No</option>
         </select>
-        {field.helpText ? <p className="text-sm text-foreground/70">{field.helpText}</p> : null}
-        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+        {field.helpText && !dense ? <p className="text-sm text-foreground/70">{field.helpText}</p> : null}
+        {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
       </div>
     );
   }
 
   if (field.type === "time") {
     return (
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium" htmlFor={field.id}>
+      <div className={stackClass}>
+        <label className={labelClass} htmlFor={field.id}>
           {field.label}
-          {field.required ? <span className="ml-1">*</span> : null}
+          {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
         </label>
-        <input
-          id={field.id}
-          type="time"
-          className={lineInputClass}
-          {...register(field.id)}
-        />
-        {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+        <input id={field.id} type="time" className={lineInputClass} {...register(field.id)} />
+        {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
       </div>
     );
   }
@@ -1036,19 +1029,30 @@ function TempFieldInput({
   field,
   control,
   errors,
+  dense = false,
 }: {
   field: TempField;
   control: Control<FormValues>;
   errors: FieldErrors<FormValues>;
+  dense?: boolean;
 }) {
   const errorMessage = errors?.[field.id]?.message as string | undefined;
-  const lineTempClass = "h-10 w-full border-0 border-b px-1 bg-transparent outline-none";
+  const lineTempClass = dense
+    ? "h-8 w-full border-0 border-b px-0.5 bg-transparent outline-none text-sm"
+    : "h-10 w-full border-0 border-b px-1 bg-transparent outline-none";
 
   return (
-    <div className="flex flex-col gap-2">
-      <label className="text-sm font-medium" htmlFor={field.id}>
+    <div className={dense ? "flex flex-col gap-0.5" : "flex flex-col gap-2"}>
+      <label
+        className={
+          dense
+            ? "text-[11px] font-semibold uppercase tracking-wide text-foreground/55"
+            : "text-sm font-medium"
+        }
+        htmlFor={field.id}
+      >
         {field.label}
-        {field.required ? <span className="ml-1">*</span> : null}
+        {field.required ? <span className="ml-1 text-foreground/70">*</span> : null}
       </label>
       <Controller
         control={control}
@@ -1080,7 +1084,7 @@ function TempFieldInput({
           );
         }}
       />
-      {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
     </div>
   );
 }
@@ -1153,9 +1157,16 @@ function SignatureFieldInput({
                   sigRef.current = ref;
                 }}
                 {...SIGNATURE_CANVAS_PEN}
-                canvasProps={{ className: "h-20 w-full" }}
+                canvasProps={{
+                  className: "h-20 w-full",
+                  style: { touchAction: "none" },
+                }}
+                onBeginStroke={() => {
+                  window?.document?.body?.setAttribute?.("data-signing", "true");
+                }}
                 onEnd={() => {
                   const dataUrl = sigRef.current?.toDataURL("image/png") ?? "";
+                  window?.document?.body?.removeAttribute?.("data-signing");
                   if (!dataUrl) return;
                   hydratedValueRef.current = dataUrl;
                   rhfField.onChange(dataUrl, { shouldDirty: true, shouldTouch: true });

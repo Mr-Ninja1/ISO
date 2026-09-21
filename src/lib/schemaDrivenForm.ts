@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { FieldDef, FormSchemaV1, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
 import { buildGridRowDefaults, getGridFieldMap } from "@/lib/gridLayout";
+import { isStaticColumn } from "@/lib/formFieldConstants";
 
 function emptyStringToUndefined(value: unknown) {
   if (value === "") return undefined;
@@ -94,6 +95,14 @@ function fieldToZod(field: FieldDef | SimpleFieldDef) {
         : z.preprocess(emptyStringToUndefined, optionalInner);
     }
     case "time": {
+      const requiredInner = z.string().min(1, "Required");
+      const optionalInner = z.string().optional();
+      return field.required
+        ? z.preprocess(emptyStringToUndefined, requiredInner)
+        : z.preprocess(emptyStringToUndefined, optionalInner);
+    }
+    case "static": {
+      // Template-seeded text; still part of submitted row data for reports.
       const requiredInner = z.string().min(1, "Required");
       const optionalInner = z.string().optional();
       return field.required
@@ -250,6 +259,11 @@ export function mergeDraftValuesIntoDefaults(
 
         const mergedRow: Record<string, unknown> = { ...baseRow };
         for (const [colId, cell] of Object.entries(savedRow)) {
+          const column = activeColumns.find((col) => col.id === colId);
+          // Never let a draft wipe template-owned static text with an empty value.
+          if (isStaticColumn(column) && (cell === "" || cell == null)) {
+            continue;
+          }
           if (typeof cell === "string" || typeof cell === "number" || typeof cell === "boolean") {
             mergedRow[colId] = cell;
           }

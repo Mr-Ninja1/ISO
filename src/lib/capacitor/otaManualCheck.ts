@@ -43,9 +43,38 @@ export function dispatchOtaPending(pending: { bundleId: string; releaseNotes?: s
 let manualCheckInFlight: Promise<OtaCheckResult> | null = null;
 
 function formatOtaError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (error instanceof TypeError) {
+    return "Could not reach the update server. Check your connection and try again.";
+  }
+  if (error instanceof Error && error.message.trim()) {
+    const msg = error.message.trim();
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      return "Could not reach the update server. Check your connection and try again.";
+    }
+    return msg;
+  }
   if (typeof error === "string" && error.trim()) return error.trim();
   return "Update check failed.";
+}
+
+function isPlaceholderUpdateUrl(url: string): boolean {
+  return /YOUR-HOST|example\.com|localhost|127\.0\.0\.1/i.test(url);
+}
+
+function validateManifestUrl(manifestUrl: string): OtaCheckResult | null {
+  if (!manifestUrl) {
+    return { status: "error", message: "No update server is configured yet. Ask an admin to set the live update URL." };
+  }
+  if (isPlaceholderUpdateUrl(manifestUrl)) {
+    return {
+      status: "error",
+      message: "Update server URL is still a placeholder. Publish a real OTA manifest URL in platform settings.",
+    };
+  }
+  if (!/^https:\/\//i.test(manifestUrl)) {
+    return { status: "error", message: "Update server URL must be HTTPS." };
+  }
+  return null;
 }
 
 function isBundleAlreadyOnDevice(error: unknown): boolean {
@@ -187,7 +216,12 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
   manualCheckInFlight = (async () => {
     const currentNativeBuild = parseNativeBuild();
     try {
-      const configRes = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+      let configRes: Response;
+      try {
+        configRes = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+      } catch (error) {
+        return { status: "error", message: formatOtaError(error) };
+      }
       if (!configRes.ok) {
         return {
           status: "error",
@@ -203,23 +237,36 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
       if (minRequired != null && currentNativeBuild > 0 && currentNativeBuild < minRequired) {
         return {
           status: "error",
-          message: "This app build is below the minimum required version. Install a newer APK.",
+          message: `This APK is too old (build ${currentNativeBuild}, required ${minRequired}). Install the latest APK from your admin, then check again.`,
         };
       }
 
       const manifestUrl = (config.liveUpdateBundleUrl || "").trim();
-      if (!manifestUrl) {
-        return { status: "error", message: "No update server is configured yet." };
-      }
+      const manifestUrlError = validateManifestUrl(manifestUrl);
+      if (manifestUrlError) return manifestUrlError;
 
-      const manifestRes = await fetch(manifestUrl, { cache: "no-store" });
+      let manifestRes: Response;
+      try {
+        manifestRes = await fetch(manifestUrl, { cache: "no-store" });
+      } catch (error) {
+        return { status: "error", message: formatOtaError(error) };
+      }
       if (!manifestRes.ok) {
-        return { status: "error", message: "Could not reach the update server." };
+        return {
+          status: "error",
+          message: `Could not download the update manifest (${manifestRes.status}).`,
+        };
       }
 
       const manifest = parseOtaManifest(await manifestRes.json().catch(() => null));
       if (!manifest) {
-        return { status: "error", message: "Invalid update manifest." };
+        return { status: "error", message: "Invalid update manifest. Ask an admin to republish the OTA package." };
+      }
+      if (isPlaceholderUpdateUrl(manifest.bundleUrl || "") || !/^https:\/\//i.test(manifest.bundleUrl || "")) {
+        return {
+          status: "error",
+          message: "Update package URL is invalid. Ask an admin to republish the OTA package.",
+        };
       }
 
       await syncOtaStateFromPlugin();
@@ -276,7 +323,7 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
 
       const ready = await ensureLiveUpdateReady();
       if (!ready) {
-        return { status: "error", message: "Live update is not available on this device." };
+        return { status: "error", message: "Live update is not available on this device. Reinstall the latest APK." };
       }
 
       const pending: OtaPendingBundle = {

@@ -48,7 +48,7 @@ describe("seedRows sanitize and defaults", () => {
         title: "Items",
         rows: 12,
         columns: [
-          { id: "item", type: "text", label: "Item", readOnly: true },
+          { id: "item", type: "static", label: "Item" },
           { id: "status", type: "yesno", label: "OK?" },
           { id: "notes", type: "text", label: "Notes" },
         ],
@@ -66,38 +66,92 @@ describe("seedRows sanitize and defaults", () => {
     ],
   };
 
-  it("preserves readOnly and seedRows through sanitize + normalize", () => {
+  it("marks static columns from AI output without freezing the template schema", () => {
     const schema = sanitizeAiFormSchema(raw);
     const grid = schema.sections?.find((section) => section.type === "grid");
     assert.ok(grid && grid.type === "grid");
     assert.equal(grid.rows, "dynamic");
-    assert.equal(grid.columns[0]?.readOnly, true);
-    assert.deepEqual(grid.seedRows, [
-      { item: "Fire doors" },
-      { item: "Emergency lighting" },
-      { item: "First aid kit" },
-    ]);
+    assert.equal(grid.columns[0]?.type, "static");
+    assert.equal(grid.columns[0]?.readOnly, undefined);
+    assert.equal(grid.seedRows, undefined);
 
     const normalized = normalizeFormSchema(schema);
     const normalizedGrid = normalized.sections?.find((section) => section.type === "grid");
     assert.ok(normalizedGrid && normalizedGrid.type === "grid");
-    assert.equal(normalizedGrid.columns[0]?.readOnly, true);
-    assert.equal(normalizedGrid.seedRows?.length, 3);
+    assert.equal(normalizedGrid.columns[0]?.type, "static");
+    assert.equal(normalizedGrid.columns[0]?.readOnly, undefined);
+    assert.equal(normalizedGrid.seedRows, undefined);
   });
 
-  it("seeds default submission rows from seedRows", () => {
-    const schema = sanitizeAiFormSchema(raw);
-    const defaults = buildDefaultValues(schema);
+  it("preserves manually saved seedRows through normalize (template edit path)", () => {
+    const template = {
+      version: 1 as const,
+      sections: [
+        {
+          type: "grid" as const,
+          id: "form_data",
+          rows: "dynamic" as const,
+          columns: [
+            { id: "item", type: "static" as const, label: "Item", readOnly: true },
+            { id: "status", type: "yesno" as const, label: "OK?" },
+          ],
+          seedRows: [
+            { item: "Fire doors" },
+            { item: "Emergency lighting" },
+            { item: "First aid kit" },
+          ],
+        },
+      ],
+    };
+    const normalized = normalizeFormSchema(template);
+    const grid = normalized.sections?.find((section) => section.type === "grid");
+    assert.ok(grid && grid.type === "grid");
+    assert.equal(grid.seedRows?.length, 3);
+    assert.equal(grid.columns[0]?.type, "static");
+
+    const defaults = buildDefaultValues(normalized);
     const rows = defaults.form_data as Array<Record<string, unknown>>;
     assert.equal(rows.length, 3);
     assert.equal(rows[0]?.item, "Fire doors");
     assert.equal(rows[1]?.item, "Emergency lighting");
     assert.equal(rows[2]?.item, "First aid kit");
     assert.equal(rows[0]?.status, "");
-    assert.equal(rows[0]?.notes, "");
   });
 
-  it("promotes printed item arrays into table seed rows", () => {
+  it("promotes legacy readOnly text grid columns to the static type without persisting readOnly", () => {
+    const template = {
+      version: 1 as const,
+      sections: [
+        {
+          type: "grid" as const,
+          id: "form_data",
+          rows: "dynamic" as const,
+          columns: [
+            { id: "item", type: "text", label: "Item", readOnly: true },
+            { id: "status", type: "yesno", label: "OK?" },
+          ],
+          seedRows: [
+            { item: "Fire doors" },
+            { item: "Emergency lighting" },
+          ],
+        },
+      ],
+    };
+
+    const normalized = normalizeFormSchema(template);
+    const grid = normalized.sections?.find((section) => section.type === "grid");
+    assert.ok(grid && grid.type === "grid");
+    assert.equal(grid.columns[0]?.type, "static");
+    assert.equal(grid.columns[0]?.readOnly, undefined);
+    assert.equal(grid.seedRows?.length, 2);
+
+    const defaults = buildDefaultValues(normalized);
+    const rows = defaults.form_data as Array<Record<string, unknown>>;
+    assert.equal(rows[0]?.item, "Fire doors");
+    assert.equal(rows[1]?.item, "Emergency lighting");
+  });
+
+  it("promotes printed item arrays into a static column without keeping the item values", () => {
     const schema = sanitizeAiFormSchema({
       version: 1,
       sections: [{
@@ -113,11 +167,8 @@ describe("seedRows sanitize and defaults", () => {
 
     const grid = schema.sections?.find((section) => section.type === "grid");
     assert.ok(grid && grid.type === "grid");
-    assert.deepEqual(grid.seedRows, [
-      { equipment: "Hot pass" },
-      { equipment: "Alkaline table" },
-      { equipment: "Preparation table" },
-    ]);
+    assert.equal(grid.columns[0]?.type, "static");
+    assert.equal(grid.seedRows, undefined);
     assert.equal(grid.rows, "dynamic");
   });
 
@@ -227,9 +278,15 @@ describe("seedRows sanitize and defaults", () => {
     assert.equal(signFieldSection.fields.filter((field) => field.type === "signature").length, 2);
   });
 
-  it("ignores handwriting and keeps static form items aligned with their original grid position", () => {
+  it("ignores handwriting and focuses AI on structure with static columns", () => {
     assert.match(FORM_ENGINE_SYSTEM_PROMPT, /ignore handwritten|handwriting/i);
     assert.match(FORM_ENGINE_SYSTEM_PROMPT, /typed|printed text/i);
-    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /same columns|original.*row|original.*grid/i);
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /type "static"|type: "static"/i);
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /Do NOT put the items into seedRows|Omit seedRows/i);
+  });
+
+  it("explicitly prevents table column drops during AI extraction", () => {
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /do not reduce.*table columns|do not silently drop.*column|never drop a meaningful source column/i);
+    assert.match(FORM_ENGINE_SYSTEM_PROMPT, /keep the actual data columns/i);
   });
 });

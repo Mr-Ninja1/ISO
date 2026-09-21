@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { WorkspaceLoadingShell } from '@/components/WorkspaceLoadingShell';
@@ -15,6 +15,7 @@ import {
 import { isTenantTemplateBulkCached } from '@/lib/client/offlineTemplateWarmup';
 import { readWorkspaceCache, readWorkspaceCacheResolved } from '@/lib/client/workspaceCache';
 import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
+import { setOfflineBootstrapBlocking } from '@/lib/client/nativeStartupGate';
 
 const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
 
@@ -150,15 +151,17 @@ export function offlineCacheLooksReady(userId: string | null, tenantSlug: string
     readyCache.set(key, false);
     return false;
   }
-  const ready = isTenantTemplateBulkCached(tenantSlug);
+  // Presence of a successful bulk download is enough for "ready" — do not force a
+  // blocking re-download every 24h just because the freshness marker aged out.
+  const ready = isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY);
   readyCache.set(key, ready);
   return ready;
 }
 
 /**
  * Blocks the UI until the active brand has been fully cached (first login / new device).
- * After the app has painted once for a session, downloads continue in the background
- * so navigations are never replaced by the full-screen gate again.
+ * After a successful bootstrap (or a proven complete cache), later refreshes stay in the
+ * background so navigations are never replaced by the full-screen gate again.
  */
 export function OfflineBootstrapGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -181,7 +184,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     Boolean(tenantSlug) &&
     (forceBootstrap || !offlineCacheLooksReady(userId, tenantSlug!));
 
-  // Start ready so SSR/hydration never flash the download screen; client effect decides.
+  // Start ready so SSR never flashes the download screen; client layout effect decides
+  // before paint whether first-run download must hard-block.
   const [ready, setReady] = useState(true);
   const [progress, setProgress] = useState<OfflineBootstrapProgress>({
     stage: 'workspace',
@@ -194,8 +198,12 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const runIdRef = useRef(0);
   const bootstrapInFlightRef = useRef(false);
   const autoStartKeyRef = useRef<string | null>(null);
-  /** Once true, never tear down the app shell for bootstrap again this session. */
-  const hasPaintedRef = useRef(false);
+  /**
+   * Set only after this brand has a complete on-device cache (or bootstrap succeeds).
+   * Must NOT be set merely because `ready` defaults to true on mount — that used to
+   * skip the blocking gate and leave category tabs fetching over the network.
+   */
+  const hasPaintedReadyCacheRef = useRef(false);
 
   const startBootstrap = useCallback(async () => {
     if (!tenantSlug || !accessToken) return;
@@ -204,8 +212,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     bootstrapInFlightRef.current = true;
     const runId = ++runIdRef.current;
     setError('');
-    // Only hard-block the shell on true first-run; otherwise warm in background.
-    if (!hasPaintedRef.current) {
+    // Hard-block until first successful cache for this brand; later refreshes are background.
+    if (!hasPaintedReadyCacheRef.current) {
       setReady(false);
     }
     setProgress({ stage: 'workspace', label: 'Starting download...', percent: 0 });
@@ -222,7 +230,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       });
       if (runId !== runIdRef.current) return;
       if (tenantSlug) readyCache.set(readyCacheKey(userId, tenantSlug), true);
-      hasPaintedRef.current = true;
+      hasPaintedReadyCacheRef.current = true;
       setReady(true);
     } catch (err: unknown) {
       if (runId !== runIdRef.current) return;
@@ -234,7 +242,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
           // ignore localStorage errors
         }
         if (pathname?.startsWith('/workspace')) {
-          hasPaintedRef.current = true;
+          hasPaintedReadyCacheRef.current = true;
           setReady(true);
           setError('');
           router.replace('/workspace');
@@ -242,8 +250,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
         }
       }
       setError(message);
-      // Keep the shell usable after first paint; only hard-block on true first-run.
-      if (hasPaintedRef.current) {
+      // Keep the shell usable after a ready cache has painted; only hard-block on first-run.
+      if (hasPaintedReadyCacheRef.current) {
         setReady(true);
       } else {
         setReady(false);
@@ -271,7 +279,8 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  useEffect(() => {
+  // Layout effect: decide block vs paint before the browser paints an uncached workspace.
+  useLayoutEffect(() => {
     if (!clientReady) return;
     if (authLoading) return;
     if (!user) {
@@ -287,12 +296,19 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
       return;
     }
     if (!needsBootstrap) {
-      hasPaintedRef.current = true;
+      hasPaintedReadyCacheRef.current = true;
       setReady(true);
       return;
     }
+
+    // Incomplete cache — block the shell until bootstrap finishes (unless we already
+    // painted a ready cache earlier this session and are only refreshing).
+    if (!hasPaintedReadyCacheRef.current) {
+      setReady(false);
+    }
+
     if (!accessToken) {
-      if (hasPaintedRef.current) {
+      if (hasPaintedReadyCacheRef.current) {
         setReady(true);
         return;
       }
@@ -302,7 +318,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     }
     if (offline) {
       if (!bootstrapInFlightRef.current) {
-        if (hasPaintedRef.current) {
+        if (hasPaintedReadyCacheRef.current) {
           setReady(true);
         } else {
           setReady(false);
@@ -320,16 +336,25 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   }, [clientReady, authLoading, user, skip, tenantSlug, needsBootstrap, accessToken, offline, userId]);
 
   useEffect(() => {
-    if (ready || !needsBootstrap) {
-      hasPaintedRef.current = true;
-    }
+    const blocking = Boolean(!ready && needsBootstrap && !hasPaintedReadyCacheRef.current);
+    setOfflineBootstrapBlocking(blocking);
+    return () => setOfflineBootstrapBlocking(false);
   }, [ready, needsBootstrap]);
 
   if (!clientReady) {
-    return <>{children}</>;
+    // Avoid flashing the uncached workspace before we know whether first-run must block.
+    if (skip || !tenantSlug) {
+      return <>{children}</>;
+    }
+    return (
+      <WorkspaceLoadingShell
+        title="Loading"
+        subtitle="Checking offline cache…"
+      />
+    );
   }
 
-  if (authLoading && needsBootstrap && !hasPaintedRef.current) {
+  if (authLoading && needsBootstrap && !hasPaintedReadyCacheRef.current) {
     return (
       <WorkspaceLoadingShell
         title="Signing in"
@@ -338,9 +363,9 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     );
   }
 
-  // Only block the first paint for a brand. After that, keep navigating freely
-  // while bootstrap continues in the background.
-  if (!ready && needsBootstrap && !hasPaintedRef.current) {
+  // Block until every category + form schema is on-device. After that, navigate freely
+  // while any later refresh continues in the background.
+  if (!ready && needsBootstrap && !hasPaintedReadyCacheRef.current) {
     return (
       <FirstTimeDownloadScreen
         progress={progress}

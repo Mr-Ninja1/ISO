@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const MIN_VISIBLE_MS = 60;
 const MAX_VISIBLE_MS = 8000;
+const START_DELAY_MS = 180;
 
 function isInternalNavigableAnchor(target: EventTarget | null): HTMLAnchorElement | null {
   if (!(target instanceof Element)) return null;
@@ -26,6 +27,7 @@ export function NavigationProgressBar() {
   const startRef = useRef<number>(0);
   const holdTimerRef = useRef<number | null>(null);
   const hardTimeoutRef = useRef<number | null>(null);
+  const startDelayTimerRef = useRef<number | null>(null);
   const lastHrefRef = useRef<string>("");
   const activeRef = useRef(false);
 
@@ -38,25 +40,32 @@ export function NavigationProgressBar() {
       window.clearTimeout(hardTimeoutRef.current);
       hardTimeoutRef.current = null;
     }
+    if (startDelayTimerRef.current) {
+      window.clearTimeout(startDelayTimerRef.current);
+      startDelayTimerRef.current = null;
+    }
   }, []);
 
   const begin = useCallback(() => {
     if (activeRef.current) return;
-    activeRef.current = true;
     clearTimers();
-    startRef.current = Date.now();
-    setDone(false);
-    setActive(true);
-    hardTimeoutRef.current = window.setTimeout(() => {
-      setDone(true);
-      window.setTimeout(() => {
-        activeRef.current = false;
-        setActive(false);
-      }, 160);
-    }, MAX_VISIBLE_MS);
+    startDelayTimerRef.current = window.setTimeout(() => {
+      activeRef.current = true;
+      startRef.current = Date.now();
+      setDone(false);
+      setActive(true);
+      hardTimeoutRef.current = window.setTimeout(() => {
+        setDone(true);
+        window.setTimeout(() => {
+          activeRef.current = false;
+          setActive(false);
+        }, 160);
+      }, MAX_VISIBLE_MS);
+    }, START_DELAY_MS);
   }, [clearTimers]);
 
   const complete = useCallback(() => {
+    clearTimers();
     if (!activeRef.current) return;
     const elapsed = Date.now() - startRef.current;
     const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
@@ -68,7 +77,6 @@ export function NavigationProgressBar() {
         setActive(false);
         setDone(false);
       }, 160);
-      clearTimers();
     }, remaining);
   }, [clearTimers]);
 
@@ -77,6 +85,13 @@ export function NavigationProgressBar() {
       const anchor = isInternalNavigableAnchor(ev.target);
       if (!anchor) return;
       const href = anchor.getAttribute("href") || "";
+      const current = `${window.location.pathname}${window.location.search}`;
+      try {
+        const next = new URL(href, window.location.href);
+        if (current === `${next.pathname}${next.search}`) return;
+      } catch {
+        // Ignore malformed links; fall back to the standard loader flow.
+      }
       // Avoid showing loader for same-url clicks.
       if (href === lastHrefRef.current) return;
       lastHrefRef.current = href;
@@ -84,6 +99,18 @@ export function NavigationProgressBar() {
     }
 
     function onProgrammaticStart() {
+      const current = `${window.location.pathname}${window.location.search}`;
+      const projected = lastHrefRef.current
+        ? (() => {
+            try {
+              const next = new URL(lastHrefRef.current, window.location.href);
+              return `${next.pathname}${next.search}`;
+            } catch {
+              return lastHrefRef.current;
+            }
+          })()
+        : "";
+      if (projected && current === projected) return;
       begin();
     }
 

@@ -73,7 +73,22 @@ function normalizeSections(sections: unknown[]): FormSection[] {
 
     if (row.type === "grid") {
       const rows = normalizeGridRows(row.rows);
-      const columns = Array.isArray(row.columns) ? (row.columns as GridSection["columns"]) : [];
+      const columns = Array.isArray(row.columns)
+        ? (row.columns as GridSection["columns"]).map((col) => {
+            if (!col || typeof col !== "object") return col;
+            const field = col as Record<string, unknown>;
+            const rawType = typeof field.type === "string" ? field.type : "text";
+            const legacyStatic = field.readOnly === true && (rawType === "text" || rawType === "display");
+            if (legacyStatic || rawType === "static") {
+              return {
+                ...col,
+                type: "static",
+                readOnly: undefined,
+              } as GridSection["columns"][number];
+            }
+            return col;
+          })
+        : [];
       const seedRows = normalizeSeedRows(row.seedRows, columns);
 
       out.push({

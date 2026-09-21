@@ -9,6 +9,11 @@ export type FieldType =
   | "yesno"
   | "time"
   | "dynamic-table"
+  /**
+   * Grid column for template-owned text (printed items, UOM labels, etc.).
+   * Edited in the builder / seedRows; read-only while filling; still submitted.
+   */
+  | "static"
   /** Read-only instruction, form code, section title — not submitted as data */
   | "display";
 
@@ -119,6 +124,10 @@ export type DisplayField = BaseField & {
   variant?: DisplayVariant;
 };
 
+export type StaticField = BaseField & {
+  type: "static";
+};
+
 export type FieldDef =
   | TextField
   | DateField
@@ -130,6 +139,7 @@ export type FieldDef =
   | YesNoField
   | TimeField
   | DynamicTableField
+  | StaticField
   | DisplayField;
 
 export type SimpleFieldDef = Exclude<FieldDef, DynamicTableField>;

@@ -20,6 +20,11 @@ import {
   DEFAULT_EVIDENCE_FIELD_ID,
   reportFieldCellClass,
 } from "@/lib/reportEvidence";
+import {
+  isCompactDisplayField,
+  reportSectionFieldsGridClass,
+} from "@/lib/fieldLayout";
+import { displayFieldText } from "@/lib/displayFieldStyles";
 
 function asText(value: unknown): string {
   if (value == null) return "";
@@ -38,13 +43,6 @@ function asText(value: unknown): string {
 
 function isDataUrl(value: unknown) {
   return typeof value === "string" && value.startsWith("data:image");
-}
-
-function sectionColumnsClass(columns?: number) {
-  if (columns === 2) return "report-field-grid report-field-grid--2";
-  if (columns === 3) return "report-field-grid report-field-grid--3";
-  if (columns === 4) return "report-field-grid report-field-grid--4";
-  return "report-field-grid report-field-grid--auto";
 }
 
 export function AuditReportDisplay({
@@ -76,7 +74,7 @@ export function AuditReportDisplay({
         </header>
         <div className="mt-4 report-field-grid report-field-grid--auto">
           {entries.map(([key, value]) => (
-            <div key={key} className="report-field-card">
+            <div key={key} className="report-field-card report-field-card--dense">
               <div className="report-field-label">{key}</div>
               <div className="report-field-value break-words">
                 {isDataUrl(value) ? (
@@ -193,18 +191,30 @@ export function AuditReportDisplay({
                 section.title.trim().toLowerCase() !== "fields" ? (
                   <h3 className="report-section-title">{section.title}</h3>
                 ) : null}
-                <div className={sectionColumnsClass(section.columns)}>
-                  {fields.map((field) => (
-                    <div
-                      key={field.id}
-                      className={`report-field-card ${reportFieldCellClass(field, section.columns)}`}
-                    >
-                      <div className="report-field-label">{field.label}</div>
-                      <div className="report-field-body">
-                        {renderAuditReportFieldValue(field, payload)}
+                <div className={reportSectionFieldsGridClass(section.columns)}>
+                  {fields.map((field) => {
+                    const compactDisplay = isCompactDisplayField(field);
+                    const hideLabel =
+                      compactDisplay ||
+                      (field.type === "display" &&
+                        displayFieldText(field)
+                          .toLowerCase()
+                          .includes((field.label || "").trim().toLowerCase()) &&
+                        (field.label || "").trim().length > 0);
+                    return (
+                      <div
+                        key={field.id}
+                        className={reportFieldCellClass(field, section.columns)}
+                      >
+                        {!hideLabel ? (
+                          <div className="report-field-label">{field.label}</div>
+                        ) : null}
+                        <div className="report-field-body">
+                          {renderAuditReportFieldValue(field, payload)}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             );

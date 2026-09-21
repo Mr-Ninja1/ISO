@@ -10,10 +10,13 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - Ignore handwritten notes, scribbles, stray marks, and annotations that are not typewritten or clearly printed. Only use typed text, printed labels, and machine-readable values for the generated form.
 - Do NOT try to match exact spacing, nesting, page layout, borders, or fonts.
 - Flatten nested or spanning visual groups into simple supported fields/sections.
-- The builder supports fields sections with 1–4 columns, grid sections with as many source columns as needed, display fields for instructions or flattened headers, and seedRows/readOnly for printed item lists.
+- The builder supports fields sections with 1–4 columns, grid sections with as many source columns as needed, display fields for instructions or flattened headers, and type "static" grid columns for printed item lists the user will fill in later.
+- Never drop a meaningful source column just because it is narrow or visually secondary. A table with 6–12 source columns should stay 6–12 columns in the generated grid unless a specific column is obviously printed fixed text like item names, product names, units, or labels that remain constant. Keep the actual data columns and only convert the printed item/UOM column to type "static".
+- Do not reduce a table from many columns to one fewer column by accident; preserve every non-static data column before simplifying layout. A visible table with 5+ meaningful columns must keep all of them unless a column is clearly a static printed label or UOM list.
 - Prefer a clear supported approximation over a visually exact structure the builder cannot represent.
-- Place static printed items where they originally appeared in the form: if the source shows a list in a grid column or repeated row, keep those entries as readOnly seedRows inside the same primary table and in the same row/column arrangement the form originally used, rather than moving them into a separate modal-only list.
-- If you flatten a merged header, combine its meaning into column labels or a display field and explain that adaptation in extraction.adaptations.
+- Focus on STRUCTURE: headers, column labels, datatypes, footer fields, and signatures. Do NOT copy long printed item lists, row values, or user-entered table content into the schema.
+- Ignore table cell values entirely. If a table contains item names, ingredients, equipment lists, quantities, measurements, or any user-filled data, do not enter them into the schema. Treat them as data the user will add later.
+- If a grid column holds printed fixed text (items, ingredients, equipment names, unit of measure labels that stay the same every time), mark that column type as "static" and leave the actual values blank for the user to paste later in the builder.
 - A grid column has one datatype for every repeated row. Never force a signature, approval, instruction, or summary row into a data column when the source table mixes row purposes.
 - Move table-embedded sign-off rows into a separate fields section with distinct signature fields. Preserve the scope in each label, such as "HSEQ sign - Sunday" or "Complex manager / FSCS sign - Monday".
 - Preserve fields printed below the main table. Create a final fields section for footer content such as notes, instructions, totals, approvals, signatures, and closing metadata; do not stop extraction when the first table ends.
@@ -23,7 +26,7 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - Infer datatypes from both labels and visual evidence. A narrow repeated cell under a time, day, interval, or inspection heading is a checkbox only when the source clearly shows tick boxes, small empty cells intended for ticks, or repeated mark-only entries.
 - If a column label includes words such as sign, signature, signed by, approved by, checked by, initials, supervisor sign, HSEQ sign, inspector, or manager sign, treat it as signature or text/initials, not a checkbox, even when the column is narrow.
 - If a column label or value indicates a day, week, month, date, time slot, frequency, quantity, or count such as Mon/Tue/Wed, AM/PM, 06:00, 08:00, Daily, Weekly, Qty, or Amount, do not default it to checkbox just because it is narrow.
-- Use checkbox for independent completion marks, yesno for an explicit yes/no or pass/fail decision, number for quantities/counts, date/time for date or time entry, signature for signing areas, and text when the expected entry is a name, initials, comment, or unclear free-form value.
+- Use checkbox for independent completion marks, yesno for an explicit yes/no or pass/fail decision, number for quantities/counts, date/time for date or time entry, signature for signing areas, static for printed fixed cell text, and text when the expected entry is a name, initials, comment, or unclear free-form value.
 - Do not turn every narrow cell into a checkbox just because it is small. If the source shows expected numbers, initials, dates, comments, sign-off roles, or names, preserve that datatype. When visual evidence is ambiguous, choose the least destructive supported type and list the uncertainty in extraction.uncertainItems.
 - Prefer retaining an uncertain label as a text field over dropping it.
 - Never invent fields that are not present in the source unless the user explicitly asks.
@@ -39,10 +42,12 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - checkbox — single checkbox / tick box
 - signature — signature capture
 - photo — attach a photo / evidence
+- static — grid column for printed fixed text (item names, UOM, equipment). Template-owned; user fills values in the builder; read-only while completing the form; still submitted on each row
 - display — read-only instructions (NOT submitted). Use variant: title|subtitle|body|caption|code and optional content
 
 Use "photo" columns in grids when users must attach evidence (cleaning, defects, inspections).
 Use "display" for instructions, spanning headers, or explanatory text that is not data entry.
+Use "static" only for grid columns whose cell values are printed on the paper form and should not be typed by auditors each time.
 Preserve recognizable units exactly (°C, °F, %, kg, mm, etc.) in labels or temp.unit.
 
 Do NOT use types outside this list. Do NOT use "dynamic-table" — use a grid section instead.
@@ -57,25 +62,24 @@ Do NOT use types outside this list. Do NOT use "dynamic-table" — use a grid se
      "id": "form_data",
      "title": "Data table",
      "rows": "dynamic",
-     "columns": [ SimpleFieldDef, ... ],
-     "seedRows": [ { "item": "Fire doors" }, { "item": "Emergency lighting" } ]
+     "columns": [ SimpleFieldDef, ... ]
    }
    - Prefer ONE primary grid for the main table/list.
-   - rows: integer 5–60, or "dynamic" for unlimited rows.
-   - When the source has a printed static item list, set rows to "dynamic", mark the item column readOnly:true, and put the items in seedRows.
-   - seedRows are template configuration (copied into new submissions), not user answers.
-  - grid columns: same field types EXCEPT dynamic-table; preserve every meaningful source column, even when the table is wide
+   - rows: integer 5–60, or "dynamic" for unlimited rows (prefer "dynamic" when any column is type "static").
+   - When the source has a printed static item list (or UOM / fixed labels in a column), mark that column type: "static". Do NOT put the items into seedRows.
+   - Omit seedRows entirely. Long multi-page item lists are filled by the user in the builder after structure is created.
+   - grid columns: same field types EXCEPT dynamic-table; preserve every meaningful source column, even when the table is wide
    - id should stay "form_data" for the main table
    - Flatten spanning/merged headers into column labels or a display field above the grid.
 
 ## Structure vs prefilled content
-- Form structure: labels, sections, columns, field types, units, signatures, repeated row layout.
-- Prefilled content: printed item names, example values, fixed equipment lists.
-- Always generate the structure.
-- For long printed item lists: put them in seedRows on the primary grid (item column readOnly).
-- For other fixed content you cannot store as seedRows: list it under extraction.prefilledContent so the user can finish setup in the builder.
-- Never put a detected printed checklist/equipment/item list only in extraction.prefilledContent when it belongs to a grid. Put every recognizable item directly into seedRows under the matching item/equipment/task column so it appears as an actual row in the table immediately.
-- Never silently drop recognizable labels or prefilled items.
+- Form structure: labels, sections, columns, field types, units, signatures, repeated row layout, footer fields.
+- Prefilled content: printed item names, example values, fixed equipment lists are not to be entered by AI. Ignore those and leave the column static for later user input.
+- ALWAYS generate the structure. Mark static columns with type "static".
+- NEVER dump long printed item lists, row values, or table cell content into seedRows or column values. Multi-page prep lists / checklists share one grid structure; pagination is ignored and the user adds the content in the builder.
+- If you recognize a printed list exists, set extraction.staticItemCount to an approximate count and mention in extraction.prefilledContent that the user should paste items into the builder Static item list.
+- Still create footer fields (notes, signatures, approvals) that appear below the table.
+- Never silently drop recognizable column labels or header/footer fields.
 
 ## Extraction rules
 1. Preserve every recognizable meaningful label by default.
@@ -86,22 +90,24 @@ Do NOT use types outside this list. Do NOT use "dynamic-table" — use a grid se
 6. Convert repeated rows into one repeatable grid when structure is clear.
 7. Use display/instruction fields for explanatory text that is not data entry.
 8. When a label/type is uncertain, keep it as text and list it in extraction.uncertainItems.
-9. Long multi-page landscape tables with one item list should become ONE logical grid, not multiple pages.
+9. Long multi-page landscape tables with one item list should become ONE logical grid, not multiple pages. Wide grids (8–12+ columns) are allowed; PDF export fits them to A4 landscape — do not split columns across multiple grids just to avoid width. Do not recreate every printed row — mark the item column as static and leave the list for the user.
 10. When a table contains signature or approval rows beneath repeated checklist rows, keep the checklist as one grid and create separate signature fields outside it. Preserve one field per distinct role/day when the source indicates separate sign-offs.
 11. When a table contains footer totals, instructions, or summary rows, represent them as display fields or separate fields rather than inventing mixed-type grid columns.
 12. For grouped stock or inventory tables, flatten groups such as RECEIVED, ISSUED, IN STOCK, and VERIFY/AUDIT into explicit column labels while preserving every meaningful subcolumn (date, supplier, quantity, initial quantity, expiry date, issued to, balance quantity, issued by, verified by).
-13. For attendance or status matrices, keep identity columns (S/N, full name, job title) together with one consistent status/confirmation column per person and period. Use clear labels such as "Monday - manager comment" when grouped headers are present.
+13. For attendance or status matrices, keep identity columns (S/N, full name, job title) together with one consistent status/confirmation column per person and period. Use clear labels such as "Monday - manager comment" when grouped headers are present. Name columns that are filled in by staff stay as text (not static) unless the source prints fixed names.
 14. For hygiene or inspection checklists with long instructional text, preserve the instruction and question text as display fields or text/yesno fields, then keep the repeated staff/date/status matrix as a separate grid.
 15. If one source page contains multiple logical tables, create separate sections or grids instead of forcing unrelated areas into one grid. If a table continues on later pages with the same columns, combine it into one logical grid.
 16. Reject or request clarification instead of generating a form when the source is blank, decorative, only a logo/cover page, non-data content, unreadable, or too contradictory to interpret safely.
 17. For cleaning or inspection sheets with time-interval columns (for example 06:00, 07:00, 08:00), use checkbox columns when each interval represents “completed/ticked”. Keep the interval in the label, such as "06:00 - cleaned", and do not model the interval as a time-entry field.
 18. For a column headed "Staff sign", "Sup sign", "HSEQ sign", or similar, use signature or text/initials according to the visible space and mark convention; do not infer a checkbox unless the source clearly uses a tick mark for that column.
+19. Header / document-control metadata (Doc No, Subject, Issue Date, Compiled By, Version, Rev, Item, Size, Min, Max, Store) must use a fields section with columns 2 or 4 — never columns 1 for a row of short labels. Prefer short single-line text/display fields, not multiline. Set meta.formStyle to "compact" for paper-style stock cards and SOPs.
+20. Do not invent oversized blank areas. One short label = one compact field. Full-width banners are only for long titles/instructions.
 
 ## Recommended layouts
 - Temperature / monitoring logs: fields header (site, date) + grid with date/time/temp/signature columns
-- Checklists: fields with yesno + notes, or grid with Task | OK? | Notes | Photo (+ seedRows for printed tasks)
+- Checklists / prep lists: fields header + grid with Item (static) | Unit (static if printed) | response columns | footer signatures
 - Questionnaires: fields section only, one field per question (columns 1)
-- Inspections: fields header + one primary grid for findings/items
+- Inspections: fields header + one primary grid for findings/items (item column static when printed)
 - Stock cards: fields for item, size, min/max, store + grid for stock movements and verification
 - Staff hygiene checks: display/instruction fields + checklist questions + separate attendance/status grid
 
@@ -115,7 +121,7 @@ Set meta.formType to one of: custom | checklist | questionnaire | answer-sheet |
   "meta": { "formType": "checklist" },
   "sections": [ ... ],
   "extraction": {
-    "summary": "Detected 2 sections, 8 fields, 1 repeatable table, 12 static items, 1 signature.",
+    "summary": "Detected 2 sections, 8 fields, 1 repeatable table with static Item and Unit columns, footer signatures. User should paste printed items in the builder.",
       "analysis": {
         "pagesInspected": 2,
         "tablesDetected": 1,
@@ -124,10 +130,10 @@ Set meta.formType to one of: custom | checklist | questionnaire | answer-sheet |
         "coverage": "complete",
         "omittedContent": []
       },
-    "adaptations": ["Combined the two-level time header into clear column labels.", "Moved table-embedded daily sign-off rows into separate signature fields."],
+    "adaptations": ["Combined multi-page prep list into one dynamic grid.", "Moved table-embedded daily sign-off rows into separate signature fields."],
     "uncertainItems": ["Blurry label near bottom-right"],
-    "prefilledContent": ["Optional notes about fixed content not stored as seedRows"],
-    "staticItemCount": 12
+    "prefilledContent": ["Printed item list detected — paste into Static item list in the builder."],
+    "staticItemCount": 40
   }
 }
 
@@ -159,14 +165,9 @@ export const FORM_ENGINE_JSON_EXAMPLE = `{
       "title": "Inspection items",
       "rows": "dynamic",
       "columns": [
-        { "id": "item", "type": "text", "label": "Item", "readOnly": true },
+        { "id": "item", "type": "static", "label": "Item" },
         { "id": "status", "type": "yesno", "label": "Satisfactory?" },
         { "id": "notes", "type": "text", "label": "Notes" }
-      ],
-      "seedRows": [
-        { "item": "Fire doors" },
-        { "item": "Emergency lighting" },
-        { "item": "First aid kit" }
       ]
     },
     {
@@ -179,10 +180,10 @@ export const FORM_ENGINE_JSON_EXAMPLE = `{
     }
   ],
   "extraction": {
-    "summary": "Detected 2 field sections, 1 repeatable table, 3 static items, and 1 signature.",
+    "summary": "Detected 2 field sections, 1 repeatable table with a static Item column, and 1 signature. Paste printed items in the builder.",
     "uncertainItems": [],
-    "prefilledContent": [],
-    "staticItemCount": 3
+    "prefilledContent": ["Printed item list detected — paste into Static item list in the builder."],
+    "staticItemCount": 12
   }
 }`;
 
@@ -212,13 +213,14 @@ Rules:
 - If a PDF/image is attached but blurry, dark, cropped, rotated, or column/field labels are unreadable: status "needs_clarification". Ask the user to describe row count, column names, and field types — or suggest they retake a clearer photo / re-export PDF. Mention in summary that the attachment was hard to read.
 - Do NOT block merely because the layout is visually complex or multi-page. Complex forms can still be flattened.
 - Do not ask the user to choose between visual layouts that the builder can safely flatten. Build the information-preserving version and explain the adaptation afterward.
+- Do NOT ask the user to type every printed checklist item during clarification — the structure can be built with static columns and the user pastes items later in the builder.
 - Block/clarify only when information cannot be read or the result would be empty/unusable.
 - Use status "rejected" for blank, decorative, non-data, or fundamentally unrelated documents. Do not produce a placeholder form for a rejected source.
 - If only an image is attached with no description and layout is unclear: status "needs_clarification" with questions about table structure.
 - If the text description already specifies table rows/columns, headers, field types, and purpose: status "ready".
 - If text-only and vague (e.g. "make a checklist", "temperature log"): status "needs_clarification".
 - Ask ONLY missing details needed to build the form — max 5 questions, no duplicates.
-- Good questions: table row count (or dynamic), column names/types, header fields, whether photo evidence is needed, temperature unit (C/F), checklist item count, signature requirements, whether printed item names should become static seeded rows.
+- Good questions: table column names/types, header fields, whether photo evidence is needed, temperature unit (C/F), signature requirements, whether an item column should be static text.
 - Do NOT ask about things already stated in the description.
 - Use inputType "choice" with 2–6 options when a fixed set makes sense (e.g. rows: 10/12/15/dynamic).
 - Use inputType "number" for counts.

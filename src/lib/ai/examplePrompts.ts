@@ -8,7 +8,7 @@ export type ExamplePrompt = {
 };
 
 export const AI_WELCOME_MESSAGE =
-  "Describe the form you need — the more specific, the better the draft. You can also attach a photo or PDF of an existing paper form.";
+  "";
 
 /** Always-visible guide in the form builder AI modal. */
 export const AI_FORM_BUILDER_GUIDE: ExamplePrompt = {

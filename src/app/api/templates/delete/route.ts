@@ -6,6 +6,7 @@ import { getTemplateSchemaMeta } from "@/lib/templateVersioning";
 import { hasPermission } from "@/lib/roleGate";
 import { recordActivity } from "@/lib/activityTracker";
 import { scheduleBrandSyncChange } from "@/lib/brandSync";
+import { buildTemplateDeletePlan } from "@/lib/templateDelete";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -67,36 +68,39 @@ export async function POST(req: Request) {
 
     if (ce || !current) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
-    const currentMeta = getTemplateSchemaMeta(current.schema);
-    const lineageId = currentMeta.lineageId || (current.id as string);
-
     const { data: allTenantTemplates } = await sb.from("form_templates").select("id, schema").eq("tenant_id", tenant.id);
+    const lineageTemplateIds = (allTenantTemplates || []).map((t) => ({ id: t.id as string, schema: t.schema as unknown }));
 
-    const lineageTemplateIds = (allTenantTemplates || [])
-      .filter((t) => {
-        const meta = getTemplateSchemaMeta(t.schema);
-        return (meta.lineageId || t.id) === lineageId;
-      })
-      .map((t) => t.id as string);
-
-    let auditTotal = 0;
-    for (const tid of lineageTemplateIds) {
+    const countsByTemplateId: Record<string, number> = {};
+    for (const id of new Set(lineageTemplateIds.map((t) => t.id))) {
       const { count } = await sb
         .from("audit_logs")
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", tenant.id)
-        .eq("template_id", tid);
-      auditTotal += count ?? 0;
+        .eq("template_id", id);
+      countsByTemplateId[id] = count ?? 0;
     }
 
-    if (auditTotal > 0) {
-      return NextResponse.json(
-        { error: "Cannot delete this form because it has submissions. Archive/hide fields instead." },
-        { status: 409 }
+    const plan = buildTemplateDeletePlan({
+      templateId: current.id,
+      allTemplates: lineageTemplateIds,
+      countsByTemplateId,
+    });
+
+    const { lineageId, lineageTemplateIds: relatedTemplateIds, totalAuditRows } = plan;
+
+    if (totalAuditRows > 0) {
+      const { error: auditDeleteErr } = await sb.from("audit_logs").delete().in(
+        "template_id",
+        relatedTemplateIds
       );
+
+      if (auditDeleteErr) {
+        return NextResponse.json({ error: auditDeleteErr.message }, { status: 500 });
+      }
     }
 
-    for (const id of lineageTemplateIds) {
+    for (const id of relatedTemplateIds) {
       scheduleBrandSyncChange({
         sourceTenantId: tenant.id as string,
         entityType: "form_template",
@@ -105,7 +109,7 @@ export async function POST(req: Request) {
       });
     }
 
-    for (const id of lineageTemplateIds) {
+    for (const id of relatedTemplateIds) {
       await sb.from("form_templates").delete().eq("id", id);
     }
 
@@ -115,10 +119,10 @@ export async function POST(req: Request) {
       action: "template.delete",
       entityType: "FormTemplateLineage",
       entityId: lineageId,
-      details: { deletedTemplateIds: lineageTemplateIds },
+      details: { deletedTemplateIds: relatedTemplateIds, deletedAuditRows: totalAuditRows },
     });
 
-    return NextResponse.json({ deleted: lineageTemplateIds.length });
+    return NextResponse.json({ deleted: relatedTemplateIds.length, deletedAuditRows: totalAuditRows });
   } catch (error: unknown) {
     console.error("/api/templates/delete POST error", error);
     const msg = error instanceof Error ? error.message : "Server error";

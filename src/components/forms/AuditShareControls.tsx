@@ -71,6 +71,10 @@ export function AuditShareControls({ title, url, enablePdfShare = false }: Props
       const saved = await shareAuditPdf(title);
       if (saved?.savedPathLabel) {
         alert(formatPdfSavedMessage(saved.savedPathLabel));
+        if (saved.fileUri) {
+          const { shareSavedPdf } = await import("@/lib/pdfGenerator");
+          await shareSavedPdf(saved.fileUri, `${title.replace(/[^a-z0-9]+/gi, "-")}.pdf`).catch(() => false);
+        }
       }
     } catch (error) {
       console.error("Failed to save PDF:", error);

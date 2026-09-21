@@ -4,7 +4,7 @@ import { apiUrl } from "@/lib/client/apiBase";
 import { copyAuditReportSnapshot, writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { dbDeleteOutbox, dbGetTemplate, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
-import { readClientSubmissionId } from "@/lib/submissionMeta";
+import { clearClientSubmissionAttempt, readClientSubmissionId } from "@/lib/submissionMeta";
 
 type QueueMode = "draft" | "submit";
 
@@ -20,6 +20,14 @@ export type AuditSyncItem = {
 
 const KEY = "audit-sync-queue:v1";
 const OFFLINE_SUBMITTED_KEY = "audit-offline-submitted:v1";
+
+/** Dispatched when the Dexie outbox or offline-submitted list changes. */
+export const AUDIT_OUTBOX_CHANGED_EVENT = "iso-audit-outbox-changed";
+
+export function notifyAuditOutboxChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUDIT_OUTBOX_CHANGED_EVENT));
+}
 
 export type OfflineSubmittedForm = {
   localId: string;
@@ -72,12 +80,34 @@ function writeOfflineSubmitted(items: OfflineSubmittedForm[]) {
 }
 
 export function addOfflineSubmittedForm(item: Omit<OfflineSubmittedForm, "localId" | "createdAt">) {
+  const submissionId = readClientSubmissionId(item.payload);
+  const all = readOfflineSubmitted();
+  const existingIdx = all.findIndex((row) => {
+    if (row.queueId === item.queueId) return true;
+    if (!submissionId) return false;
+    return readClientSubmissionId(row.payload) === submissionId;
+  });
+
+  if (existingIdx >= 0) {
+    const existing = all[existingIdx];
+    const merged: OfflineSubmittedForm = {
+      ...existing,
+      queueId: item.queueId,
+      tenantSlug: item.tenantSlug,
+      templateId: item.templateId,
+      templateTitle: item.templateTitle,
+      payload: item.payload,
+    };
+    const next = [merged, ...all.filter((_, i) => i !== existingIdx)];
+    writeOfflineSubmitted(next.slice(0, 300));
+    return merged;
+  }
+
   const next: OfflineSubmittedForm = {
     ...item,
     localId: `local_${Math.random().toString(16).slice(2)}_${Date.now()}`,
     createdAt: Date.now(),
   };
-  const all = readOfflineSubmitted();
   all.unshift(next);
   writeOfflineSubmitted(all.slice(0, 300));
   return next;
@@ -94,6 +124,14 @@ export function getAuditSyncQueueForTenant(tenantSlug: string) {
 export function removeOfflineSubmittedByQueueId(queueId: string) {
   const all = readOfflineSubmitted();
   const next = all.filter((x) => x.queueId !== queueId);
+  if (next.length === all.length) return;
+  writeOfflineSubmitted(next);
+}
+
+export function removeOfflineSubmittedByClientSubmissionId(clientSubmissionId: string) {
+  if (!clientSubmissionId.trim()) return;
+  const all = readOfflineSubmitted();
+  const next = all.filter((x) => readClientSubmissionId(x.payload) !== clientSubmissionId);
   if (next.length === all.length) return;
   writeOfflineSubmitted(next);
 }
@@ -133,10 +171,15 @@ async function finalizeSuccessfulSubmit(
     templateId: string;
     payload: Record<string, unknown>;
     mode: QueueMode;
+    auditId?: string | null;
   },
   serverAuditId: string
 ) {
   removeOfflineSubmittedByQueueId(item.id);
+  const submissionId = readClientSubmissionId(item.payload);
+  if (submissionId) removeOfflineSubmittedByClientSubmissionId(submissionId);
+  clearClientSubmissionAttempt(item.tenantSlug, item.templateId, item.auditId);
+  notifyAuditOutboxChanged();
   const pendingId = `pending:${item.id}`;
   if (!serverAuditId) return;
 
@@ -151,6 +194,7 @@ async function finalizeSuccessfulSubmit(
     tenantName: tpl?.tenantName || item.tenantSlug,
     templateId: item.templateId,
     payload: payload as Record<string, unknown>,
+    schema: tpl?.schema || null,
   });
   const savedAt = new Date().toISOString();
   upsertCachedAuditRow(null, item.tenantSlug, {
@@ -225,6 +269,7 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
 
         await dbDeleteOutbox(item.id);
         processed += 1;
+        notifyAuditOutboxChanged();
       } catch (e: unknown) {
         await dbMarkOutboxFailed(item.id, String((e as { message?: string })?.message || "sync failed"));
       }

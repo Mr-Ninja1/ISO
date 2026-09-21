@@ -87,6 +87,9 @@ const ALL_PALETTE: Array<FieldType | "table"> = [
 ];
 
 function starterColumn(type: SimpleFieldDef["type"], label = COLUMN_HEADER_PLACEHOLDER): SimpleFieldDef {
+  if (type === "static") {
+    return { id: makeId(type), type: "static", label, required: false };
+  }
   return { id: makeId(type), type, label, required: false };
 }
 
@@ -112,7 +115,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     starterGrid: {
       rows: 12,
       columns: [
-        starterColumn("text", "Item"),
+        starterColumn("static", "Item"),
         starterColumn("yesno", "Status"),
         starterColumn("text", "Notes"),
         starterColumn("signature", "Verified by"),
@@ -140,7 +143,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     starterGrid: {
       rows: 15,
       columns: [
-        starterColumn("text", "Task / area"),
+        starterColumn("static", "Task / area"),
         starterColumn("yesno", "OK?"),
         starterColumn("text", "Notes"),
         starterColumn("photo", "Photo"),
@@ -206,7 +209,7 @@ const FORM_BUILDER_CONFIGS: Record<FormType, FormBuilderConfig> = {
     starterGrid: {
       rows: 10,
       columns: [
-        starterColumn("text", "Item"),
+        starterColumn("static", "Item"),
         starterColumn("text", "Frequency"),
         starterColumn("yesno", "Status"),
         starterColumn("text", "Notes"),

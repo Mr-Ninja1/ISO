@@ -6,7 +6,7 @@ import { hasPermission } from "@/lib/roleGate";
 import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
 import { recordActivity } from "@/lib/activityTracker";
 import { persistPhotoEvidenceToBucket } from "@/lib/photoEvidenceStorage";
-import { readClientSubmissionId } from "@/lib/submissionMeta";
+import { readClientSubmissionId, withClientSubmissionId } from "@/lib/submissionMeta";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -23,12 +23,34 @@ const bodySchema = z.object({
   clientSubmissionId: z.string().min(8).max(120).optional(),
 });
 
+function isUniqueViolation(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  if (error.code === "23505") return true;
+  return /duplicate key|unique constraint/i.test(error.message || "");
+}
+
 function draftUserIdFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const meta = (payload as Record<string, unknown>).__draftMeta;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
   const userId = (meta as Record<string, unknown>).userId;
   return typeof userId === "string" && userId ? userId : null;
+}
+
+async function findSubmittedByClientSubmissionId(
+  sb: ReturnType<typeof createSupabaseWithBearer>,
+  params: { tenantId: string; templateId: string; clientSubmissionId: string }
+) {
+  const { data: priorRows } = await sb
+    .from("audit_logs")
+    .select("id")
+    .eq("tenant_id", params.tenantId)
+    .eq("template_id", params.templateId)
+    .eq("status", "SUBMITTED")
+    .filter("payload->__submissionMeta->>clientSubmissionId", "eq", params.clientSubmissionId)
+    .limit(1);
+
+  return priorRows?.[0]?.id ? (priorRows[0].id as string) : null;
 }
 
 async function clearOtherUserDrafts(
@@ -260,19 +282,18 @@ export async function POST(req: Request) {
     const clientSubmissionId =
       parsed.data.clientSubmissionId?.trim() || readClientSubmissionId(submitPayload) || null;
 
-    if (!auditId && clientSubmissionId) {
-      const { data: priorRows } = await sb
-        .from("audit_logs")
-        .select("id")
-        .eq("tenant_id", tenant.id)
-        .eq("template_id", template.id)
-        .eq("status", "SUBMITTED")
-        .filter("payload->__submissionMeta->>clientSubmissionId", "eq", clientSubmissionId)
-        .limit(1);
+    const submitPayloadWithId = clientSubmissionId
+      ? withClientSubmissionId(submitPayload as Record<string, unknown>, clientSubmissionId)
+      : submitPayload;
 
-      const prior = priorRows?.[0];
-      if (prior?.id) {
-        return NextResponse.json({ auditId: prior.id as string, status: "SUBMITTED", deduplicated: true });
+    if (!auditId && clientSubmissionId) {
+      const priorId = await findSubmittedByClientSubmissionId(sb, {
+        tenantId: tenant.id as string,
+        templateId: template.id as string,
+        clientSubmissionId,
+      });
+      if (priorId) {
+        return NextResponse.json({ auditId: priorId, status: "SUBMITTED", deduplicated: true });
       }
     }
 
@@ -289,7 +310,7 @@ export async function POST(req: Request) {
         const { data: audit, error: upErr } = await sb
           .from("audit_logs")
           .update({
-            payload: submitPayload,
+            payload: submitPayloadWithId,
             status: "SUBMITTED",
             submitted_at: new Date().toISOString(),
           })
@@ -298,6 +319,16 @@ export async function POST(req: Request) {
           .single();
 
         if (upErr || !audit) {
+          if (clientSubmissionId && isUniqueViolation(upErr)) {
+            const priorId = await findSubmittedByClientSubmissionId(sb, {
+              tenantId: tenant.id as string,
+              templateId: template.id as string,
+              clientSubmissionId,
+            });
+            if (priorId) {
+              return NextResponse.json({ auditId: priorId, status: "SUBMITTED", deduplicated: true });
+            }
+          }
           return NextResponse.json({ error: upErr?.message || "Submit failed" }, { status: 500 });
         }
 
@@ -327,13 +358,23 @@ export async function POST(req: Request) {
         tenant_id: tenant.id,
         template_id: template.id,
         status: "SUBMITTED",
-        payload: submitPayload,
+        payload: submitPayloadWithId,
         submitted_at: new Date().toISOString(),
       })
       .select("id")
       .single();
 
     if (crErr || !audit) {
+      if (clientSubmissionId && isUniqueViolation(crErr)) {
+        const priorId = await findSubmittedByClientSubmissionId(sb, {
+          tenantId: tenant.id as string,
+          templateId: template.id as string,
+          clientSubmissionId,
+        });
+        if (priorId) {
+          return NextResponse.json({ auditId: priorId, status: "SUBMITTED", deduplicated: true });
+        }
+      }
       return NextResponse.json({ error: crErr?.message || "Submit failed" }, { status: 500 });
     }
 

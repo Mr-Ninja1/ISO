@@ -196,18 +196,27 @@ function fitWideTablesForPdf(clone: HTMLElement) {
     if (!table) return;
 
     const colCount = table.querySelectorAll("thead th").length;
-    let fontSize = "11px";
-    if (colCount >= 8) fontSize = "8px";
-    else if (colCount >= 7) fontSize = "8.5px";
+    let fontSize = "10px";
+    if (colCount >= 12) fontSize = "6.5px";
+    else if (colCount >= 10) fontSize = "7px";
+    else if (colCount >= 8) fontSize = "7.5px";
+    else if (colCount >= 7) fontSize = "8px";
     else if (colCount >= 6) fontSize = "9px";
-    else if (colCount >= 5) fontSize = "10px";
+    else if (colCount >= 5) fontSize = "9.5px";
 
     wrap.style.overflow = "visible";
     wrap.style.width = "100%";
     wrap.style.maxWidth = "100%";
 
-    const lineHeight = colCount >= 7 ? "1.3" : "1.35";
-    const padding = colCount >= 6 ? "4px 4px" : "5px 6px";
+    const lineHeight = colCount >= 10 ? "1.2" : colCount >= 7 ? "1.25" : "1.35";
+    const padding =
+      colCount >= 12
+        ? "2px 2px"
+        : colCount >= 8
+          ? "3px 3px"
+          : colCount >= 6
+            ? "4px 4px"
+            : "5px 6px";
 
     table.classList.remove("min-w-max");
     table.classList.add("pdf-compact-table");
@@ -228,8 +237,33 @@ function fitWideTablesForPdf(clone: HTMLElement) {
       el.style.whiteSpace = "normal";
       el.style.verticalAlign = "top";
       el.style.height = "auto";
+      if (colCount >= 10) {
+        el.style.fontSize = fontSize;
+        el.style.padding = padding;
+      }
     });
   });
+}
+
+/** If cloned report still overflows A4 content width, scale the whole sheet down. */
+function fitCloneToPageWidth(clone: HTMLElement, targetWidthPx: number) {
+  // Force layout at target width first.
+  clone.style.width = `${targetWidthPx}px`;
+  clone.style.maxWidth = `${targetWidthPx}px`;
+
+  const scrollWidth = Math.max(clone.scrollWidth, clone.offsetWidth);
+  if (scrollWidth <= targetWidthPx + 2) return;
+
+  const scale = Math.max(0.55, Math.min(1, targetWidthPx / scrollWidth));
+  if (scale >= 0.995) return;
+
+  const measuredHeight = clone.scrollHeight;
+  clone.style.transformOrigin = "top left";
+  clone.style.transform = `scale(${scale})`;
+  clone.style.width = `${Math.ceil(targetWidthPx / scale)}px`;
+  // Keep host footprint correct for html2canvas height calculation.
+  clone.style.marginBottom = `${Math.ceil(measuredHeight * (scale - 1))}px`;
+  clone.dataset.pdfFitScale = String(scale);
 }
 
 async function renderPdfCanvas(
@@ -293,6 +327,9 @@ async function captureForPdf(
 
   host.appendChild(clone);
   document.body.appendChild(host);
+
+  // Measure after mount so overflow scale uses real layout width.
+  fitCloneToPageWidth(clone, targetWidthPx);
 
   const html2canvasPromise = import("html2canvas");
 
@@ -429,15 +466,22 @@ export { resolvePdfScale };
 export type PdfSaveResult = {
   /** Human-readable path shown after a native save (e.g. Documents/ISO Grid/report.pdf). */
   savedPathLabel: string;
+  /** Native content URI when available (for Share sheet). */
+  fileUri?: string;
 };
 
 /** Short native-save confirmation for alerts. */
 export function formatPdfSavedMessage(savedPathLabel: string): string {
   const folder = savedPathLabel.startsWith("Download/")
     ? "Downloads"
-    : "Documents";
+    : savedPathLabel.startsWith("Documents/")
+      ? "Documents"
+      : "app storage";
   const fileName = savedPathLabel.split("/").pop() || "report.pdf";
-  return `PDF saved: ${fileName}\nFiles → ${folder} → ISO Grid`;
+  if (folder === "app storage") {
+    return `PDF saved: ${fileName}\nOpen the share sheet if you need to move it to Downloads or another app.`;
+  }
+  return `PDF saved: ${fileName}\nFind it under Files → ${folder} → ISO Grid`;
 }
 
 const NATIVE_PDF_FOLDER = "ISO Grid";
@@ -474,24 +518,68 @@ function isCapacitorPluginMissing(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : "";
-  return /not implemented|unimplemented|plugin/i.test(message);
+  return /not implemented|unimplemented|plugin is not implemented|\"Filesystem\"/i.test(message);
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /permission|denied|not authorized|access/i.test(message);
 }
 
 async function ensurePublicStoragePermission(
   Filesystem: typeof import("@capacitor/filesystem").Filesystem,
+  required: boolean
 ) {
   try {
     const status = await Filesystem.checkPermissions();
     if (status.publicStorage === "granted") return;
     const requested = await Filesystem.requestPermissions();
-    if (requested.publicStorage !== "granted") {
+    if (requested.publicStorage === "granted") return;
+    if (required) {
       throw new Error(
-        "Storage permission is required to save PDFs on your device.",
+        "Storage permission is required to save PDFs to Downloads. Allow storage access, then try again."
       );
     }
   } catch (error) {
     if (isCapacitorPluginMissing(error)) throw error;
+    if (required && isPermissionDenied(error)) throw error;
+    if (required) throw error;
     console.warn("[pdf] Storage permission check failed:", error);
+  }
+}
+
+async function resolveSavedFileUri(
+  Filesystem: typeof import("@capacitor/filesystem").Filesystem,
+  directory: import("@capacitor/filesystem").Directory,
+  path: string
+): Promise<string | undefined> {
+  try {
+    const result = await Filesystem.getUri({ directory, path });
+    return typeof result?.uri === "string" && result.uri ? result.uri : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Best-effort share sheet so users can find / move the PDF after save. */
+export async function shareSavedPdf(fileUri: string, filename: string): Promise<boolean> {
+  try {
+    const { Share } = await import("@capacitor/share");
+    await Share.share({
+      title: filename,
+      text: filename,
+      url: fileUri,
+      dialogTitle: "Share PDF",
+    });
+    return true;
+  } catch (error) {
+    console.warn("[pdf] Share sheet unavailable:", error);
+    return false;
   }
 }
 
@@ -501,40 +589,62 @@ async function savePdfBlobOnDevice(
 ): Promise<PdfSaveResult> {
   const { Filesystem, Directory } = await import("@capacitor/filesystem");
   const safeName = (filename.trim() || "report.pdf").replace(/[^\w.\- ]+/g, "_");
-  const base64 = await blobToBase64(blob);
   const relativePath = `${NATIVE_PDF_FOLDER}/${safeName}`;
+  const base64 = await blobToBase64(blob);
 
   const targets: Array<{
     directory: import("@capacitor/filesystem").Directory;
     path: string;
     label: string;
+    needsPublicStorage: boolean;
   }> = [
     {
       directory: Directory.Documents,
       path: relativePath,
       label: `Documents/${relativePath}`,
+      needsPublicStorage: false,
+    },
+    {
+      directory: Directory.Cache,
+      path: relativePath,
+      label: `Cache/${relativePath}`,
+      needsPublicStorage: false,
+    },
+    {
+      directory: Directory.Data,
+      path: relativePath,
+      label: `Data/${relativePath}`,
+      needsPublicStorage: false,
     },
     {
       directory: Directory.ExternalStorage,
       path: `Download/${relativePath}`,
       label: `Download/${relativePath}`,
+      needsPublicStorage: true,
     },
   ];
 
   let lastError: unknown;
+  let sawPermissionDenial = false;
 
   for (const target of targets) {
     try {
-      await ensurePublicStoragePermission(Filesystem);
+      if (target.needsPublicStorage) {
+        await ensurePublicStoragePermission(Filesystem, true);
+      } else {
+        await ensurePublicStoragePermission(Filesystem, false);
+      }
       await Filesystem.writeFile({
         path: target.path,
         data: base64,
         directory: target.directory,
         recursive: true,
       });
-      return { savedPathLabel: target.label };
+      const fileUri = await resolveSavedFileUri(Filesystem, target.directory, target.path);
+      return { savedPathLabel: target.label, fileUri };
     } catch (error) {
       lastError = error;
+      if (isPermissionDenied(error)) sawPermissionDenial = true;
       console.warn("[pdf] Could not save to", target.label, error);
     }
   }
@@ -542,6 +652,12 @@ async function savePdfBlobOnDevice(
   if (isCapacitorPluginMissing(lastError)) {
     throw new Error(
       "This app build cannot save files on the device. Install the latest APK (v1.5.0 or newer), then try again.",
+    );
+  }
+
+  if (sawPermissionDenial) {
+    throw new Error(
+      "Storage permission was denied. Allow Files/Storage access for ISO Grid in Android settings, then try again.",
     );
   }
 

@@ -5,7 +5,6 @@ import { NotificationModal } from "@/components/NotificationModal";
 import { applyDownloadedOtaBundle } from "@/lib/capacitor/otaApply";
 import { ISO_AUTH_READY_EVENT } from "@/lib/capacitor/otaEvents";
 import { ensureLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
-import { clearOtaBootGracePeriod, isWithinOtaBootGracePeriod } from "@/lib/capacitor/otaBoot";
 import {
   checkForOtaUpdate,
   dispatchOtaPending,
@@ -138,9 +137,9 @@ export function LiveUpdateBootstrap() {
       await ensureLiveUpdateReady();
       await restorePendingFromDevice();
 
-      if (isWithinOtaBootGracePeriod()) {
-        clearOtaBootGracePeriod();
-      }
+      // Keep OTA boot grace for the full window so CapacitorAppRecovery does not
+      // treat "Starting ISO Grid" as stuck and hardNavigate in a loop.
+      // Grace expires on its own via isWithinOtaBootGracePeriod().
 
       // Defer cold-start OTA check — avoid fighting entry/login hydration.
       window.setTimeout(() => void runCheckIfRemoteNewer("cold-start"), 10_000);

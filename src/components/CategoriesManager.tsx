@@ -10,6 +10,8 @@ import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalid
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { apiUrl } from "@/lib/client/apiBase";
+import { patchWorkspaceCategoryCaches } from "@/lib/client/workspaceCache";
+import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 
 type CategoryRow = {
   id: string;
@@ -159,22 +161,11 @@ export function CategoriesManager({ tenant }: Props) {
           sortOrder: 0,
         };
         setCategories((prev) => [...prev, optimistic]);
-        // Update local workspace cache so other parts of the app see the new category immediately
-        try {
-          const userId = session?.user?.id ?? null;
-          const tenantSlug = tenant.slug;
-          const cacheKey = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:all`;
-          const existingRaw = localStorage.getItem(cacheKey);
-          let existing = null as any;
-          if (existingRaw) {
-            try { existing = JSON.parse(existingRaw); } catch { existing = null; }
-          }
-          const nextWorkspace = existing?.data || { tenant: { slug: tenantSlug }, categories: tenant.categories.map(c => ({ id: c.id })), selectedCategoryId: null };
-          nextWorkspace.categories = [...(nextWorkspace.categories || []).map((c: any) => ({ id: c.id })), { id: optimistic.id, name: optimistic.name, sortOrder: optimistic.sortOrder }];
-          const envelope = { ts: Date.now(), data: nextWorkspace };
-          localStorage.setItem(cacheKey, JSON.stringify(envelope));
-          window.dispatchEvent(new CustomEvent("workspace-cache-updated", { detail: { tenantSlug, categoryId: null } }));
-        } catch {}
+        patchWorkspaceCategoryCaches(session?.user?.id ?? null, tenant.slug, {
+          id: optimistic.id,
+          name: optimistic.name,
+          sortOrder: optimistic.sortOrder,
+        });
         enqueueBackgroundMutation({
           url: "/api/categories",
           method: "POST",
@@ -209,30 +200,21 @@ export function CategoriesManager({ tenant }: Props) {
       setCategories([...categories, newCategory]);
       setNewCategoryName("");
       setMessage("Category created!");
+      patchWorkspaceCategoryCaches(session?.user?.id ?? null, tenant.slug, {
+        id: newCategory.id,
+        name: newCategory.name,
+        sortOrder: newCategory.sortOrder ?? 0,
+      });
       requestWorkspaceRevalidate(tenant.slug);
-      // Clear all workspace caches for this tenant to force fresh data
-      try {
-        const userId = session?.user?.id ?? null;
-        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenant.slug}:`;
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-          }
-        }
-      } catch {
-        // ignore cache clear failures
-      }
-      // Force a server-side refresh so `workspace` server data is re-fetched
-      // and the new category is visible in server-rendered components.
       try {
         router.refresh();
-      } catch (e) {
+      } catch {
         // ignore refresh failures in dev
       }
       setTimeout(() => {
-        router.push(`/workspace/forms?tenantSlug=${encodeURIComponent(tenant.slug)}`);
-      }, 500);
+        const href = buildWorkspaceFormsHref(tenant.slug);
+        router.push(href.includes("?") ? `${href}&refresh=1` : `${href}?refresh=1`);
+      }, 300);
     } catch (error: any) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
@@ -243,22 +225,11 @@ export function CategoriesManager({ tenant }: Props) {
           sortOrder: 0,
         };
         setCategories((prev) => [...prev, optimistic]);
-        // write to local workspace cache so the change is visible immediately
-        try {
-          const userId = session?.user?.id ?? null;
-          const tenantSlug = tenant.slug;
-          const cacheKey = `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:all`;
-          const existingRaw = localStorage.getItem(cacheKey);
-          let existing = null as any;
-          if (existingRaw) {
-            try { existing = JSON.parse(existingRaw); } catch { existing = null; }
-          }
-          const nextWorkspace = existing?.data || { tenant: { slug: tenantSlug }, categories: tenant.categories.map(c => ({ id: c.id })), selectedCategoryId: null };
-          nextWorkspace.categories = [...(nextWorkspace.categories || []).map((c: any) => ({ id: c.id })), { id: optimistic.id, name: optimistic.name, sortOrder: optimistic.sortOrder }];
-          const envelope = { ts: Date.now(), data: nextWorkspace };
-          localStorage.setItem(cacheKey, JSON.stringify(envelope));
-          window.dispatchEvent(new CustomEvent("workspace-cache-updated", { detail: { tenantSlug, categoryId: null } }));
-        } catch {}
+        patchWorkspaceCategoryCaches(session?.user?.id ?? null, tenant.slug, {
+          id: optimistic.id,
+          name: optimistic.name,
+          sortOrder: optimistic.sortOrder,
+        });
         enqueueBackgroundMutation({
           url: "/api/categories",
           method: "POST",
@@ -307,20 +278,13 @@ export function CategoriesManager({ tenant }: Props) {
       }
 
       setCategories(categories.filter((c) => c.id !== categoryId));
+      patchWorkspaceCategoryCaches(
+        session?.user?.id ?? null,
+        tenant.slug,
+        { id: categoryId, name: "", sortOrder: 0 },
+        { remove: true }
+      );
       requestWorkspaceRevalidate(tenant.slug);
-      // Clear all workspace caches for this tenant to force fresh data
-      try {
-        const userId = session?.user?.id ?? null;
-        const prefix = `workspace-cache:v2:${userId || "anon"}:${tenant.slug}:`;
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(prefix)) {
-            localStorage.removeItem(key);
-          }
-        }
-      } catch {
-        // ignore cache clear failures
-      }
     } catch (error: any) {
       const msg = String(error?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
@@ -365,6 +329,11 @@ export function CategoriesManager({ tenant }: Props) {
       setEditingId(null);
       setEditingName("");
       setMessage("Category renamed.");
+      patchWorkspaceCategoryCaches(session?.user?.id ?? null, tenant.slug, {
+        id: categoryId,
+        name,
+        sortOrder: categories.find((c) => c.id === categoryId)?.sortOrder ?? 0,
+      });
       requestWorkspaceRevalidate(tenant.slug);
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : "Failed to rename category");

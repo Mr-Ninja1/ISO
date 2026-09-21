@@ -2,6 +2,9 @@ import Link from "next/link";
 import { ssrTenantBySlug } from "@/lib/data/ssrQueries";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
+import { TemplatesPageClient } from "@/components/forms/TemplatesPageClient";
+
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
 type CategoryRow = { id: string; name: string; sortOrder: number };
 type TemplateRow = {
@@ -18,6 +21,11 @@ export default async function TemplatesPage({
   params: Promise<{ tenantSlug: string }>;
 }) {
   const { tenantSlug } = await params;
+
+  if (isCapacitorBuild) {
+    return <TemplatesPageClient routeSlug={tenantSlug} />;
+  }
+
   const tenant = await ssrTenantBySlug(tenantSlug);
   if (!tenant) {
     return (
