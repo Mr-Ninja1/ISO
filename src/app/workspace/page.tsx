@@ -19,6 +19,7 @@ import {
   buildWorkspaceFormsHref,
   buildWorkspaceAdminHref,
   buildWorkspaceEntryHref,
+  isLiveOnWorkspacePath,
   preserveWorkspaceViewInParams,
   readWorkspaceViewPref,
   rememberWorkspaceViewPref,
@@ -769,6 +770,11 @@ function WorkspacePageInner() {
   const workspaceFetchGenRef = useRef(0);
   /** Category the user just tapped — URL may lag; ignore stale cache writes for the old tab. */
   const pendingCategoryIdRef = useRef<string | null>(null);
+  /**
+   * Bumped when leaving /workspace for another route. In-flight workspace fetch .then()
+   * callbacks must not router.replace back onto /workspace (cancels the outbound nav).
+   */
+  const outboundNavEpochRef = useRef(0);
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
   const { blockIfOffline } = useRequiresInternet();
@@ -776,12 +782,13 @@ function WorkspacePageInner() {
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
   const canSeeAdminHub = workspaceRole === "ADMIN" || workspaceRole === "MANAGER";
-  // Explicit URL wins; otherwise keep last in-session surface (stops HSE bounce when `view` is dropped).
+  // Explicit URL wins; otherwise keep last in-session surface (prefer forms — never snap to HSE
+  // when view is missing from the query string after a soft nav / return without view=).
   const urlView: WorkspaceSurfaceView = !canSeeAdminHub
     ? "forms"
     : requestedView === "forms" || requestedView === "admin"
       ? requestedView
-      : (readWorkspaceViewPref() ?? "admin");
+      : (readWorkspaceViewPref() ?? "forms");
 
   useEffect(() => {
     setOptimisticView(null);
@@ -884,23 +891,26 @@ function WorkspacePageInner() {
   }
 
   function openTemplate(templateId: string, tenantSlugForRoute: string) {
+    if (openingTemplateId === templateId) return;
     setSwitchingCategory(false);
     setUiActiveCategoryId(null);
+    pendingCategoryIdRef.current = null;
+    const navEpoch = ++outboundNavEpochRef.current;
     setOpeningTemplateId(templateId);
     rememberRecentTemplate(templateId);
+    rememberWorkspaceViewPref("forms");
+    const href = tenantRouteHref(tenantSlugForRoute, "audits/new", { templateId });
     const locallyCached = Boolean(readAuditTemplateCache(tenantSlugForRoute, templateId));
     if (!locallyCached) {
       void prefetchTemplateSchema(templateId).catch(() => {});
     }
-    // Cached schemas should open without the global Loading chip — the form is already on-device.
-    pushTenantRoute(
-      router,
-      tenantSlugForRoute,
-      "audits/new",
-      { templateId },
-      "push",
-      { silent: locallyCached }
-    );
+    navigateWithFeedback(router, href, "push");
+    // Soft nav can be cancelled by a late workspace router.replace — force commit if still here.
+    window.setTimeout(() => {
+      if (outboundNavEpochRef.current !== navEpoch) return;
+      if (!isLiveOnWorkspacePath()) return;
+      hardNavigate(href);
+    }, 1400);
   }
 
   function markWorkspaceTourSeen() {
@@ -1263,6 +1273,7 @@ function WorkspacePageInner() {
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
     setMenuOpen(false);
+    outboundNavEpochRef.current += 1;
     setOpeningSettings(true);
     pushTenantRoute(router, targetTenantSlug, "settings");
   }
@@ -1270,24 +1281,28 @@ function WorkspacePageInner() {
   function handleOpenStaffManagement(targetTenantSlug: string) {
     if (openingStaff) return;
     setMenuOpen(false);
+    outboundNavEpochRef.current += 1;
     setOpeningStaff(true);
     pushTenantRoute(router, targetTenantSlug, "settings", { focus: "staff" });
   }
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
+    outboundNavEpochRef.current += 1;
     setOpeningActivity(true);
     pushTenantRoute(router, targetTenantSlug, "activity");
   }
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
+    outboundNavEpochRef.current += 1;
     setOpeningAdminDashboard(true);
     pushTenantRoute(router, targetTenantSlug, "dashboard");
   }
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
+    outboundNavEpochRef.current += 1;
     setOpeningAudits(true);
     pushTenantRoute(router, targetTenantSlug, "audits");
   }
@@ -1296,23 +1311,35 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (blockIfOffline("Template library")) return;
     setAddFormOpen(false);
-    pushTenantRoute(
-      router,
+    const navEpoch = ++outboundNavEpochRef.current;
+    rememberWorkspaceViewPref("forms");
+    const href = tenantRouteHref(
       workspace.tenant.slug,
       "templates/library",
       selectedCategoryId ? { categoryId: selectedCategoryId } : undefined
     );
+    navigateWithFeedback(router, href);
+    window.setTimeout(() => {
+      if (outboundNavEpochRef.current !== navEpoch) return;
+      if (!isLiveOnWorkspacePath()) return;
+      hardNavigate(href);
+    }, 1400);
   }
 
   function handleCreateCustomForm(selectedCategoryId: string | null) {
     if (!workspace) return;
     setAddFormOpen(false);
-    navigateWithFeedback(
-      router,
-      buildTenantHref(workspace.tenant.slug, "templates/new", {
-        categoryId: selectedCategoryId || undefined,
-      }),
-    );
+    const navEpoch = ++outboundNavEpochRef.current;
+    rememberWorkspaceViewPref("forms");
+    const href = buildTenantHref(workspace.tenant.slug, "templates/new", {
+      categoryId: selectedCategoryId || undefined,
+    });
+    navigateWithFeedback(router, href);
+    window.setTimeout(() => {
+      if (outboundNavEpochRef.current !== navEpoch) return;
+      if (!isLiveOnWorkspacePath()) return;
+      hardNavigate(href);
+    }, 1400);
   }
 
   async function loadAssignableStaffOptions() {
@@ -2077,6 +2104,7 @@ function WorkspacePageInner() {
 
     const controller = new AbortController();
     const fetchGen = ++workspaceFetchGenRef.current;
+    const outboundEpochAtStart = outboundNavEpochRef.current;
     const requestedCategoryId = categoryId || null;
     (async () => {
       let data: WorkspaceData | null = null;
@@ -2125,6 +2153,11 @@ function WorkspacePageInner() {
           return;
         }
 
+        // Outbound navigation (open form / create form / settings) started after this fetch —
+        // never router.replace back to /workspace (that cancels the soft nav → "bounce").
+        if (outboundNavEpochRef.current !== outboundEpochAtStart) return;
+        if (!isLiveOnWorkspacePath()) return;
+
         workspaceBusyRetriesRef.current = 0;
         const sameTenant =
           workspace?.tenant.slug === data.tenant.slug &&
@@ -2160,6 +2193,7 @@ function WorkspacePageInner() {
         // Only seed categoryId when the URL has none — never overwrite the user's tab choice
         // (that race bounced users back to the previous category).
         if (!requestedCategoryId && data.selectedCategoryId) {
+          if (outboundNavEpochRef.current !== outboundEpochAtStart || !isLiveOnWorkspacePath()) return;
           const next = new URLSearchParams(searchParams.toString());
           next.set("tenantSlug", data.tenant.slug);
           next.set("categoryId", data.selectedCategoryId);
@@ -2167,6 +2201,7 @@ function WorkspacePageInner() {
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         } else if (forceRefresh) {
+          if (outboundNavEpochRef.current !== outboundEpochAtStart || !isLiveOnWorkspacePath()) return;
           const next = new URLSearchParams(searchParams.toString());
           preserveWorkspaceViewInParams(next, resolveStableWorkspaceViewFallback("forms"));
           next.delete("refresh");
@@ -2927,12 +2962,17 @@ function WorkspacePageInner() {
                           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-foreground/5"
                           onClick={() => {
                             setMenuOpen(false);
-                            navigateWithFeedback(
-                              router,
-                              buildTenantHref(tenant.slug, "templates/new", {
-                                categoryId: workspaceForRender.selectedCategoryId || undefined,
-                              }),
-                            );
+                            const navEpoch = ++outboundNavEpochRef.current;
+                            rememberWorkspaceViewPref("forms");
+                            const href = buildTenantHref(tenant.slug, "templates/new", {
+                              categoryId: workspaceForRender.selectedCategoryId || undefined,
+                            });
+                            navigateWithFeedback(router, href);
+                            window.setTimeout(() => {
+                              if (outboundNavEpochRef.current !== navEpoch) return;
+                              if (!isLiveOnWorkspacePath()) return;
+                              hardNavigate(href);
+                            }, 1400);
                           }}
                         >
                           <Plus className="h-4 w-4" />
@@ -3104,7 +3144,9 @@ function WorkspacePageInner() {
                       // Category strip only exists on forms surface — never fall back to admin.
                       next.set("view", "forms");
                       rememberWorkspaceViewPref("forms");
-                      router.replace(`/workspace?${next.toString()}`);
+                      if (isLiveOnWorkspacePath()) {
+                        router.replace(`/workspace?${next.toString()}`);
+                      }
                     }}
                     disabled={offlineWarmupBlocking}
                     className={
@@ -3600,13 +3642,18 @@ function WorkspacePageInner() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setCardMenuTemplateId(null);
-                                    navigateWithFeedback(
-                                      router,
-                                      buildTenantHref(tenant.slug, "templates/new", {
-                                        editTemplateId: t.id,
-                                        categoryId: t.categoryId || undefined,
-                                      }),
-                                    );
+                                    const navEpoch = ++outboundNavEpochRef.current;
+                                    rememberWorkspaceViewPref("forms");
+                                    const href = buildTenantHref(tenant.slug, "templates/new", {
+                                      editTemplateId: t.id,
+                                      categoryId: t.categoryId || undefined,
+                                    });
+                                    navigateWithFeedback(router, href);
+                                    window.setTimeout(() => {
+                                      if (outboundNavEpochRef.current !== navEpoch) return;
+                                      if (!isLiveOnWorkspacePath()) return;
+                                      hardNavigate(href);
+                                    }, 1400);
                                   }}
                                 >
                                   Edit form structure

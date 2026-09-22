@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
+  buildWorkspaceReturnHref,
   preserveWorkspaceViewInParams,
   readWorkspaceViewPref,
   rememberWorkspaceViewPref,
@@ -46,6 +47,15 @@ describe("workspaceNavigation view stability", () => {
     rememberWorkspaceViewPref("forms");
     expect(readWorkspaceViewPref()).toBe("forms");
     expect(resolveStableWorkspaceViewFallback("admin")).toBe("forms");
+  });
+
+  it("returns to forms surface after builder/library save", () => {
+    const href = buildWorkspaceReturnHref("acme", { categoryId: "c1", refresh: true });
+    expect(href).toContain("tenantSlug=acme");
+    expect(href).toContain("view=forms");
+    expect(href).toContain("categoryId=c1");
+    expect(href).toContain("refresh=1");
+    expect(readWorkspaceViewPref()).toBe("forms");
   });
 });
 

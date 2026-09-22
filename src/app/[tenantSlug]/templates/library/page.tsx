@@ -10,6 +10,7 @@ import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { buildWorkspaceReturnHref } from "@/lib/client/workspaceNavigation";
 
 type CategorySummary = {
   id: string;
@@ -316,11 +317,11 @@ function TemplatesLibraryPageInner() {
         throw new Error((data?.error || `Import failed (${res.status})`) + details);
       }
 
-      const next = new URLSearchParams();
-      next.set("tenantSlug", tenantSlug);
-      if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
+      const nextHref = buildWorkspaceReturnHref(tenantSlug, {
+        categoryId: selectedCategoryId ?? null,
+      });
       writeWorkspaceNotice("Template imported successfully.", "success");
-      router.push(`/workspace?${next.toString()}`);
+      router.push(nextHref);
     } catch (err: any) {
       const msg = String(err?.message || "");
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;

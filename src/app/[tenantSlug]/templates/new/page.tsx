@@ -37,6 +37,7 @@ import {
   getPendingTemplateSyncCount,
 } from "@/lib/client/templateSyncQueue";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
+import { buildWorkspaceReturnHref } from "@/lib/client/workspaceNavigation";
 import type { AiClarificationQuestion, AiExtractionSummary } from "@/lib/ai/types";
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
@@ -847,10 +848,9 @@ function NewTemplatePageInner() {
         }
         setError("Saved offline. Your form changes are queued and will sync automatically when online.");
         writeWorkspaceNotice("Form saved offline. It will sync automatically when internet returns.", "warning");
-        const next = new URLSearchParams();
-        next.set("tenantSlug", tenantSlug);
-        if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
-        router.push(`/workspace?${next.toString()}`);
+        router.push(
+          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? null })
+        );
         return true;
       }
 
@@ -891,11 +891,12 @@ function NewTemplatePageInner() {
 
       requestWorkspaceRevalidate(tenantSlug);
       writeWorkspaceNotice(isEditMode ? "Form changes saved." : "Form created successfully.", "success");
-      const next = new URLSearchParams();
-      next.set("tenantSlug", tenantSlug);
-      if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
-      next.set("refresh", "1");
-      router.push(`/workspace?${next.toString()}`);
+      router.push(
+        buildWorkspaceReturnHref(tenantSlug, {
+          categoryId: selectedCategoryId ?? null,
+          refresh: true,
+        })
+      );
       return true;
     } catch (err: any) {
       const msg = String(err?.message || "");
@@ -949,10 +950,9 @@ function NewTemplatePageInner() {
         }
         setError("Offline detected. Your form changes were queued and will sync automatically.");
         writeWorkspaceNotice("Offline detected. Form changes were queued and will sync automatically.", "warning");
-        const next = new URLSearchParams();
-        next.set("tenantSlug", tenantSlug);
-        if (selectedCategoryId) next.set("categoryId", selectedCategoryId);
-        router.push(`/workspace?${next.toString()}`);
+        router.push(
+          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? null })
+        );
         return true;
       }
       setError(err?.message || "Failed to save template");

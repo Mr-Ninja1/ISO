@@ -72,6 +72,22 @@ export function buildWorkspaceAdminHref(tenantSlug: string) {
   return `/workspace?tenantSlug=${encodeURIComponent(slug)}&view=admin`;
 }
 
+/** Return from builder/library/save flows — always land on forms, never bare URL → admin default. */
+export function buildWorkspaceReturnHref(
+  tenantSlug: string,
+  options?: { categoryId?: string | null; refresh?: boolean },
+) {
+  const slug = (tenantSlug || "").trim();
+  if (!slug) return "/workspace";
+  const next = new URLSearchParams();
+  next.set("tenantSlug", slug);
+  next.set("view", "forms");
+  rememberWorkspaceViewPref("forms");
+  if (options?.categoryId) next.set("categoryId", options.categoryId);
+  if (options?.refresh) next.set("refresh", "1");
+  return `/workspace?${next.toString()}`;
+}
+
 export function buildWorkspaceEntryHref(
   tenantSlug: string,
   options?: { view?: WorkspaceSurfaceView | null; categoryId?: string | null },
@@ -85,4 +101,11 @@ export function buildWorkspaceEntryHref(
   else if (view === "admin") next.set("view", "admin");
   if (options?.categoryId) next.set("categoryId", options.categoryId);
   return `/workspace?${next.toString()}`;
+}
+
+/** True when the live browser location is still the workspace shell (not a soft-nav away). */
+export function isLiveOnWorkspacePath() {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return path === "/workspace";
 }
