@@ -6,7 +6,7 @@ import {
 } from "@/lib/displayFieldStyles";
 
 export const REPORT_SIGNATURE_IMG_CLASS =
-  "report-signature-img mx-auto block max-h-28 w-full max-w-lg object-contain";
+  "report-signature-img mx-auto block max-h-16 w-auto max-w-[12.5rem] object-contain";
 
 export const REPORT_TABLE_SIGNATURE_IMG_CLASS =
   "report-signature-img report-signature-img--table mx-auto block max-h-[4.5rem] w-auto max-w-[11rem] object-contain";

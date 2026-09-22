@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
 import {
   buildWorkspacePayload,
+  mapTemplateRowsToPayload,
   resolveSelectedWorkspaceCategoryId,
   type BuiltWorkspacePayload,
   type TemplateRowInput,
@@ -131,4 +132,94 @@ export async function fetchWorkspaceViaSupabase(
     requestedCategoryId,
     templateRowsForSelectedCategory,
   });
+}
+
+export type TenantTemplateListItem = {
+  id: string;
+  title: string;
+  categoryId: string | null;
+  updatedAt: string;
+};
+
+/**
+ * All live form templates for a tenant (not category-scoped).
+ * Used by settings form management on Capacitor where `/api/workspace` only
+ * returns the selected category's templates.
+ */
+export async function fetchTenantTemplatesViaSupabase(
+  supabase: SupabaseClient,
+  tenantSlug: string
+): Promise<TenantTemplateListItem[]> {
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+
+  if (userErr || !user) {
+    const err = new Error("Unauthorized") as Error & { status?: number };
+    err.status = 401;
+    throw err;
+  }
+
+  const { data: tenantRow, error: tenantErr } = await supabase
+    .from("tenants")
+    .select("id")
+    .eq("slug", tenantSlug)
+    .maybeSingle();
+
+  if (tenantErr) {
+    const err = new Error(tenantErr.message) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+  if (!tenantRow) {
+    const err = new Error("Tenant not found") as Error & { status?: number };
+    err.status = 404;
+    throw err;
+  }
+
+  const { data: membership, error: memErr } = await supabase
+    .from("tenant_members")
+    .select("id")
+    .eq("tenant_id", tenantRow.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (memErr) {
+    const err = new Error(memErr.message) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+  if (!membership) {
+    const err = new Error("Forbidden") as Error & { status?: number };
+    err.status = 403;
+    throw err;
+  }
+
+  const { data: tpls, error: tplErr } = await supabase
+    .from("form_templates")
+    .select("id,title,updated_at,category_id,schema")
+    .eq("tenant_id", tenantRow.id)
+    .order("updated_at", { ascending: false });
+
+  if (tplErr) {
+    const err = new Error(tplErr.message) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
+  const rows: TemplateRowInput[] = (tpls ?? []).map((t) => ({
+    id: t.id as string,
+    title: t.title as string,
+    updatedAt: t.updated_at as string,
+    categoryId: (t.category_id as string | null) ?? null,
+    schema: t.schema,
+  }));
+
+  return mapTemplateRowsToPayload(rows).map((t) => ({
+    id: t.id,
+    title: t.title,
+    categoryId: t.categoryId,
+    updatedAt: t.updatedAt,
+  }));
 }

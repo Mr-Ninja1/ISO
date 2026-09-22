@@ -1281,13 +1281,13 @@ function SignatureFieldInput({
   }, [savedDataUrl, SignatureCanvasInput]);
 
   return (
-    <div className="flex flex-col gap-2">
-      <label className="text-sm font-medium">{field.label}</label>
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium leading-tight text-foreground/80">{field.label}</label>
       <Controller
         control={control}
         name={field.id as never}
         render={({ field: rhfField }) => (
-          <div className="rounded-md border border-foreground/20 bg-background p-2">
+          <div className="signature-pad-outer rounded-md border border-foreground/20 bg-background p-1.5">
             {SignatureCanvasInput ? (
               <SignatureCanvasInput
                 ref={(ref: SignatureCanvas | null) => {
@@ -1295,7 +1295,7 @@ function SignatureFieldInput({
                 }}
                 {...SIGNATURE_CANVAS_PEN}
                 canvasProps={{
-                  className: "h-20 w-full",
+                  className: "signature-pad-canvas h-14 w-full max-w-[12.5rem]",
                   style: { touchAction: "none" },
                 }}
                 onBeginStroke={() => {
@@ -1310,12 +1310,12 @@ function SignatureFieldInput({
                 }}
               />
             ) : (
-              <div className="h-20 animate-pulse rounded bg-foreground/5" />
+              <div className="h-14 w-full max-w-[12.5rem] animate-pulse rounded bg-foreground/5" />
             )}
-            <div className="mt-1 flex gap-2">
+            <div className="mt-1 flex gap-1.5">
               <button
                 type="button"
-                className="h-8 rounded-md border border-foreground/20 px-2.5 text-xs"
+                className="h-7 rounded-md border border-foreground/20 px-2 text-[11px] leading-none text-foreground/80"
                 onClick={() => {
                   sigRef.current?.clear();
                   hydratedValueRef.current = null;
@@ -1328,7 +1328,7 @@ function SignatureFieldInput({
           </div>
         )}
       />
-      {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
+      {errorMessage ? <p className="text-xs text-red-700">{errorMessage}</p> : null}
     </div>
   );
 }

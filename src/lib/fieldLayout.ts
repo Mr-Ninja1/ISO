@@ -3,7 +3,7 @@ import { displayFieldText } from "@/lib/displayFieldStyles";
 
 /** Types that should always span the full section row. */
 export function fieldSpansFullWidth(field: FieldDef): boolean {
-  if (field.type === "signature" || field.type === "photo" || field.type === "dynamic-table") {
+  if (field.type === "photo" || field.type === "dynamic-table") {
     return true;
   }
   if (field.type === "text" && field.multiline) return true;
@@ -32,6 +32,7 @@ export function isCompactDisplayField(field: FieldDef): boolean {
 export function isDenseScalarField(field: FieldDef): boolean {
   if (fieldSpansFullWidth(field)) return false;
   if (field.type === "display") return isCompactDisplayField(field);
+  if (field.type === "signature") return true;
   if (
     field.type === "number" ||
     field.type === "temp" ||
@@ -91,6 +92,10 @@ export function fieldCardShellClass(field: FieldDef, style: FormStyle): string {
   if (fieldSpansFullWidth(field)) {
     return `sm:[grid-column:1/-1] ${tokens.fieldCard}`;
   }
+  // Keep signature pads compact so footer sign-offs sit side-by-side.
+  if (field.type === "signature") {
+    return `w-full max-w-[14rem] ${tokens.fieldCardDense}`;
+  }
   if (isDenseScalarField(field) || isCompactDisplayField(field)) {
     return tokens.fieldCardDense;
   }
@@ -103,6 +108,9 @@ export function reportFieldCardClass(field: FieldDef, sectionColumns?: number): 
     if (sectionColumns && sectionColumns > 1) parts.push("report-field-card--full");
   } else if (isDenseScalarField(field) || isCompactDisplayField(field)) {
     parts.push("report-field-card--dense");
+  }
+  if (field.type === "signature") {
+    parts.push("report-field-card--signature");
   }
   if (isCompactDisplayField(field)) {
     parts.push("report-field-card--display-meta");

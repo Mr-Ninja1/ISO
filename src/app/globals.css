@@ -1493,8 +1493,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 5.5rem;
-    padding: 0.5rem;
+    width: fit-content;
+    max-width: 14rem;
+    min-height: 3.5rem;
+    padding: 0.35rem 0.5rem;
     border-radius: 0.25rem;
     background: #fafafa;
     border: 1px dashed color-mix(in srgb, var(--foreground) 22%, transparent);
@@ -1503,7 +1505,14 @@ body {
 .report-cell-signature--table {
     min-height: 3.25rem;
     max-height: 5rem;
+    max-width: 11rem;
     padding: 0.35rem 0.5rem;
+}
+
+.report-signature-img {
+    max-height: 4rem;
+    max-width: 12.5rem;
+    width: auto;
 }
 
 .report-signature-img--table {
@@ -1513,8 +1522,22 @@ body {
     min-width: 0 !important;
 }
 
+.report-field-card--signature {
+    max-width: 14rem;
+    width: fit-content;
+}
+
 .grid-signature-cell {
     max-width: 11rem;
+}
+
+.signature-pad-outer {
+    width: fit-content;
+    max-width: 14rem;
+}
+
+.signature-pad-canvas {
+    display: block;
 }
 
 .report-data-table th,
@@ -1577,7 +1600,8 @@ body {
 }
 
 .pdf-generation-mode .report-cell-signature {
-    min-height: 80px !important;
+    min-height: 52px !important;
+    max-width: 200px !important;
     background: #fafafa !important;
 }
 
@@ -1624,11 +1648,11 @@ body {
 }
 
 .pdf-generation-mode .report-signature-img {
-    min-height: 56px !important;
+    min-height: 36px !important;
     height: auto !important;
-    max-height: 96px !important;
-    width: 100% !important;
-    max-width: 320px !important;
+    max-height: 64px !important;
+    width: auto !important;
+    max-width: 200px !important;
     object-fit: contain !important;
     image-rendering: -webkit-optimize-contrast;
     filter: none !important;

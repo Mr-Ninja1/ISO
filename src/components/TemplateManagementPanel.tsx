@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -32,18 +32,28 @@ export function TemplateManagementPanel({
   const { session } = useAuth();
   const accessToken = session?.access_token || "";
 
+  const [items, setItems] = useState(templates);
   const [query, setQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [message, setMessage] = useState<string>("");
 
+  useEffect(() => {
+    setItems(templates);
+  }, [templates]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return templates;
-    return templates.filter((t) => {
+    if (!q) return items;
+    return items.filter((t) => {
       return t.title.toLowerCase().includes(q) || t.categoryName.toLowerCase().includes(q);
     });
-  }, [query, templates]);
+  }, [query, items]);
+
+  function removeLocalTemplate(templateId: string) {
+    setItems((prev) => prev.filter((t) => t.id !== templateId));
+    removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
+  }
 
   async function handleDelete(templateId: string, title: string) {
     if (!accessToken) {
@@ -61,7 +71,7 @@ export function TemplateManagementPanel({
           method: "POST",
           body: { tenantSlug, templateId },
         });
-        removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
+        removeLocalTemplate(templateId);
         setMessage("Offline: delete queued and will sync automatically.");
         return;
       }
@@ -81,7 +91,7 @@ export function TemplateManagementPanel({
       }
 
       setMessage("Form deleted.");
-      removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
+      removeLocalTemplate(templateId);
       requestWorkspaceRevalidate(tenantSlug);
       router.refresh();
     } catch (err: any) {
@@ -93,7 +103,7 @@ export function TemplateManagementPanel({
           method: "POST",
           body: { tenantSlug, templateId },
         });
-        removeWorkspaceTemplateFromCaches(session?.user?.id || null, tenantSlug, templateId);
+        removeLocalTemplate(templateId);
         setMessage("Offline: delete queued and will sync automatically.");
       } else {
         setMessage(err?.message || "Delete failed");

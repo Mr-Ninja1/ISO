@@ -20,7 +20,7 @@ import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 import { createClient } from "@/lib/auth";
-import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
+import { fetchTenantTemplatesViaSupabase, fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 import {
   readTenantMetaFromWorkspaceCache,
   useResolvedTenantSlug,
@@ -90,62 +90,63 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
     setLoading(true);
     setError("");
 
-    const applyWorkspacePayload = (data: {
-      tenant?: TenantMeta;
-      categories?: Array<{ id: string; name: string }>;
-      templates?: Array<{
-        id: string;
-        title: string;
-        categoryId: string | null;
-        updatedAt: string;
-      }>;
-    }) => {
-      if (data.tenant?.id) {
-        setTenant({
-          id: data.tenant.id,
-          name: data.tenant.name,
-          slug: data.tenant.slug,
-          logoUrl: data.tenant.logoUrl ?? null,
-        });
-      }
-      const categoryById = new Map((data.categories || []).map((c) => [c.id, c.name]));
-      const nextTemplates = (data.templates || []).map((t) => ({
-        id: t.id,
-        title: t.title,
-        categoryId: t.categoryId,
-        categoryName: t.categoryId ? categoryById.get(t.categoryId) || "Uncategorized" : "Uncategorized",
-        updatedAt: t.updatedAt,
-      }));
-      setTemplates(nextTemplates);
-    };
+    const headers = { Authorization: `Bearer ${accessToken}` };
 
-    const load = isCapacitorNativeApp()
+    /** Workspace payload is category-scoped — form management needs every live template. */
+    const loadTenantAndCategories = isCapacitorNativeApp()
       ? fetchWorkspaceViaSupabase(createClient(), tenantSlug, null).then((data) => ({
-          tenant: data.tenant,
-          categories: data.categories,
-          templates: data.templates,
+          tenant: data.tenant as TenantMeta | undefined,
+          categories: (data.categories || []) as Array<{ id: string; name: string }>,
         }))
-      : fetch(new URL(apiUrl("/api/workspace")).toString() + `?tenantSlug=${encodeURIComponent(tenantSlug)}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }).then(async (res) => {
+      : fetch(
+          new URL(apiUrl("/api/workspace")).toString() + `?tenantSlug=${encodeURIComponent(tenantSlug)}`,
+          { headers }
+        ).then(async (res) => {
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json?.error || `Failed to load brand (${res.status})`);
-          return json as {
-            tenant?: TenantMeta;
-            categories?: Array<{ id: string; name: string }>;
-            templates?: Array<{
-              id: string;
-              title: string;
-              categoryId: string | null;
-              updatedAt: string;
-            }>;
+          return {
+            tenant: json.tenant as TenantMeta | undefined,
+            categories: (json.categories || []) as Array<{ id: string; name: string }>,
           };
         });
 
-    load
-      .then((data) => {
+    const templatesUrl = new URL(apiUrl("/api/templates/list"));
+    templatesUrl.searchParams.set("tenantSlug", tenantSlug);
+
+    const loadAllTemplates = isCapacitorNativeApp()
+      ? fetchTenantTemplatesViaSupabase(createClient(), tenantSlug)
+      : fetch(templatesUrl.toString(), { headers }).then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Failed to load forms (${res.status})`);
+          return (json.templates || []) as Array<{
+            id: string;
+            title: string;
+            categoryId: string | null;
+            updatedAt: string;
+          }>;
+        });
+
+    Promise.all([loadTenantAndCategories, loadAllTemplates])
+      .then(([workspace, templateRows]) => {
         if (cancelled) return;
-        applyWorkspacePayload(data);
+        if (workspace.tenant?.id) {
+          setTenant({
+            id: workspace.tenant.id,
+            name: workspace.tenant.name,
+            slug: workspace.tenant.slug,
+            logoUrl: workspace.tenant.logoUrl ?? null,
+          });
+        }
+        const categoryById = new Map((workspace.categories || []).map((c) => [c.id, c.name]));
+        setTemplates(
+          templateRows.map((t) => ({
+            id: t.id,
+            title: t.title,
+            categoryId: t.categoryId,
+            categoryName: t.categoryId ? categoryById.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+            updatedAt: t.updatedAt,
+          }))
+        );
       })
       .catch((err: unknown) => {
         if (cancelled) return;

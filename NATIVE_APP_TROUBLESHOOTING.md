@@ -15,7 +15,8 @@ Quick reference when the **website works** but the **Android app** misbehaves. F
 | **"Open forms workspace" or header nav crashes** | `hardNavigate` to `/workspace/forms` (no static page) | `src/lib/capacitor/routeRewrite.ts`, `src/lib/client/workspaceNavigation.ts`, use `/workspace?view=forms` |
 | **Back / home button crashes** | Full page reload to reserved path | `src/components/PageWayfinder.tsx` (use `router.push`), `MainActivity.java` `RESERVED_SEGMENTS` |
 | **OTA applied but app broken / blank** | Bad manifest URL (`YOUR-HOST`), or OTA zip mismatches APK chunks | `public/ota/production/manifest.json`, `tools/package-ota-bundle.mjs`, bump `versionCode` + reinstall to clear OTA |
-| **Copilot empty / "Here's what I found."** | `/api/copilot/chat` failed (often same `apiBase` bug) | `src/lib/client/apiBase.ts`, Azure env (`GEMINI_*` on server, not in APK) |
+| **Blank white screen after switching apps / opening recent apps** | WebView freezes React mid-route; recovery only ran on `/` / login | `src/components/CapacitorAppRecovery.tsx` — reloads current URL when blank on resume |
+| **Settings "No forms found" / only a few forms** | Settings used category-scoped workspace templates, not full list | `SettingsPageClient.tsx` + `fetchTenantTemplatesViaSupabase` / `GET /api/templates/list` |
 
 ---
 

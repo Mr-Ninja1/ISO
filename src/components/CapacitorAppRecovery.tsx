@@ -92,6 +92,15 @@ function bumpRecoveryCount() {
   }
 }
 
+function markRecovery(now: number) {
+  try {
+    sessionStorage.setItem(RECOVER_KEY, String(now));
+  } catch {
+    // ignore
+  }
+  bumpRecoveryCount();
+}
+
 function tryRecover(reason: string) {
   if (isWithinOtaBootGracePeriod()) return;
   if (shouldDeferNativeRecovery()) return;
@@ -112,14 +121,19 @@ function tryRecover(reason: string) {
   const search = window.location.search;
 
   if (shouldForceEntryNavigation()) {
-    try {
-      sessionStorage.setItem(RECOVER_KEY, String(now));
-    } catch {
-      // ignore
-    }
-    bumpRecoveryCount();
+    markRecovery(now);
     const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
     console.warn(`[CapacitorAppRecovery] Stuck entry (${reason}); navigating to ${target}`);
+    hardNavigate(target);
+    return;
+  }
+
+  // Mid-app blank after backgrounding: WebView often freezes the React tree.
+  // Reload the current document instead of bouncing to the entry shell.
+  if (!isEntryShellPath(path, search) && (pageLooksBlank() || pageLooksStuckOnLoadingShell())) {
+    markRecovery(now);
+    const target = `${path}${search}` || "/";
+    console.warn(`[CapacitorAppRecovery] Blank mid-app (${reason}); reloading ${target}`);
     hardNavigate(target);
     return;
   }
@@ -127,12 +141,7 @@ function tryRecover(reason: string) {
   if (!isEntryShellPath(path, search)) return;
   if (!pageLooksBlank()) return;
 
-  try {
-    sessionStorage.setItem(RECOVER_KEY, String(now));
-  } catch {
-    // ignore
-  }
-  bumpRecoveryCount();
+  markRecovery(now);
 
   const target = hasPersistedAuthCredentials() ? resolvePostAuthDestination() : "/login";
   console.warn(`[CapacitorAppRecovery] Blank entry shell (${reason}); navigating to ${target}`);
@@ -140,7 +149,7 @@ function tryRecover(reason: string) {
 }
 
 /**
- * Recovery for cold start / resume on entry shells only.
+ * Recovery for cold start / resume: entry shells + mid-app blank WebView freezes.
  * Skips OTA boot grace and normal "Starting ISO Grid" / workspace routing shells.
  */
 export function CapacitorAppRecovery() {
