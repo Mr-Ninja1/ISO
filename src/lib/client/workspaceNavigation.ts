@@ -109,3 +109,30 @@ export function isLiveOnWorkspacePath() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   return path === "/workspace";
 }
+
+/**
+ * Optimistic category tab highlight may only drop when the URL has committed the same id.
+ * Clearing earlier (cache/fetch) snaps the tab back to the lagging URL categoryId.
+ */
+export function shouldClearOptimisticCategoryHighlight(
+  urlCategoryId: string | null | undefined,
+  optimisticCategoryId: string | null | undefined,
+): boolean {
+  return Boolean(urlCategoryId && optimisticCategoryId && urlCategoryId === optimisticCategoryId);
+}
+
+/**
+ * Active tab while a replace is in flight: optimistic tap wins over lagging URL.
+ */
+export function resolveActiveCategoryId(options: {
+  uiActiveCategoryId?: string | null;
+  urlCategoryId?: string | null;
+  workspaceSelectedCategoryId?: string | null;
+}): string | null {
+  return (
+    options.uiActiveCategoryId ??
+    options.urlCategoryId ??
+    options.workspaceSelectedCategoryId ??
+    null
+  );
+}

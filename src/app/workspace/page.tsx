@@ -23,7 +23,9 @@ import {
   preserveWorkspaceViewInParams,
   readWorkspaceViewPref,
   rememberWorkspaceViewPref,
+  resolveActiveCategoryId,
   resolveStableWorkspaceViewFallback,
+  shouldClearOptimisticCategoryHighlight,
   type WorkspaceSurfaceView,
 } from "@/lib/client/workspaceNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
@@ -300,13 +302,20 @@ function readExactCategoryCache(
 /** Offline category-tab snapshots may stay longer; online trust uses ONLINE_WORKSPACE_CACHE_TTL_MS. */
 const CATEGORY_SWITCH_CACHE_TTL_MS = OFFLINE_WORKSPACE_CACHE_TTL_MS;
 
-function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
+function writeWorkspaceCache(
+  userId: string | null,
+  tenantSlug: string,
+  categoryId: string | null,
+  data: WorkspaceData,
+  options?: { silent?: boolean }
+) {
   if (!tenantSlug) return;
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
     localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
 
-    if (typeof window !== "undefined") {
+    // Background warmup must not broadcast — each event can setWorkspace and restart effects.
+    if (typeof window !== "undefined" && !options?.silent) {
       window.dispatchEvent(
         new CustomEvent("workspace-cache-updated", {
           detail: { tenantSlug, categoryId },
@@ -770,6 +779,8 @@ function WorkspacePageInner() {
   const workspaceFetchGenRef = useRef(0);
   /** Category the user just tapped — URL may lag; ignore stale cache writes for the old tab. */
   const pendingCategoryIdRef = useRef<string | null>(null);
+  /** Prevent overlapping offline primes when setWorkspace fires repeatedly during tab fights. */
+  const offlinePrimeInFlightRef = useRef(false);
   /**
    * Bumped when leaving /workspace for another route. In-flight workspace fetch .then()
    * callbacks must not router.replace back onto /workspace (cancels the outbound nav).
@@ -778,7 +789,11 @@ function WorkspacePageInner() {
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
   const { blockIfOffline } = useRequiresInternet();
-  const activeCategoryId = uiActiveCategoryId ?? categoryId ?? workspace?.selectedCategoryId ?? null;
+  const activeCategoryId = resolveActiveCategoryId({
+    uiActiveCategoryId,
+    urlCategoryId: categoryId,
+    workspaceSelectedCategoryId: workspace?.selectedCategoryId,
+  });
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
   const canSeeAdminHub = workspaceRole === "ADMIN" || workspaceRole === "MANAGER";
@@ -800,9 +815,10 @@ function WorkspacePageInner() {
     }
   }, [requestedView]);
 
-  // Clear optimistic tab highlight only after the URL catches up.
-  // Clearing while uiActive !== categoryId was the bounce: tap AH while URL is still BH
-  // immediately wiped the highlight back to BH until router.replace committed.
+  // Clear optimistic tab highlight ONLY after the URL catches up.
+  // Never clear uiActive from cache/fetch side-effects while URL still has the old
+  // categoryId — that was the bounce: tap AH while URL is BH → cache for AH arrives →
+  // uiActive wiped → highlight snaps to BH until router.replace commits.
   useEffect(() => {
     if (!categoryId) {
       pendingCategoryIdRef.current = null;
@@ -813,7 +829,9 @@ function WorkspacePageInner() {
     if (pendingCategoryIdRef.current === categoryId) {
       pendingCategoryIdRef.current = null;
     }
-    setUiActiveCategoryId((prev) => (prev && prev === categoryId ? null : prev));
+    setUiActiveCategoryId((prev) =>
+      shouldClearOptimisticCategoryHighlight(categoryId, prev) ? null : prev
+    );
   }, [categoryId]);
 
   const activeView = optimisticView ?? urlView;
@@ -877,6 +895,13 @@ function WorkspacePageInner() {
     if (!tpls?.length) return "";
     return tpls.map((t) => `${t.id}:${t.updatedAt}`).join("|");
   }, [workspace]);
+
+  /** Stable category-list fingerprint — avoids restarting warmup on every template paint. */
+  const workspaceCategoriesWarmKey = useMemo(() => {
+    const cats = workspace?.categories;
+    if (!cats?.length) return "";
+    return cats.map((c) => c.id).join("|");
+  }, [workspace?.categories]);
 
   const workspaceTourSeenKey = tenantSlug ? `workspace-tour:v1:${tenantSlug}` : "";
 
@@ -1157,6 +1182,7 @@ function WorkspacePageInner() {
   async function primeOfflineCachesInBackground() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
+    if (offlinePrimeInFlightRef.current) return;
     if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
       const missingCategory = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
@@ -1167,6 +1193,7 @@ function WorkspacePageInner() {
       }
     }
 
+    offlinePrimeInFlightRef.current = true;
     setNativeWarmupRunning(true);
     const timeoutId = window.setTimeout(() => {
       setNativeWarmupRunning(false);
@@ -1199,7 +1226,8 @@ function WorkspacePageInner() {
                 if (!res.ok) return null;
                 return (await res.json().catch(() => null)) as WorkspaceData | null;
               })();
-          if (data) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
+          // Silent: warming must not thrash the active tab via workspace-cache-updated.
+          if (data) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
         } catch {
           // continue other categories
         }
@@ -1225,6 +1253,7 @@ function WorkspacePageInner() {
       // silent background warm-up
     } finally {
       window.clearTimeout(timeoutId);
+      offlinePrimeInFlightRef.current = false;
       setNativeWarmupRunning(false);
     }
   }
@@ -1827,7 +1856,8 @@ function WorkspacePageInner() {
     if (!cached) return;
 
     setWorkspace(cached);
-    setUiActiveCategoryId(null);
+    // Do NOT clear uiActive here — URL catch-up effect owns that. Clearing while the
+    // router still has the previous categoryId snaps the tab highlight backward.
     setWorkspaceLoading(false);
     setSwitchingCategory(false);
     setError("");
@@ -1879,9 +1909,8 @@ function WorkspacePageInner() {
       if (sameTenant && sameCategory && sameTemplates) return;
 
       setWorkspace(cached);
-      if (!pendingCategoryId || cached.selectedCategoryId === pendingCategoryId) {
-        setUiActiveCategoryId(null);
-      }
+      // Keep optimistic highlight until searchParams.categoryId matches the tap.
+      // Clearing here (even for the pending category) caused: highlight → old URL tab → new tab.
       setWorkspaceLoading(false);
       setSwitchingCategory(false);
       setError("");
@@ -2012,7 +2041,7 @@ function WorkspacePageInner() {
     const hasCached = Boolean(cached);
     if (cached) {
       setWorkspace(cached);
-      setUiActiveCategoryId(null);
+      // URL catch-up effect clears uiActive — clearing here races router.replace.
       setWorkspaceLoading(false);
       setSwitchingCategory(false);
       setError("");
@@ -2180,14 +2209,16 @@ function WorkspacePageInner() {
 
         if (!(sameTenant && sameCategory && sameTemplates)) {
           setWorkspace(data);
-          setUiActiveCategoryId(null);
+          // Do not clear uiActive — only the categoryId URL effect may drop optimism.
         }
         localStorage.setItem("lastTenantSlug", data.tenant.slug);
         writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, data);
 
         // Also cache under resolved selected category for instant tab switching.
         if (data.selectedCategoryId) {
-          writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
+          writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data, {
+            silent: data.selectedCategoryId !== categoryId,
+          });
         }
 
         // Only seed categoryId when the URL has none — never overwrite the user's tab choice
@@ -2317,10 +2348,14 @@ function WorkspacePageInner() {
       if (refreshRes.ok && refreshData?.tenant) {
         const nextWorkspace = refreshData as WorkspaceData;
         setWorkspace(nextWorkspace);
-        setUiActiveCategoryId(null);
+        if (!pendingCategoryIdRef.current) {
+          setUiActiveCategoryId(null);
+        }
         writeWorkspaceCache(cacheUserId, tenantSlug, categoryId, nextWorkspace);
         if (nextWorkspace.selectedCategoryId) {
-          writeWorkspaceCache(cacheUserId, tenantSlug, nextWorkspace.selectedCategoryId, nextWorkspace);
+          writeWorkspaceCache(cacheUserId, tenantSlug, nextWorkspace.selectedCategoryId, nextWorkspace, {
+            silent: nextWorkspace.selectedCategoryId !== categoryId,
+          });
         }
       } else {
         // Fallback: trigger existing revalidation flow if direct refresh fails.
@@ -2416,8 +2451,18 @@ function WorkspacePageInner() {
     }
 
     primeOfflineCachesInBackground();
+    // Depend on category id list, not whole workspace — tab switches rewrite templates
+    // and were restarting multi-category fetches (freeze when fighting the bounce).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, tenantSlug, accessToken, offlinePreparedAt, offlineFromHook, cacheUserId]);
+  }, [
+    workspace?.tenant?.slug,
+    workspaceCategoriesWarmKey,
+    tenantSlug,
+    accessToken,
+    offlinePreparedAt,
+    offlineFromHook,
+    cacheUserId,
+  ]);
 
   useEffect(() => {
     if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
@@ -2445,7 +2490,7 @@ function WorkspacePageInner() {
             if (!res.ok) continue;
             data = (await res.json()) as WorkspaceData;
           }
-          if (active) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data);
+          if (active) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
         } catch {
           // Best-effort warming; the category switch still fetches on demand.
         }
@@ -2457,7 +2502,16 @@ function WorkspacePageInner() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [workspace?.tenant.slug, workspace?.selectedCategoryId, workspace?.categories, categoryId, tenantSlug, accessToken, cacheUserId, offlineFromHook]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    workspace?.tenant.slug,
+    workspaceCategoriesWarmKey,
+    categoryId,
+    tenantSlug,
+    accessToken,
+    cacheUserId,
+    offlineFromHook,
+  ]);
 
   useEffect(() => {
     if (!tenantSlug) return;
