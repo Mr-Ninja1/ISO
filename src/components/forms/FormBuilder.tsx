@@ -1051,7 +1051,7 @@ function ColumnEditorModal({
             />
             {activeCol.type === "static" || activeCol.readOnly ? (
               <div className="text-[11px] leading-4 text-foreground/55">
-                Static text stays on the saved template. Auditors see it read-only.
+                Static text stays on the saved template and syncs across devices. Edit here or in the form.
               </div>
             ) : null}
             {(activeCol.type === "static" || activeCol.readOnly) && onEditStaticItems ? (
@@ -2343,7 +2343,7 @@ export function FormBuilder({
                       }
                       onClick={() => setInsertTarget("bottom")}
                     >
-                      {builderConfig.sectionLabels.footer}
+                      After table
                     </button>
                   ) : null}
                 </div>

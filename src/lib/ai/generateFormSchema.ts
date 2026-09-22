@@ -320,9 +320,10 @@ function sanitizeSections(raw: unknown): FormSection[] {
       );
 
       const hasStaticColumn = normalizedColumns.some((column) => column.type === "static");
+      const detectedPrinted = Array.isArray(obj.detectedPrinted) ? obj.detectedPrinted : [];
       const rowsRaw = obj.rows;
       const rows =
-        hasStaticColumn
+        hasStaticColumn || Boolean(detectedPrinted.length)
           ? "dynamic"
           : rowsRaw === "dynamic"
             ? "dynamic"

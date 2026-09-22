@@ -344,7 +344,27 @@ export function sectionTitleForBuilder(section: FormSection, formType: FormType)
   const config = getFormBuilderConfig(formType);
   if (section.type === "grid") return "grid";
   const title = (section.title || "").toLowerCase();
-  if (title.includes("footer") || title === config.sectionLabels.footer.toLowerCase()) return "bottom";
+  const footerPatterns = [
+    "footer",
+    "sign-off",
+    "sign off",
+    "signature",
+    "approval",
+    "approvals",
+    "closing",
+    "closing notes",
+    "below table",
+    "after table",
+    "below the table",
+    "after the table",
+    "below form",
+    "after form",
+    "post table",
+    "post-form",
+    "post form",
+  ];
+  if (footerPatterns.some((pattern) => title.includes(pattern))) return "bottom";
+  if (title === config.sectionLabels.footer.toLowerCase()) return "bottom";
   return "top";
 }
 

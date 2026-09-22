@@ -11,7 +11,8 @@ export type FieldType =
   | "dynamic-table"
   /**
    * Grid column for template-owned text (printed items, UOM labels, etc.).
-   * Edited in the builder / seedRows; read-only while filling; still submitted.
+   * Edited in the builder or while filling; stored in seedRows on the template
+   * so it syncs across devices. Still included in submitted row data.
    */
   | "static"
   /** Read-only instruction, form code, section title — not submitted as data */

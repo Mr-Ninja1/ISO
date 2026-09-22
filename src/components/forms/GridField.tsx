@@ -15,7 +15,11 @@ import {
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
 import { buildGridLayout, buildGridRowDefaults } from "@/lib/gridLayout";
-import { CHECKBOX_COLUMN_WIDTH_PX, clampColumnWidthPx } from "@/lib/formFieldConstants";
+import {
+  CHECKBOX_COLUMN_WIDTH_PX,
+  clampColumnWidthPx,
+  isStaticColumn,
+} from "@/lib/formFieldConstants";
 
 type FormValues = Record<string, unknown>;
 
@@ -190,15 +194,21 @@ export function GridField({
     const cellInputClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
     const cellSelectClass = `${cellHeight} w-full min-w-0 bg-transparent px-2 text-sm outline-none`;
 
-    const isLegacyStaticCell = col.readOnly === true && col.type !== "display";
-    if (isLegacyStaticCell || col.type === "static") {
+    // Template-owned prepared text: edits sync to schema.seedRows (not ephemeral draft-only answers).
+    if (isStaticColumn(col)) {
       return (
-        <input
-          type="text"
-          className={`${cellHeight} w-full bg-background px-2 text-sm text-center outline-none`}
-          placeholder={col.type === "static" ? "Static value" : undefined}
-          {...register(cellName as any)}
-        />
+        <div>
+          <input
+            type="text"
+            className={`${cellHeight} w-full min-w-0 rounded-sm border border-amber-200/80 bg-amber-50/50 px-2 text-sm outline-none focus:border-amber-400`}
+            placeholder="Prepared text (saved on form)"
+            title="Prepared text stays on this form template for every device"
+            {...register(cellName as any)}
+          />
+          {errorMessage ? (
+            <div className="mt-1 text-xs text-red-700">{errorMessage}</div>
+          ) : null}
+        </div>
       );
     }
 

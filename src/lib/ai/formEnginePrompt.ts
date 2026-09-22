@@ -42,7 +42,7 @@ This is an INFORMATION-PRESERVING import, not a visual reproduction.
 - checkbox — single checkbox / tick box
 - signature — signature capture
 - photo — attach a photo / evidence
-- static — grid column for printed fixed text (item names, UOM, equipment). Template-owned; user fills values in the builder; read-only while completing the form; still submitted on each row
+- static — grid column for printed fixed text (item names, UOM, equipment). Template-owned seedRows; editable in the builder or while preparing the form; still submitted on each row
 - display — read-only instructions (NOT submitted). Use variant: title|subtitle|body|caption|code and optional content
 
 Use "photo" columns in grids when users must attach evidence (cleaning, defects, inspections).

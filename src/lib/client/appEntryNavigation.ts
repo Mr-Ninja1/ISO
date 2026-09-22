@@ -1,6 +1,7 @@
 import { hasPersistedAuthCredentials } from "@/lib/auth";
 import { rewriteCapacitorHref } from "@/lib/capacitor/routeRewrite";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { buildWorkspaceEntryHref, readWorkspaceViewPref } from "@/lib/client/workspaceNavigation";
 
 export function normalizeAppPathname(pathname: string) {
   const base = pathname.replace(/\/+$/, "") || "/";
@@ -31,7 +32,8 @@ export function resolveWorkspaceUrlWithLastTenant(): string | null {
     const last = (localStorage.getItem("lastTenantSlug") || "").trim();
     if (!last || last === "workspace" || last === "_") return null;
     if (!/^[a-z0-9][a-z0-9-]*$/i.test(last)) return null;
-    return `/workspace?tenantSlug=${encodeURIComponent(last)}`;
+    // Preserve last forms/admin surface so resume/recovery cannot bounce to HSE unexpectedly.
+    return buildWorkspaceEntryHref(last, { view: readWorkspaceViewPref() });
   } catch {
     return null;
   }

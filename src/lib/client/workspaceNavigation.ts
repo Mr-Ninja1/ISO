@@ -30,10 +30,24 @@ export function resolveWorkspaceViewFromLocation(): WorkspaceSurfaceView | null 
   return null;
 }
 
-/** Keep the live URL view when syncing query params after async workspace loads. */
+/**
+ * Stable fallback for in-session `router.replace` calls.
+ * Prefer the live URL, then session pref — never silently snap managers back to admin
+ * while they are working in forms/categories.
+ */
+export function resolveStableWorkspaceViewFallback(
+  preferred: WorkspaceSurfaceView = "forms",
+): WorkspaceSurfaceView {
+  return resolveWorkspaceViewFromLocation() ?? readWorkspaceViewPref() ?? preferred;
+}
+
+/**
+ * Keep the live URL view when syncing query params after async workspace loads.
+ * Default fallback is `forms` so category/sync replaces cannot bounce to HSE console.
+ */
 export function preserveWorkspaceViewInParams(
   next: URLSearchParams,
-  fallback: WorkspaceSurfaceView = "admin",
+  fallback: WorkspaceSurfaceView = "forms",
 ) {
   const live = resolveWorkspaceViewFromLocation();
   if (live) {
@@ -42,7 +56,8 @@ export function preserveWorkspaceViewInParams(
   }
   const existing = next.get("view");
   if (existing === "forms" || existing === "admin") return;
-  next.set("view", fallback);
+  const pref = readWorkspaceViewPref();
+  next.set("view", pref ?? fallback);
 }
 
 export function buildWorkspaceFormsHref(tenantSlug: string) {

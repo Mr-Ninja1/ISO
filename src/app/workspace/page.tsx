@@ -20,7 +20,9 @@ import {
   buildWorkspaceAdminHref,
   buildWorkspaceEntryHref,
   preserveWorkspaceViewInParams,
+  readWorkspaceViewPref,
   rememberWorkspaceViewPref,
+  resolveStableWorkspaceViewFallback,
   type WorkspaceSurfaceView,
 } from "@/lib/client/workspaceNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
@@ -43,7 +45,11 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
-import { consumeWorkspaceForceRefetch } from "@/lib/client/workspaceCache";
+import {
+  consumeWorkspaceForceRefetch,
+  ONLINE_WORKSPACE_CACHE_TTL_MS,
+  OFFLINE_WORKSPACE_CACHE_TTL_MS,
+} from "@/lib/client/workspaceCache";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete, markOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
   cacheAllTenantTemplates,
@@ -290,8 +296,8 @@ function readExactCategoryCache(
   return readWorkspaceCache(userId, tenantSlug, categoryId);
 }
 
-/** Skip blocking network when a category was already cached (background refresh can still run). */
-const CATEGORY_SWITCH_CACHE_TTL_MS = 30 * 60_000;
+/** Offline category-tab snapshots may stay longer; online trust uses ONLINE_WORKSPACE_CACHE_TTL_MS. */
+const CATEGORY_SWITCH_CACHE_TTL_MS = OFFLINE_WORKSPACE_CACHE_TTL_MS;
 
 function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
   if (!tenantSlug) return;
@@ -759,6 +765,8 @@ function WorkspacePageInner() {
   const workspaceBusyRetriesRef = useRef(0);
   const workspaceBusyRetriesSlugRef = useRef<string | null>(null);
   const forceWorkspaceNetworkRefetchRef = useRef(false);
+  /** Monotonic id so stale in-flight workspace responses cannot rewrite URL/UI. */
+  const workspaceFetchGenRef = useRef(0);
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
   const { blockIfOffline } = useRequiresInternet();
@@ -766,11 +774,21 @@ function WorkspacePageInner() {
   const workspaceLoadKey = `${categoryId ?? ""}|${forceRefresh ? "refresh" : "normal"}`;
   const workspaceRole = workspace?.role || (workspace?.isAdmin ? "ADMIN" : "MEMBER");
   const canSeeAdminHub = workspaceRole === "ADMIN" || workspaceRole === "MANAGER";
-  const urlView: WorkspaceSurfaceView =
-    canSeeAdminHub ? (requestedView === "forms" ? "forms" : "admin") : "forms";
+  // Explicit URL wins; otherwise keep last in-session surface (stops HSE bounce when `view` is dropped).
+  const urlView: WorkspaceSurfaceView = !canSeeAdminHub
+    ? "forms"
+    : requestedView === "forms" || requestedView === "admin"
+      ? requestedView
+      : (readWorkspaceViewPref() ?? "admin");
 
   useEffect(() => {
     setOptimisticView(null);
+  }, [requestedView]);
+
+  useEffect(() => {
+    if (requestedView === "forms" || requestedView === "admin") {
+      rememberWorkspaceViewPref(requestedView);
+    }
   }, [requestedView]);
 
   useEffect(() => {
@@ -1968,12 +1986,16 @@ function WorkspacePageInner() {
 
     let keepLoading = false;
 
-    // Category tabs: trust local snapshot for 30m. First paint already used cache above.
+    // Online: short TTL so other devices' forms/categories appear without re-login.
+    // Offline: keep long category snapshots for tab switching.
+    const cacheTtlMs = offlineFromHook
+      ? CATEGORY_SWITCH_CACHE_TTL_MS
+      : ONLINE_WORKSPACE_CACHE_TTL_MS;
     const hasFreshCache = isWorkspaceCacheFresh(
       cacheUserId,
       tenantSlug,
       categoryId,
-      categoryId ? CATEGORY_SWITCH_CACHE_TTL_MS : 2 * 60_000
+      cacheTtlMs
     );
     const forceNetworkRefetch =
       forceWorkspaceNetworkRefetchRef.current || consumeWorkspaceForceRefetch(tenantSlug);
@@ -2009,20 +2031,8 @@ function WorkspacePageInner() {
       };
     }
 
-    // Category tab with a local snapshot: never block on network (warming/sync refresh later).
-    if (categoryId && exactCached && !forceRefresh && !forceNetworkRefetch) {
-      setWorkspace(exactCached);
-      setWorkspaceLoading(false);
-      setSwitchingCategory(false);
-      return () => {
-        if (workspaceRetryTimerRef.current !== null) {
-          window.clearTimeout(workspaceRetryTimerRef.current);
-          workspaceRetryTimerRef.current = null;
-        }
-      };
-    }
-
-    // Online + tenant-wide cache still within TTL: skip duplicate fetch unless forced.
+    // Online + fresh cache: paint immediately and skip duplicate fetch unless forced.
+    // (Unlike before, category caches also honor TTL — they no longer skip network forever.)
     if (hasFreshCache && cached && !forceRefresh && !forceNetworkRefetch) {
       setWorkspace(cached);
       setWorkspaceLoading(false);
@@ -2035,9 +2045,17 @@ function WorkspacePageInner() {
       };
     }
 
+    // Soft revalidate: if we already have a snapshot, keep UI responsive while fetching.
+    if (cached && !forceRefresh) {
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+    }
+
     // Online + stale / missing cache / ?refresh=1 → revalidate (prefer direct Supabase, fall back to /api/workspace).
 
     const controller = new AbortController();
+    const fetchGen = ++workspaceFetchGenRef.current;
+    const requestedCategoryId = categoryId || null;
     (async () => {
       let data: WorkspaceData | null = null;
 
@@ -2046,6 +2064,10 @@ function WorkspacePageInner() {
         data = (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
       } catch {
         /* RLS not deployed yet or transient PostgREST error — use API route */
+      }
+
+      if (controller.signal.aborted || fetchGen !== workspaceFetchGenRef.current) {
+        return null;
       }
 
       if (!data) {
@@ -2072,6 +2094,9 @@ function WorkspacePageInner() {
       return data;
     })()
       .then((data) => {
+        if (!data) return;
+        if (controller.signal.aborted || fetchGen !== workspaceFetchGenRef.current) return;
+
         workspaceBusyRetriesRef.current = 0;
         const sameTenant =
           workspace?.tenant.slug === data.tenant.slug &&
@@ -2104,26 +2129,25 @@ function WorkspacePageInner() {
           writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data);
         }
 
-        if (data.selectedCategoryId && data.selectedCategoryId !== (categoryId ?? "")) {
+        // Only seed categoryId when the URL has none — never overwrite the user's tab choice
+        // (that race bounced users back to the previous category).
+        if (!requestedCategoryId && data.selectedCategoryId) {
           const next = new URLSearchParams(searchParams.toString());
           next.set("tenantSlug", data.tenant.slug);
           next.set("categoryId", data.selectedCategoryId);
-          const viewFallback: WorkspaceSurfaceView =
-            data.role === "ADMIN" || data.role === "MANAGER" || data.isAdmin ? "admin" : "forms";
-          preserveWorkspaceViewInParams(next, viewFallback);
+          preserveWorkspaceViewInParams(next, resolveStableWorkspaceViewFallback("forms"));
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         } else if (forceRefresh) {
           const next = new URLSearchParams(searchParams.toString());
-          const viewFallback: WorkspaceSurfaceView =
-            data.role === "ADMIN" || data.role === "MANAGER" || data.isAdmin ? "admin" : "forms";
-          preserveWorkspaceViewInParams(next, viewFallback);
+          preserveWorkspaceViewInParams(next, resolveStableWorkspaceViewFallback("forms"));
           next.delete("refresh");
           router.replace(`/workspace?${next.toString()}`);
         }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        if (fetchGen !== workspaceFetchGenRef.current) return;
         const busy = err?.status === 503 || /Workspace backend is busy/i.test(String(err?.message || ""));
         if (isTenantDeactivatedError(err)) {
           keepLoading = false;
@@ -2178,6 +2202,7 @@ function WorkspacePageInner() {
         }
       })
       .finally(() => {
+        if (fetchGen !== workspaceFetchGenRef.current) return;
         if (!keepLoading) setWorkspaceLoading(false);
         setSwitchingCategory(false);
       });
@@ -2440,7 +2465,7 @@ function WorkspacePageInner() {
       const ctx = revalidateContextRef.current;
       if (
         ctx.tenantSlug &&
-        isWorkspaceCacheFresh(ctx.cacheUserId, ctx.tenantSlug, ctx.categoryId, 90_000)
+        isWorkspaceCacheFresh(ctx.cacheUserId, ctx.tenantSlug, ctx.categoryId, ONLINE_WORKSPACE_CACHE_TTL_MS)
       ) {
         return;
       }
@@ -3047,7 +3072,9 @@ function WorkspacePageInner() {
                       const next = new URLSearchParams(searchParams.toString());
                       next.set("tenantSlug", tenant.slug);
                       next.set("categoryId", c.id);
-                      preserveWorkspaceViewInParams(next, canSeeAdminHub ? "admin" : "forms");
+                      // Category strip only exists on forms surface — never fall back to admin.
+                      next.set("view", "forms");
+                      rememberWorkspaceViewPref("forms");
                       router.replace(`/workspace?${next.toString()}`);
                     }}
                     disabled={offlineWarmupBlocking}

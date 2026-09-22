@@ -49,6 +49,12 @@ import {
 } from "@/lib/submissionMeta";
 import { isDraftPayloadDirty } from "@/lib/client/draftPayloadDirty";
 import { pushTenantRoute } from "@/lib/client/tenantNavigation";
+import {
+  buildStaticSeedRowPatches,
+  schemaHasStaticColumns,
+  withUpdatedStaticSeedRows,
+} from "@/lib/staticSeedRows";
+import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 
 type Props = {
   tenantSlug: string;
@@ -275,15 +281,30 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const [correctiveAction, setCorrectiveAction] = useState("");
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
+  const [lastTemplateSeedSavedAt, setLastTemplateSeedSavedAt] = useState<number | null>(null);
+  const [liveSchema, setLiveSchema] = useState<FormSchemaV1>(schema);
   const skipLocalDraftWatchRef = useRef(true);
   const skipAutosaveWatchRef = useRef(true);
   const autoSaveInFlightRef = useRef(false);
   const autoSavePauseUntilRef = useRef(0);
   const suppressLocalDraftWriteUntilRef = useRef(0);
   const localDraftWriteTimerRef = useRef<number | null>(null);
+  const seedRowsSyncTimerRef = useRef<number | null>(null);
+  const seedRowsSyncInFlightRef = useRef(false);
+  const pendingSeedPatchesRef = useRef<Array<{
+    sectionId: string;
+    seedRows: import("@/types/forms").GridSection["seedRows"];
+  }> | null>(null);
+  const liveSchemaRef = useRef(liveSchema);
+  liveSchemaRef.current = liveSchema;
 
-  const effectiveSchema = useMemo(() => ensureDefaultPhotoEvidence(schema), [schema]);
-  const formStyle = (schema.meta?.formStyle || "default") as FormStyle;
+  useEffect(() => {
+    setLiveSchema(schema);
+    pendingSeedPatchesRef.current = null;
+  }, [schema, templateId]);
+
+  const effectiveSchema = useMemo(() => ensureDefaultPhotoEvidence(liveSchema), [liveSchema]);
+  const formStyle = (liveSchema.meta?.formStyle || schema.meta?.formStyle || "default") as FormStyle;
   const styleTokens = formStyleTokens(formStyle);
 
   const zodSchema = useMemo(() => buildZodSchema(effectiveSchema), [effectiveSchema]);
@@ -399,8 +420,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       alive = false;
       window.clearTimeout(fallback);
     };
+    // Rehydrate only when the run context changes — not when live seedRows update on the template.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, tenantSlug, currentUserId, initialAuditId, effectiveSchema]);
+  }, [templateId, tenantSlug, currentUserId, initialAuditId]);
 
   // Drafts are stored on this device only (localStorage + IndexedDB), not synced to the server.
   useEffect(() => {
@@ -441,6 +463,118 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       }
     };
   }, [watchedValues, isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token, effectiveSchema]);
+
+  async function persistStaticSeedRowsToTemplate(values: FormValues) {
+    if (!tenantSlug || !templateId) return false;
+    if (!schemaHasStaticColumns(liveSchemaRef.current)) return false;
+
+    const patches = buildStaticSeedRowPatches(liveSchemaRef.current, values as Record<string, unknown>);
+    if (patches.length) {
+      pendingSeedPatchesRef.current = patches;
+      const { schema: nextSchema, changed } = withUpdatedStaticSeedRows(
+        liveSchemaRef.current,
+        values as Record<string, unknown>,
+      );
+      if (changed) {
+        setLiveSchema(nextSchema);
+        liveSchemaRef.current = nextSchema;
+        writeAuditTemplateCache(tenantSlug, templateId, {
+          tenant: {
+            slug: tenantSlug,
+            name: tenantName || tenantSlug,
+            logoUrl: tenantLogoUrl ?? null,
+          },
+          template: {
+            id: templateId,
+            title: nextSchema.title || schema.title || "Form",
+            schema: nextSchema,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        setLastTemplateSeedSavedAt(Date.now());
+      }
+    }
+
+    const toSync = pendingSeedPatchesRef.current;
+    if (!toSync?.length) return false;
+
+    const accessToken = session?.access_token;
+    if (!accessToken || isAppOffline()) return true;
+    if (seedRowsSyncInFlightRef.current) return true;
+
+    seedRowsSyncInFlightRef.current = true;
+    try {
+      const res = await fetch(apiUrl("/api/templates/update-seed-rows"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tenantSlug,
+          templateId,
+          sections: toSync,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        pendingSeedPatchesRef.current = null;
+        if (json?.schema && typeof json.schema === "object") {
+          const serverSchema = json.schema as FormSchemaV1;
+          setLiveSchema(serverSchema);
+          liveSchemaRef.current = serverSchema;
+          writeAuditTemplateCache(tenantSlug, templateId, {
+            tenant: {
+              slug: tenantSlug,
+              name: tenantName || tenantSlug,
+              logoUrl: tenantLogoUrl ?? null,
+            },
+            template: {
+              id: templateId,
+              title: serverSchema.title || schema.title || "Form",
+              schema: serverSchema,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+        }
+      }
+      return res.ok;
+    } catch {
+      // Local cache already updated; pending patches retry on the next edit/submit.
+      return false;
+    } finally {
+      seedRowsSyncInFlightRef.current = false;
+    }
+  }
+
+  // Persist prepared static column text onto the template schema (cross-device), not as a draft-only answer.
+  useEffect(() => {
+    if (!formHydrated || isLoadingDraft) return;
+    if (!tenantSlug || !templateId) return;
+    if (!schemaHasStaticColumns(effectiveSchema) && !pendingSeedPatchesRef.current?.length) return;
+    if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+
+    const values = form.getValues();
+    const patches = buildStaticSeedRowPatches(liveSchemaRef.current, values as Record<string, unknown>);
+    if (!patches.length && !pendingSeedPatchesRef.current?.length) return;
+
+    if (seedRowsSyncTimerRef.current !== null) {
+      window.clearTimeout(seedRowsSyncTimerRef.current);
+      seedRowsSyncTimerRef.current = null;
+    }
+
+    seedRowsSyncTimerRef.current = window.setTimeout(() => {
+      void persistStaticSeedRowsToTemplate(form.getValues());
+    }, 700);
+
+    return () => {
+      if (seedRowsSyncTimerRef.current !== null) {
+        window.clearTimeout(seedRowsSyncTimerRef.current);
+        seedRowsSyncTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedValues, formHydrated, isLoadingDraft, tenantSlug, templateId, session?.access_token]);
 
   async function persistAudit(
     values: FormValues,
@@ -670,6 +804,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }
 
   async function onSubmit(values: FormValues) {
+    await persistStaticSeedRowsToTemplate(values);
     await persistAudit(values, "submit");
   }
 
@@ -812,9 +947,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
         <div className="mr-auto text-xs text-foreground/60">
-          {lastAutoSavedAt
-            ? `Draft saved on device ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
-            : "Draft saves on this device"}
+          {lastTemplateSeedSavedAt
+            ? `Prepared text saved on form ${new Date(lastTemplateSeedSavedAt).toLocaleTimeString()}`
+            : lastAutoSavedAt
+              ? `Draft saved on device ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
+              : "Draft saves on this device"}
         </div>
         <button
           type="submit"

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Suspense } from 'react';
 import './globals.css';
 import { AuthProvider } from '@/components/AuthProvider';
@@ -56,8 +57,7 @@ export default function RootLayout({
         {process.env.NEXT_PUBLIC_CAPACITOR_APP === '1' ? (
           <>
             <style id="iso-capacitor-critical-css">{CAPACITOR_CRITICAL_CSS}</style>
-            {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-            <script src='/capacitor-hardware-back.js' />
+            <Script src='/capacitor-hardware-back.js' strategy='beforeInteractive' />
           </>
         ) : null}
       </head>

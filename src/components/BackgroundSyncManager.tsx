@@ -19,45 +19,17 @@ import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsL
 import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import {
+  readWorkspaceCache,
+  workspaceContentFingerprint,
+  writeWorkspaceCache,
+  type WorkspaceData,
+} from "@/lib/client/workspaceCache";
+import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
   return auditPending + getPendingTemplateSyncCount() + getPendingBackgroundMutationCount();
-}
-
-type WorkspaceData = {
-  tenant: { slug: string };
-  categories: Array<{ id: string }>;
-  selectedCategoryId: string | null;
-  role?: "ADMIN" | "MANAGER" | "AUDITOR" | "VIEWER" | "MEMBER";
-  capabilities?: {
-    canAccessSettings?: boolean;
-    canCreateForms?: boolean;
-    canManageCategories?: boolean;
-    canManageStaff?: boolean;
-  };
-};
-
-function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
-  return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
-}
-
-function writeWorkspaceCache(userId: string | null, tenantSlug: string, categoryId: string | null, data: WorkspaceData) {
-  try {
-    localStorage.setItem(
-      workspaceCacheKey(userId, tenantSlug, categoryId),
-      JSON.stringify({ ts: Date.now(), data })
-    );
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("workspace-cache-updated", {
-          detail: { tenantSlug, categoryId },
-        })
-      );
-    }
-  } catch {
-    // ignore cache write failures
-  }
 }
 
 function tenantSlugFromPath(pathname: string | null, fallback: string | null): string {
@@ -78,14 +50,13 @@ export function BackgroundSyncManager() {
   const searchParams = useSearchParams();
   const accessToken = session?.access_token || "";
   const tenantSlug = tenantSlugFromPath(pathname, searchParams.get("tenantSlug"));
+  const categoryId = searchParams.get("categoryId");
 
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
-
     let cancelled = false;
 
     const updateOnline = () => setOnline(!isAppOffline());
@@ -116,7 +87,6 @@ export function BackgroundSyncManager() {
   }, []);
 
   useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
     if (!accessToken || !online) return;
 
     let active = true;
@@ -137,27 +107,55 @@ export function BackgroundSyncManager() {
 
       pullRunning = true;
       try {
+        const userId = user?.id || null;
+        const previous =
+          readWorkspaceCache(userId, tenantSlug, categoryId) ??
+          readWorkspaceCache(userId, tenantSlug, null);
+        const previousFp = previous ? workspaceContentFingerprint(previous) : "";
+
         const wsUrl = new URL(apiUrl("/api/workspace"));
         wsUrl.searchParams.set("tenantSlug", tenantSlug);
+        if (categoryId) wsUrl.searchParams.set("categoryId", categoryId);
         const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
-        writeWorkspaceCache(user?.id || null, tenantSlug, null, workspace);
+
+        writeWorkspaceCache(userId, tenantSlug, null, workspace, { silent: true });
         if (workspace.selectedCategoryId) {
-          writeWorkspaceCache(user?.id || null, tenantSlug, workspace.selectedCategoryId, workspace);
+          writeWorkspaceCache(userId, tenantSlug, workspace.selectedCategoryId, workspace, {
+            silent: true,
+          });
+        }
+        if (categoryId) {
+          writeWorkspaceCache(userId, tenantSlug, categoryId, workspace, { silent: true });
         }
 
-        const existingAudits = readAuditsListCache(user?.id || null, tenantSlug);
+        const nextFp = workspaceContentFingerprint(workspace);
+        const changed = !previousFp || previousFp !== nextFp;
+
+        // Notify UI: soft event for listeners + force refetch when remote data changed.
+        window.dispatchEvent(
+          new CustomEvent("workspace-cache-updated", {
+            detail: { tenantSlug, categoryId: categoryId || workspace.selectedCategoryId || null },
+          })
+        );
+        if (changed) {
+          requestWorkspaceRevalidate(tenantSlug);
+        }
+
+        const existingAudits = readAuditsListCache(userId, tenantSlug);
         const auditsUrl = new URL(apiUrl("/api/audit/list"));
         auditsUrl.searchParams.set("tenantSlug", tenantSlug);
         if (existingAudits?.maxUpdatedAt) {
           auditsUrl.searchParams.set("since", existingAudits.maxUpdatedAt);
         }
 
-        const auditsJson = await fetchJson<{ rows?: CachedAuditRow[]; maxUpdatedAt?: string | null }>(auditsUrl.toString());
+        const auditsJson = await fetchJson<{ rows?: CachedAuditRow[]; maxUpdatedAt?: string | null }>(
+          auditsUrl.toString()
+        );
         if (Array.isArray(auditsJson.rows) && auditsJson.rows.length > 0) {
           const merged = existingAudits
             ? mergeAuditsRows(existingAudits.rows, auditsJson.rows)
             : auditsJson.rows;
-          writeAuditsListCache(user?.id || null, tenantSlug, merged, auditsJson.maxUpdatedAt || null);
+          writeAuditsListCache(userId, tenantSlug, merged, auditsJson.maxUpdatedAt || null);
         }
       } catch {
         // best-effort background pull sync
@@ -219,12 +217,13 @@ export function BackgroundSyncManager() {
       if (document.visibilityState === "hidden") return;
       maybeFlush();
     }, 15_000);
+    // Pull often enough that other devices' forms/categories appear without re-login.
     const pullInterval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       runPullSync().catch(() => {
         // ignore
       });
-    }, 90_000);
+    }, 30_000);
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
@@ -237,7 +236,7 @@ export function BackgroundSyncManager() {
       window.clearInterval(interval);
       window.clearInterval(pullInterval);
     };
-  }, [accessToken, online, tenantSlug, user?.id]);
+  }, [accessToken, online, tenantSlug, categoryId, user?.id]);
 
   const label = useMemo(() => {
     if (!online) return "Offline mode";
@@ -251,6 +250,11 @@ export function BackgroundSyncManager() {
     : pendingCount > 0 || syncing
       ? "border-blue-300 bg-blue-50 text-blue-900"
       : "border-foreground/20 bg-background text-foreground/70";
+
+  // Keep the chip native-only to avoid cluttering desktop chrome; sync still runs above on web.
+  if (!isCapacitorNativeApp()) {
+    return null;
+  }
 
   if (pathname?.includes("/templates/new")) {
     return null;

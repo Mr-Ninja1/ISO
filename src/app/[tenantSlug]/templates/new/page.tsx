@@ -1243,8 +1243,9 @@ function NewTemplatePageInner() {
     const answerSummary = aiQuestions
       .map((q) => `${q.question} → ${aiAnswers[q.id]}`)
       .join("\n");
+    const promptText = aiPrompt.trim();
 
-    if (!answerSummary.trim() && !aiPrompt.trim() && !aiSourceFile) {
+    if (!answerSummary.trim() && !promptText && !aiSourceFile) {
       setError("Please provide a real form description or attachment before generating.");
       return;
     }
@@ -1834,9 +1835,9 @@ function NewTemplatePageInner() {
                         ) : null}
                       </p>
                       <p className="mt-1.5">
-                        I only built the table structure so long lists stay easy to manage. Add those items now in the
-                        builder with <span className="font-semibold">Edit static items</span>, or after you save the
-                        form — they stay on the template and do not clear when someone fills it out.
+                        I only built the table structure so long lists stay easy to manage. Add those items in the
+                        builder with <span className="font-semibold">Edit static items</span>, or type them into the
+                        static column after you save — they stay on the form template and sync to every device.
                       </p>
                     </div>
                   ) : null}

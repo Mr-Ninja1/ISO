@@ -44,8 +44,30 @@ type WorkspaceCacheEnvelope = {
 
 const FORCE_REFETCH_PREFIX = "workspace-force-refetch:v1:";
 
+/** Online trust window — keep short so multi-device creates appear without re-login. */
+export const ONLINE_WORKSPACE_CACHE_TTL_MS = 45_000;
+/** Offline / category-tab snapshots may stay longer; network revalidate when online. */
+export const OFFLINE_WORKSPACE_CACHE_TTL_MS = 30 * 60_000;
+
 export function workspaceCacheKey(userId: string | null, tenantSlug: string, categoryId: string | null) {
   return `workspace-cache:v2:${userId || "anon"}:${tenantSlug}:${categoryId || "all"}`;
+}
+
+/** Cheap fingerprint for pull-sync / UI equality checks (categories + templates). */
+export function workspaceContentFingerprint(data: {
+  selectedCategoryId?: string | null;
+  categories?: Array<{ id: string; name?: string; sortOrder?: number }>;
+  templates?: Array<{ id: string; updatedAt?: string; title?: string; categoryId?: string | null }>;
+}): string {
+  const cats = (data.categories || [])
+    .map((c) => `${c.id}:${c.name ?? ""}:${c.sortOrder ?? 0}`)
+    .sort()
+    .join(",");
+  const templates = (data.templates || [])
+    .map((t) => `${t.id}:${t.updatedAt ?? ""}:${t.title ?? ""}:${t.categoryId ?? ""}`)
+    .sort()
+    .join(",");
+  return `${data.selectedCategoryId ?? ""}|${cats}|${templates}`;
 }
 
 function forceRefetchKey(tenantSlug: string) {
