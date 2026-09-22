@@ -52,7 +52,13 @@ import {
   consumeWorkspaceForceRefetch,
   ONLINE_WORKSPACE_CACHE_TTL_MS,
   OFFLINE_WORKSPACE_CACHE_TTL_MS,
+  workspaceContentFingerprint,
 } from "@/lib/client/workspaceCache";
+import {
+  markInteractiveNav,
+  scheduleIdleWork,
+  shouldPauseBackgroundWork,
+} from "@/lib/client/interactionGate";
 import { clearOfflineBootstrapComplete, isOfflineBootstrapComplete, markOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import {
   cacheAllTenantTemplates,
@@ -786,6 +792,10 @@ function WorkspacePageInner() {
    * callbacks must not router.replace back onto /workspace (cancels the outbound nav).
    */
   const outboundNavEpochRef = useRef(0);
+  /** Dedupes hover/click template schema prefetches. */
+  const prefetchInFlightRef = useRef(new Map<string, Promise<void>>());
+  /** Fingerprint of painted workspace — cheap equality for cache-event storms. */
+  const workspaceFpRef = useRef("");
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
   const { blockIfOffline } = useRequiresInternet();
@@ -917,19 +927,27 @@ function WorkspacePageInner() {
 
   function openTemplate(templateId: string, tenantSlugForRoute: string) {
     if (openingTemplateId === templateId) return;
-    setSwitchingCategory(false);
-    setUiActiveCategoryId(null);
-    pendingCategoryIdRef.current = null;
+    // Pause background sync/warmup immediately — this click owns the main thread.
+    markInteractiveNav(3200);
     const navEpoch = ++outboundNavEpochRef.current;
-    setOpeningTemplateId(templateId);
-    rememberRecentTemplate(templateId);
-    rememberWorkspaceViewPref("forms");
     const href = tenantRouteHref(tenantSlugForRoute, "audits/new", { templateId });
-    const locallyCached = Boolean(readAuditTemplateCache(tenantSlugForRoute, templateId));
-    if (!locallyCached) {
-      void prefetchTemplateSchema(templateId).catch(() => {});
-    }
+
+    // Navigate first; defer storage + prefetch so opens stay paint-instant.
+    setOpeningTemplateId(templateId);
+    setSwitchingCategory(false);
     navigateWithFeedback(router, href, "push");
+
+    scheduleIdleWork(() => {
+      if (outboundNavEpochRef.current !== navEpoch) return;
+      setUiActiveCategoryId(null);
+      pendingCategoryIdRef.current = null;
+      rememberRecentTemplate(templateId);
+      rememberWorkspaceViewPref("forms");
+      if (!readAuditTemplateCache(tenantSlugForRoute, templateId)) {
+        void prefetchTemplateSchema(templateId).catch(() => {});
+      }
+    }, 0);
+
     // Soft nav can be cancelled by a late workspace router.replace — force commit if still here.
     window.setTimeout(() => {
       if (outboundNavEpochRef.current !== navEpoch) return;
@@ -1073,18 +1091,41 @@ function WorkspacePageInner() {
   async function prefetchTemplateSchema(templateId: string) {
     if (!accessToken || !tenantSlug) return;
     if (readAuditTemplateCache(tenantSlug, templateId)) return;
+    const existing = prefetchInFlightRef.current.get(templateId);
+    if (existing) return existing;
 
-    const url = new URL(apiUrl("/api/audit/template"));
-    url.searchParams.set("tenantSlug", tenantSlug);
-    url.searchParams.set("templateId", templateId);
+    const request = (async () => {
+      const url = new URL(apiUrl("/api/audit/template"));
+      url.searchParams.set("tenantSlug", tenantSlug);
+      url.searchParams.set("templateId", templateId);
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || `Template prefetch failed (${res.status})`);
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Template prefetch failed (${res.status})`);
+      // Don't compete with an in-flight form open stringify.
+      if (shouldPauseBackgroundWork()) return;
+      writeAuditTemplateCache(tenantSlug, templateId, data);
+    })();
 
-    writeAuditTemplateCache(tenantSlug, templateId, data);
+    prefetchInFlightRef.current.set(templateId, request);
+    try {
+      await request;
+    } finally {
+      if (prefetchInFlightRef.current.get(templateId) === request) {
+        prefetchInFlightRef.current.delete(templateId);
+      }
+    }
+  }
+
+  function scheduleTemplatePrefetch(templateId: string) {
+    if (!tenantSlug) return;
+    if (readAuditTemplateCache(tenantSlug, templateId)) return;
+    if (prefetchInFlightRef.current.has(templateId)) return;
+    scheduleIdleWork(() => {
+      void prefetchTemplateSchema(templateId).catch(() => {});
+    }, 80);
   }
 
   async function handleCheckForUpdates() {
@@ -1183,6 +1224,7 @@ function WorkspacePageInner() {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
     if (offlinePrimeInFlightRef.current) return;
+    if (shouldPauseBackgroundWork()) return;
     if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
       const missingCategory = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
@@ -1302,6 +1344,7 @@ function WorkspacePageInner() {
   function handleOpenSettings(targetTenantSlug: string) {
     if (openingSettings) return;
     setMenuOpen(false);
+    markInteractiveNav();
     outboundNavEpochRef.current += 1;
     setOpeningSettings(true);
     pushTenantRoute(router, targetTenantSlug, "settings");
@@ -1310,6 +1353,7 @@ function WorkspacePageInner() {
   function handleOpenStaffManagement(targetTenantSlug: string) {
     if (openingStaff) return;
     setMenuOpen(false);
+    markInteractiveNav();
     outboundNavEpochRef.current += 1;
     setOpeningStaff(true);
     pushTenantRoute(router, targetTenantSlug, "settings", { focus: "staff" });
@@ -1317,6 +1361,7 @@ function WorkspacePageInner() {
 
   function handleOpenActivity(targetTenantSlug: string) {
     if (openingActivity) return;
+    markInteractiveNav();
     outboundNavEpochRef.current += 1;
     setOpeningActivity(true);
     pushTenantRoute(router, targetTenantSlug, "activity");
@@ -1324,6 +1369,7 @@ function WorkspacePageInner() {
 
   function handleOpenAdminDashboard(targetTenantSlug: string) {
     if (openingAdminDashboard) return;
+    markInteractiveNav();
     outboundNavEpochRef.current += 1;
     setOpeningAdminDashboard(true);
     pushTenantRoute(router, targetTenantSlug, "dashboard");
@@ -1331,6 +1377,7 @@ function WorkspacePageInner() {
 
   function handleOpenAudits(targetTenantSlug: string) {
     if (openingAudits) return;
+    markInteractiveNav();
     outboundNavEpochRef.current += 1;
     setOpeningAudits(true);
     pushTenantRoute(router, targetTenantSlug, "audits");
@@ -1340,6 +1387,7 @@ function WorkspacePageInner() {
     if (!workspace) return;
     if (blockIfOffline("Template library")) return;
     setAddFormOpen(false);
+    markInteractiveNav();
     const navEpoch = ++outboundNavEpochRef.current;
     rememberWorkspaceViewPref("forms");
     const href = tenantRouteHref(
@@ -1358,6 +1406,7 @@ function WorkspacePageInner() {
   function handleCreateCustomForm(selectedCategoryId: string | null) {
     if (!workspace) return;
     setAddFormOpen(false);
+    markInteractiveNav();
     const navEpoch = ++outboundNavEpochRef.current;
     rememberWorkspaceViewPref("forms");
     const href = buildTenantHref(workspace.tenant.slug, "templates/new", {
@@ -1867,8 +1916,18 @@ function WorkspacePageInner() {
   }, [tenantSlug, categoryId]);
 
   useEffect(() => {
+    if (!workspace) {
+      workspaceFpRef.current = "";
+      return;
+    }
+    workspaceFpRef.current = workspaceContentFingerprint(workspace);
+  }, [workspace]);
+
+  useEffect(() => {
     const onWorkspaceCacheUpdated = (event: Event) => {
       if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) return;
+      // Never apply cache storms while the user is opening a form / leaving workspace.
+      if (shouldPauseBackgroundWork() || !isLiveOnWorkspacePath()) return;
       const custom = event as CustomEvent<{ tenantSlug?: string; categoryId?: string | null }>;
       if (custom.detail?.tenantSlug !== tenantSlug) return;
       const pendingCategoryId = pendingCategoryIdRef.current;
@@ -1889,31 +1948,17 @@ function WorkspacePageInner() {
         ? readExactCategoryCache(cacheUserId, tenantSlug, currentCategoryId)
         : readWorkspaceCache(cacheUserId, tenantSlug, null);
       if (!cached) return;
-      // Avoid updating state if the cached value matches current workspace
-      const sameTenant = workspace?.tenant.slug === cached.tenant.slug && workspace?.tenant.name === cached.tenant.name && workspace?.tenant.logoUrl === cached.tenant.logoUrl;
-      const sameCategory = workspace?.selectedCategoryId === cached.selectedCategoryId;
-      const sameTemplates =
-        Array.isArray(workspace?.templates) &&
-        workspace.templates.length === cached.templates.length &&
-        workspace.templates.every((t, idx) => {
-          const n = cached.templates[idx];
-          return (
-            n &&
-            t.id === n.id &&
-            t.updatedAt === n.updatedAt &&
-            t.categoryId === n.categoryId &&
-            t.title === n.title
-          );
-        });
+      const cachedFp = workspaceContentFingerprint(cached);
+      if (cachedFp === workspaceFpRef.current) return;
 
-      if (sameTenant && sameCategory && sameTemplates) return;
-
-      setWorkspace(cached);
-      // Keep optimistic highlight until searchParams.categoryId matches the tap.
-      // Clearing here (even for the pending category) caused: highlight → old URL tab → new tab.
-      setWorkspaceLoading(false);
-      setSwitchingCategory(false);
-      setError("");
+      workspaceFpRef.current = cachedFp;
+      startTransition(() => {
+        setWorkspace(cached);
+        // Keep optimistic highlight until searchParams.categoryId matches the tap.
+        setWorkspaceLoading(false);
+        setSwitchingCategory(false);
+        setError("");
+      });
     };
 
     window.addEventListener("workspace-cache-updated", onWorkspaceCacheUpdated as EventListener);
@@ -2476,6 +2521,7 @@ function WorkspacePageInner() {
       for (const cid of categoryIds) {
         // Keep sibling category snapshots warm so tab switches stay local.
         if (!active || isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) continue;
+        if (shouldPauseBackgroundWork()) break;
         try {
           let data: WorkspaceData;
           if (isCapacitorNativeApp()) {
@@ -2490,7 +2536,8 @@ function WorkspacePageInner() {
             if (!res.ok) continue;
             data = (await res.json()) as WorkspaceData;
           }
-          if (active) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
+          if (!active || shouldPauseBackgroundWork()) break;
+          writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
         } catch {
           // Best-effort warming; the category switch still fetches on demand.
         }
@@ -3442,15 +3489,11 @@ function WorkspacePageInner() {
                                 key={`recent-dropdown-${t.id}`}
                                 type="button"
                                 onMouseEnter={() => {
-                                  prefetchTemplateSchema(t.id).catch(() => {
-                                    // best-effort prefetch
-                                  });
+                                  scheduleTemplatePrefetch(t.id);
                                   router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                                 }}
                                 onFocus={() => {
-                                  prefetchTemplateSchema(t.id).catch(() => {
-                                    // best-effort prefetch
-                                  });
+                                  scheduleTemplatePrefetch(t.id);
                                   router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                                 }}
                                 onClick={() => {
@@ -3564,15 +3607,11 @@ function WorkspacePageInner() {
                       role="button"
                       tabIndex={0}
                       onMouseEnter={() => {
-                        prefetchTemplateSchema(t.id).catch(() => {
-                          // best-effort prefetch
-                        });
+                        scheduleTemplatePrefetch(t.id);
                         router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                       }}
                       onFocus={() => {
-                        prefetchTemplateSchema(t.id).catch(() => {
-                          // best-effort prefetch
-                        });
+                        scheduleTemplatePrefetch(t.id);
                         router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
                       }}
                       onClick={() => {

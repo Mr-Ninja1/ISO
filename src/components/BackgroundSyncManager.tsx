@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -26,6 +26,7 @@ import {
   type WorkspaceData,
 } from "@/lib/client/workspaceCache";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
+import { shouldPauseBackgroundWork, waitForInteractiveNavClear } from "@/lib/client/interactionGate";
 
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
@@ -51,6 +52,11 @@ export function BackgroundSyncManager() {
   const accessToken = session?.access_token || "";
   const tenantSlug = tenantSlugFromPath(pathname, searchParams.get("tenantSlug"));
   const categoryId = searchParams.get("categoryId");
+  // Ref so category tab changes don't tear down intervals / restart pull storms.
+  const categoryIdRef = useRef(categoryId);
+  categoryIdRef.current = categoryId;
+  const tenantSlugRef = useRef(tenantSlug);
+  tenantSlugRef.current = tenantSlug;
 
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -102,48 +108,58 @@ export function BackgroundSyncManager() {
     }
 
     const runPullSync = async () => {
-      if (!tenantSlug || pullRunning || !active) return;
+      const slug = tenantSlugRef.current;
+      const catId = categoryIdRef.current;
+      if (!slug || pullRunning || !active) return;
       if (isAppOffline()) return;
+      if (shouldPauseBackgroundWork()) {
+        await waitForInteractiveNavClear(2500);
+        if (!active || shouldPauseBackgroundWork()) return;
+      }
 
       pullRunning = true;
       try {
         const userId = user?.id || null;
         const previous =
-          readWorkspaceCache(userId, tenantSlug, categoryId) ??
-          readWorkspaceCache(userId, tenantSlug, null);
+          readWorkspaceCache(userId, slug, catId) ?? readWorkspaceCache(userId, slug, null);
         const previousFp = previous ? workspaceContentFingerprint(previous) : "";
 
         const wsUrl = new URL(apiUrl("/api/workspace"));
-        wsUrl.searchParams.set("tenantSlug", tenantSlug);
-        if (categoryId) wsUrl.searchParams.set("categoryId", categoryId);
+        wsUrl.searchParams.set("tenantSlug", slug);
+        if (catId) wsUrl.searchParams.set("categoryId", catId);
         const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
+        if (!active) return;
+        if (shouldPauseBackgroundWork()) return;
 
-        writeWorkspaceCache(userId, tenantSlug, null, workspace, { silent: true });
+        writeWorkspaceCache(userId, slug, null, workspace, { silent: true });
         if (workspace.selectedCategoryId) {
-          writeWorkspaceCache(userId, tenantSlug, workspace.selectedCategoryId, workspace, {
+          writeWorkspaceCache(userId, slug, workspace.selectedCategoryId, workspace, {
             silent: true,
           });
         }
-        if (categoryId) {
-          writeWorkspaceCache(userId, tenantSlug, categoryId, workspace, { silent: true });
+        if (catId) {
+          writeWorkspaceCache(userId, slug, catId, workspace, { silent: true });
         }
 
         const nextFp = workspaceContentFingerprint(workspace);
         const changed = !previousFp || previousFp !== nextFp;
 
-        // Notify UI: soft event for listeners + force refetch when remote data changed.
-        window.dispatchEvent(
-          new CustomEvent("workspace-cache-updated", {
-            detail: { tenantSlug, categoryId: categoryId || workspace.selectedCategoryId || null },
-          })
-        );
-        if (changed) {
-          requestWorkspaceRevalidate(tenantSlug);
+        // Only notify UI when remote data actually changed — unconditional broadcasts
+        // were freezing form opens (setWorkspace → effect cascades on every 30s pull).
+        if (changed && active && !shouldPauseBackgroundWork()) {
+          window.dispatchEvent(
+            new CustomEvent("workspace-cache-updated", {
+              detail: { tenantSlug: slug, categoryId: catId || workspace.selectedCategoryId || null },
+            })
+          );
+          requestWorkspaceRevalidate(slug);
         }
 
-        const existingAudits = readAuditsListCache(userId, tenantSlug);
+        if (!active || shouldPauseBackgroundWork()) return;
+
+        const existingAudits = readAuditsListCache(userId, slug);
         const auditsUrl = new URL(apiUrl("/api/audit/list"));
-        auditsUrl.searchParams.set("tenantSlug", tenantSlug);
+        auditsUrl.searchParams.set("tenantSlug", slug);
         if (existingAudits?.maxUpdatedAt) {
           auditsUrl.searchParams.set("since", existingAudits.maxUpdatedAt);
         }
@@ -151,11 +167,12 @@ export function BackgroundSyncManager() {
         const auditsJson = await fetchJson<{ rows?: CachedAuditRow[]; maxUpdatedAt?: string | null }>(
           auditsUrl.toString()
         );
+        if (!active) return;
         if (Array.isArray(auditsJson.rows) && auditsJson.rows.length > 0) {
           const merged = existingAudits
             ? mergeAuditsRows(existingAudits.rows, auditsJson.rows)
             : auditsJson.rows;
-          writeAuditsListCache(userId, tenantSlug, merged, auditsJson.maxUpdatedAt || null);
+          writeAuditsListCache(userId, slug, merged, auditsJson.maxUpdatedAt || null);
         }
       } catch {
         // best-effort background pull sync
@@ -166,12 +183,19 @@ export function BackgroundSyncManager() {
 
     const flushAll = async () => {
       if (!active) return;
+      if (shouldPauseBackgroundWork()) {
+        await waitForInteractiveNavClear(2500);
+        if (!active || shouldPauseBackgroundWork()) return;
+      }
       setSyncing(true);
       try {
         // Always flush audit outbox when online — do not gate on localStorage-only counts.
         await flushAuditSyncQueue(accessToken);
+        if (!active) return;
         await flushTemplateSyncQueue(accessToken);
+        if (!active) return;
         await flushBackgroundMutationQueue(accessToken);
+        if (!active) return;
         await runPullSync();
       } finally {
         if (!active) return;
@@ -215,11 +239,13 @@ export function BackgroundSyncManager() {
     };
     const interval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
+      if (shouldPauseBackgroundWork()) return;
       maybeFlush();
     }, 15_000);
     // Pull often enough that other devices' forms/categories appear without re-login.
     const pullInterval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
+      if (shouldPauseBackgroundWork()) return;
       runPullSync().catch(() => {
         // ignore
       });
@@ -236,7 +262,7 @@ export function BackgroundSyncManager() {
       window.clearInterval(interval);
       window.clearInterval(pullInterval);
     };
-  }, [accessToken, online, tenantSlug, categoryId, user?.id]);
+  }, [accessToken, online, tenantSlug, user?.id]);
 
   const label = useMemo(() => {
     if (!online) return "Offline mode";

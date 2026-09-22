@@ -4,10 +4,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { writeAuditTemplateCache, type AuditTemplatePayload } from "@/lib/client/auditTemplateCache";
+import {
+  shouldPauseBackgroundWork,
+  waitForInteractiveNavClear,
+  yieldToMain,
+} from "@/lib/client/interactionGate";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 const BULK_CACHE_KEY_PREFIX = "template-schemas-bulk-cached:v1:";
 const inFlightBulkCaches = new Map<string, Promise<number>>();
+/** Keep the main thread responsive while writing many large schemas. */
+const WRITE_YIELD_EVERY = 2;
 
 export function tenantTemplateBulkCacheKey(tenantSlug: string) {
   return `${BULK_CACHE_KEY_PREFIX}${tenantSlug}`;
@@ -55,6 +62,36 @@ type TemplatesCacheResponse = {
   }>;
 };
 
+async function writeTemplatesChunked(
+  tenantSlug: string,
+  tenant: AuditTemplatePayload["tenant"],
+  templates: Array<{
+    id: string;
+    title: string;
+    schema: AuditTemplatePayload["template"]["schema"];
+    updatedAt: string;
+  }>
+) {
+  for (let i = 0; i < templates.length; i += 1) {
+    if (i > 0 && i % WRITE_YIELD_EVERY === 0) {
+      if (shouldPauseBackgroundWork()) {
+        await waitForInteractiveNavClear();
+      }
+      await yieldToMain();
+    }
+    const t = templates[i]!;
+    writeAuditTemplateCache(tenantSlug, t.id, {
+      tenant,
+      template: {
+        id: t.id,
+        title: t.title,
+        schema: t.schema,
+        updatedAt: t.updatedAt,
+      },
+    });
+  }
+}
+
 /** Downloads every form schema for a brand — required for instant offline opens. */
 export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenantSlug: string) {
   const templatesUrl = new URL(apiUrl("/api/audit/templates-cache"));
@@ -73,17 +110,7 @@ export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenant
     return 0;
   }
 
-  for (const t of json.templates) {
-    writeAuditTemplateCache(tenantSlug, t.id, {
-      tenant: json.tenant,
-      template: {
-        id: t.id,
-        title: t.title,
-        schema: t.schema,
-        updatedAt: t.updatedAt,
-      },
-    });
-  }
+  await writeTemplatesChunked(tenantSlug, json.tenant, json.templates);
 
   markTenantTemplateBulkCached(tenantSlug);
   return json.templates.length;
@@ -99,17 +126,7 @@ async function cacheTemplatesFromRows(
     updatedAt: string;
   }>
 ) {
-  for (const template of templates) {
-    writeAuditTemplateCache(tenantSlug, template.id, {
-      tenant,
-      template: {
-        id: template.id,
-        title: template.title,
-        schema: template.schema,
-        updatedAt: template.updatedAt,
-      },
-    });
-  }
+  await writeTemplatesChunked(tenantSlug, tenant, templates);
 
   markTenantTemplateBulkCached(tenantSlug);
   return templates.length;
