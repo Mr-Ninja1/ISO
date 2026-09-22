@@ -767,6 +767,8 @@ function WorkspacePageInner() {
   const forceWorkspaceNetworkRefetchRef = useRef(false);
   /** Monotonic id so stale in-flight workspace responses cannot rewrite URL/UI. */
   const workspaceFetchGenRef = useRef(0);
+  /** Category the user just tapped — URL may lag; ignore stale cache writes for the old tab. */
+  const pendingCategoryIdRef = useRef<string | null>(null);
   const suggestionsFetchedRef = useRef(false);
   const offlineFromHook = useAppOffline();
   const { blockIfOffline } = useRequiresInternet();
@@ -791,16 +793,21 @@ function WorkspacePageInner() {
     }
   }, [requestedView]);
 
+  // Clear optimistic tab highlight only after the URL catches up.
+  // Clearing while uiActive !== categoryId was the bounce: tap AH while URL is still BH
+  // immediately wiped the highlight back to BH until router.replace committed.
   useEffect(() => {
     if (!categoryId) {
+      pendingCategoryIdRef.current = null;
       setUiActiveCategoryId(null);
       return;
     }
 
-    if (uiActiveCategoryId && uiActiveCategoryId !== categoryId) {
-      setUiActiveCategoryId(null);
+    if (pendingCategoryIdRef.current === categoryId) {
+      pendingCategoryIdRef.current = null;
     }
-  }, [categoryId, uiActiveCategoryId]);
+    setUiActiveCategoryId((prev) => (prev && prev === categoryId ? null : prev));
+  }, [categoryId]);
 
   const activeView = optimisticView ?? urlView;
   const isAdminView = activeView === "admin";
@@ -1783,6 +1790,9 @@ function WorkspacePageInner() {
   useEffect(() => {
     if (!tenantSlug) return;
     if (isTenantDeactivatedBlocked(tenantSlug)) return;
+    const pending = pendingCategoryIdRef.current;
+    // Skip stale URL commits while a newer tab tap is still pending (rapid BH→AH jumps).
+    if (pending && categoryId && pending !== categoryId) return;
     // Prefer the exact category cache so tab switches never flash another category's forms.
     const cached = categoryId
       ? readExactCategoryCache(cacheUserId, tenantSlug, categoryId)
@@ -1804,13 +1814,18 @@ function WorkspacePageInner() {
       if (tenantSlug && isTenantDeactivatedBlocked(tenantSlug)) return;
       const custom = event as CustomEvent<{ tenantSlug?: string; categoryId?: string | null }>;
       if (custom.detail?.tenantSlug !== tenantSlug) return;
-      const currentCategoryId = categoryId || null;
-      // Ignore warm writes for other categories so background prefetch can't hijack the UI.
+      const pendingCategoryId = pendingCategoryIdRef.current;
+      // While a tab click is waiting on router.replace, only accept cache for the pending category.
+      // Otherwise a warm write for the old URL category snaps the UI back (worse on far jumps).
+      const currentCategoryId = pendingCategoryId || categoryId || null;
       if (
         custom.detail?.categoryId != null &&
         currentCategoryId &&
         custom.detail.categoryId !== currentCategoryId
       ) {
+        return;
+      }
+      if (pendingCategoryId && custom.detail?.categoryId == null) {
         return;
       }
       const cached = currentCategoryId
@@ -1837,7 +1852,9 @@ function WorkspacePageInner() {
       if (sameTenant && sameCategory && sameTemplates) return;
 
       setWorkspace(cached);
-      setUiActiveCategoryId(null);
+      if (!pendingCategoryId || cached.selectedCategoryId === pendingCategoryId) {
+        setUiActiveCategoryId(null);
+      }
       setWorkspaceLoading(false);
       setSwitchingCategory(false);
       setError("");
@@ -1957,6 +1974,11 @@ function WorkspacePageInner() {
     const exactCached = readExactCategoryCache(cacheUserId, tenantSlug, categoryId);
     // Only fall back to tenant-wide cache when no category is selected — never flash
     // another category's forms while switching tabs.
+    const pending = pendingCategoryIdRef.current;
+    if (pending && categoryId && pending !== categoryId) {
+      // Newer optimistic tab wins over a lagging URL from a previous replace.
+      return;
+    }
     const cached =
       exactCached ??
       (categoryId ? null : readWorkspaceCache(cacheUserId, tenantSlug, null));
@@ -2096,6 +2118,12 @@ function WorkspacePageInner() {
       .then((data) => {
         if (!data) return;
         if (controller.signal.aborted || fetchGen !== workspaceFetchGenRef.current) return;
+
+        // User already tapped another category while this request was for the old URL tab.
+        const pending = pendingCategoryIdRef.current;
+        if (pending && requestedCategoryId && pending !== requestedCategoryId) {
+          return;
+        }
 
         workspaceBusyRetriesRef.current = 0;
         const sameTenant =
@@ -3054,6 +3082,7 @@ function WorkspacePageInner() {
                       if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
                       // Optimistic tab highlight immediately — do not wait on URL commit.
+                      pendingCategoryIdRef.current = c.id;
                       setUiActiveCategoryId(c.id);
                       const cachedCategoryData = readExactCategoryCache(cacheUserId, tenant.slug, c.id);
                       if (cachedCategoryData) {

@@ -404,6 +404,15 @@ export function buildSectionsFromBuilderState(
       columns: state.bottomFieldsColumns,
       fields: state.bottomFields,
     });
+  } else if (state.bottomFields.length) {
+    // Preserve after-table fields even when the form type config hides footer by default
+    // (e.g. editing a checklist that was saved with a footer section).
+    sections.push({
+      type: "fields",
+      title: config.sectionLabels.footer || "Footer",
+      columns: state.bottomFieldsColumns,
+      fields: state.bottomFields,
+    });
   }
 
   return sections;

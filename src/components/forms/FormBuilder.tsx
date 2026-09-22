@@ -2122,6 +2122,10 @@ export function FormBuilder({
   }, [initialSections, formType, builderConfig.headerColumnsDefault]);
 
   const [state, setState] = useState<BuilderState>(initialState);
+  // Keep footer tools when the saved schema already has after-table fields, even if the
+  // form-type preset normally hides footer (checklist / questionnaire / etc.).
+  const supportsFooter = builderConfig.sections.footer || state.bottomFields.length > 0;
+  const showPlacementToggle = builderConfig.showPlacementToggle || supportsFooter;
 
   useEffect(() => {
     if (typeof resetKey === "string") {
@@ -2320,7 +2324,7 @@ export function FormBuilder({
             </div>
 
             <div className="flex shrink-0 flex-wrap items-stretch gap-2">
-              {builderConfig.showPlacementToggle ? (
+              {showPlacementToggle ? (
               <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Placement</div>
                 <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
@@ -2334,7 +2338,7 @@ export function FormBuilder({
                   >
                     {builderConfig.sectionLabels.header}
                   </button>
-                  {builderConfig.sections.footer ? (
+                  {supportsFooter ? (
                     <button
                       type="button"
                       className={
@@ -2403,7 +2407,7 @@ export function FormBuilder({
                   {(() => {
                     const canAddHeader = builderConfig.sections.header && !headerAreaOpen;
                     const canAddTable = builderConfig.sections.table && !state.grid;
-                    const canAddFooter = builderConfig.sections.footer && !footerAreaOpen;
+                    const canAddFooter = supportsFooter && !footerAreaOpen;
                     if (!canAddHeader && !canAddTable && !canAddFooter) return null;
                     return (
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -2594,7 +2598,7 @@ export function FormBuilder({
                   </div>
                   ) : null}
 
-                  {builderConfig.sections.footer && footerAreaOpen ? (
+                  {supportsFooter && footerAreaOpen ? (
                   <div className="mt-5">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold uppercase tracking-wide text-foreground/70">
