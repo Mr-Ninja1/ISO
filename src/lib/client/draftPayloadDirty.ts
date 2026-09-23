@@ -40,8 +40,13 @@ function valuesDiffer(a: unknown, b: unknown): boolean {
 /**
  * True when the user has entered fill-time answers worth saving as a draft.
  * Template-owned static seed text does not count — that persists on the form schema.
+ * Pass `defaults` to avoid rebuilding them on every keystroke.
  */
-export function isDraftPayloadDirty(values: Record<string, unknown>, schema?: FormSchemaV1 | null): boolean {
+export function isDraftPayloadDirty(
+  values: Record<string, unknown>,
+  schema?: FormSchemaV1 | null,
+  defaults?: Record<string, unknown> | null
+): boolean {
   if (!schema) {
     for (const [key, value] of Object.entries(values)) {
       if (META_KEYS.has(key)) continue;
@@ -50,14 +55,14 @@ export function isDraftPayloadDirty(values: Record<string, unknown>, schema?: Fo
     return false;
   }
 
-  const defaults = buildDefaultValues(schema);
+  const baselineValues = defaults ?? buildDefaultValues(schema);
 
   for (const section of getSections(schema)) {
     if (section.type === "fields") {
       for (const field of section.fields.filter(isActiveField)) {
         if (field.type === "display") continue;
         const current = values[field.id];
-        const baseline = defaults[field.id];
+        const baseline = baselineValues[field.id];
         if (field.type === "checkbox") {
           if (Boolean(current) !== Boolean(baseline)) return true;
           continue;
@@ -76,8 +81,8 @@ export function isDraftPayloadDirty(values: Record<string, unknown>, schema?: Fo
     if (section.type === "grid") {
       const key = section.id || "form_data";
       const currentRows = Array.isArray(values[key]) ? (values[key] as Array<Record<string, unknown>>) : [];
-      const baselineRows = Array.isArray(defaults[key])
-        ? (defaults[key] as Array<Record<string, unknown>>)
+      const baselineRows = Array.isArray(baselineValues[key])
+        ? (baselineValues[key] as Array<Record<string, unknown>>)
         : [];
       const activeColumns = section.columns.filter(isActiveField);
       const answerColumns = activeColumns.filter((col) => !isStaticColumn(col));
@@ -101,7 +106,7 @@ export function isDraftPayloadDirty(values: Record<string, unknown>, schema?: Fo
 
   for (const [key, value] of Object.entries(values)) {
     if (META_KEYS.has(key)) continue;
-    if (key in defaults) continue;
+    if (key in baselineValues) continue;
     if (isMeaningfulValue(value)) return true;
   }
 

@@ -165,6 +165,11 @@
   function navigateInApp(target) {
     var normalized = rewriteTenantHref(target.charAt(0) === "/" ? target : "/" + target);
     if (currentPath() === normalized) return true;
+    try {
+      if (typeof window.__ISO_MARK_INTERACTIVE_NAV__ === "function") {
+        window.__ISO_MARK_INTERACTIVE_NAV__(3200);
+      }
+    } catch (_) {}
     window.location.assign(normalized);
     return true;
   }

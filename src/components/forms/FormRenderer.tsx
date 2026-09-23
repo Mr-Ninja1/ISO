@@ -38,7 +38,7 @@ import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, notifyAuditOutboxChanged } from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
-import { collectTemperatureAlerts } from "@/lib/temperatureMonitoring";
+import { collectTemperatureAlerts, type TemperatureAlert } from "@/lib/temperatureMonitoring";
 import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox, dbFindOutboxByClientSubmissionId, dbDeleteOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
@@ -55,6 +55,11 @@ import {
   withUpdatedStaticSeedRows,
 } from "@/lib/staticSeedRows";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
+import {
+  markInteractiveNav,
+  scheduleIdleWork,
+  shouldPauseBackgroundWork,
+} from "@/lib/client/interactionGate";
 
 type Props = {
   tenantSlug: string;
@@ -296,10 +301,14 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     seedRows: import("@/types/forms").GridSection["seedRows"];
   }> | null>(null);
   const liveSchemaRef = useRef(liveSchema);
-  liveSchemaRef.current = liveSchema;
+
+  useEffect(() => {
+    liveSchemaRef.current = liveSchema;
+  }, [liveSchema]);
 
   useEffect(() => {
     setLiveSchema(schema);
+    liveSchemaRef.current = schema;
     pendingSeedPatchesRef.current = null;
   }, [schema, templateId]);
 
@@ -311,6 +320,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const defaultValues = useMemo(() => buildDefaultValues(effectiveSchema), [effectiveSchema]);
   const defaultValuesRef = useRef(defaultValues);
   defaultValuesRef.current = defaultValues;
+  const hasStaticColumns = useMemo(() => schemaHasStaticColumns(effectiveSchema), [effectiveSchema]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(zodSchema),
@@ -339,12 +349,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         })
         .filter((section) => (section.type === "fields" ? section.fields.length > 0 : section.columns.length > 0)),
     [sections]
-  );
-
-  const watchedValues = useWatch({ control: form.control }) as FormValues;
-  const temperatureAlerts = useMemo(
-    () => collectTemperatureAlerts(effectiveSchema, (watchedValues || {}) as Record<string, unknown>),
-    [effectiveSchema, watchedValues]
   );
 
   function safeReset(nextValues: FormValues) {
@@ -429,45 +433,73 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     setIsLoadingDraft(false);
   }, [templateId, tenantSlug, initialAuditId]);
 
-  // Persist local draft quickly on edits (signatures, tables, photos — not only isDirty text fields).
+  // Persist local draft quickly on edits — subscribe without re-rendering the whole form.
   useEffect(() => {
     if (isLoadingDraft) return;
     if (!tenantSlug || !templateId) return;
     if (!currentUserId && !session?.access_token) return;
-    if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
 
-    if (skipLocalDraftWatchRef.current) {
-      skipLocalDraftWatchRef.current = false;
-      return;
-    }
+    const scheduleDraftWrite = () => {
+      if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+      if (skipLocalDraftWatchRef.current) {
+        skipLocalDraftWatchRef.current = false;
+        return;
+      }
+      if (localDraftWriteTimerRef.current !== null) {
+        window.clearTimeout(localDraftWriteTimerRef.current);
+        localDraftWriteTimerRef.current = null;
+      }
+      localDraftWriteTimerRef.current = window.setTimeout(() => {
+        if (shouldPauseBackgroundWork()) return;
+        const latest = form.getValues();
+        if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema, defaultValuesRef.current)) {
+          return;
+        }
+        writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true });
+        setLastAutoSavedAt(Date.now());
+      }, 500);
+    };
 
-    const values = form.getValues();
-    if (!isDraftPayloadDirty(values as Record<string, unknown>, effectiveSchema)) return;
-
-    if (localDraftWriteTimerRef.current !== null) {
-      window.clearTimeout(localDraftWriteTimerRef.current);
-      localDraftWriteTimerRef.current = null;
-    }
-
-    localDraftWriteTimerRef.current = window.setTimeout(() => {
-      const latest = form.getValues();
-      if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema)) return;
-      writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true });
-      setLastAutoSavedAt(Date.now());
-    }, 400);
+    const subscription = form.watch(() => {
+      scheduleDraftWrite();
+    });
 
     return () => {
+      subscription.unsubscribe();
       if (localDraftWriteTimerRef.current !== null) {
         window.clearTimeout(localDraftWriteTimerRef.current);
         localDraftWriteTimerRef.current = null;
       }
     };
-  }, [watchedValues, isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token, effectiveSchema]);
+  }, [isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token, effectiveSchema]);
 
-  async function persistStaticSeedRowsToTemplate(values: FormValues) {
+  function writeTemplateSeedCache(nextSchema: FormSchemaV1) {
+    if (!tenantSlug || !templateId) return;
+    if (shouldPauseBackgroundWork()) {
+      scheduleIdleWork(() => writeTemplateSeedCache(nextSchema), 400);
+      return;
+    }
+    writeAuditTemplateCache(tenantSlug, templateId, {
+      tenant: {
+        slug: tenantSlug,
+        name: tenantName || tenantSlug,
+        logoUrl: tenantLogoUrl ?? null,
+      },
+      template: {
+        id: templateId,
+        title: nextSchema.title || schema.title || "Form",
+        schema: nextSchema,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    setLastTemplateSeedSavedAt(Date.now());
+  }
+
+  async function persistStaticSeedRowsToTemplate(values: FormValues, options?: { allowLiveSchemaUpdate?: boolean }) {
     if (!tenantSlug || !templateId) return false;
     if (!schemaHasStaticColumns(liveSchemaRef.current)) return false;
 
+    const allowLiveSchemaUpdate = Boolean(options?.allowLiveSchemaUpdate);
     const patches = buildStaticSeedRowPatches(liveSchemaRef.current, values as Record<string, unknown>);
     if (patches.length) {
       pendingSeedPatchesRef.current = patches;
@@ -476,22 +508,13 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         values as Record<string, unknown>,
       );
       if (changed) {
-        setLiveSchema(nextSchema);
+        // Keep ref current for the next patch, but never rebuild Zod/UI mid-typing —
+        // setLiveSchema + sync template stringify was freezing static-column edits.
         liveSchemaRef.current = nextSchema;
-        writeAuditTemplateCache(tenantSlug, templateId, {
-          tenant: {
-            slug: tenantSlug,
-            name: tenantName || tenantSlug,
-            logoUrl: tenantLogoUrl ?? null,
-          },
-          template: {
-            id: templateId,
-            title: nextSchema.title || schema.title || "Form",
-            schema: nextSchema,
-            updatedAt: new Date().toISOString(),
-          },
-        });
-        setLastTemplateSeedSavedAt(Date.now());
+        if (allowLiveSchemaUpdate && !shouldPauseBackgroundWork()) {
+          setLiveSchema(nextSchema);
+        }
+        scheduleIdleWork(() => writeTemplateSeedCache(nextSchema), 0);
       }
     }
 
@@ -501,6 +524,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     const accessToken = session?.access_token;
     if (!accessToken || isAppOffline()) return true;
     if (seedRowsSyncInFlightRef.current) return true;
+    if (shouldPauseBackgroundWork() && !allowLiveSchemaUpdate) return true;
 
     seedRowsSyncInFlightRef.current = true;
     try {
@@ -521,21 +545,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         pendingSeedPatchesRef.current = null;
         if (json?.schema && typeof json.schema === "object") {
           const serverSchema = json.schema as FormSchemaV1;
-          setLiveSchema(serverSchema);
           liveSchemaRef.current = serverSchema;
-          writeAuditTemplateCache(tenantSlug, templateId, {
-            tenant: {
-              slug: tenantSlug,
-              name: tenantName || tenantSlug,
-              logoUrl: tenantLogoUrl ?? null,
-            },
-            template: {
-              id: templateId,
-              title: serverSchema.title || schema.title || "Form",
-              schema: serverSchema,
-              updatedAt: new Date().toISOString(),
-            },
-          });
+          if (allowLiveSchemaUpdate && !shouldPauseBackgroundWork()) {
+            setLiveSchema(serverSchema);
+          }
+          scheduleIdleWork(() => writeTemplateSeedCache(serverSchema), 0);
         }
       }
       return res.ok;
@@ -547,34 +561,63 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     }
   }
 
-  // Persist prepared static column text onto the template schema (cross-device), not as a draft-only answer.
+  // Persist prepared static column text onto the template (cross-device), off the typing path.
   useEffect(() => {
     if (!formHydrated || isLoadingDraft) return;
     if (!tenantSlug || !templateId) return;
-    if (!schemaHasStaticColumns(effectiveSchema) && !pendingSeedPatchesRef.current?.length) return;
-    if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+    if (!hasStaticColumns && !pendingSeedPatchesRef.current?.length) return;
 
-    const values = form.getValues();
-    const patches = buildStaticSeedRowPatches(liveSchemaRef.current, values as Record<string, unknown>);
-    if (!patches.length && !pendingSeedPatchesRef.current?.length) return;
+    const scheduleSeedPersist = () => {
+      if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
+      if (seedRowsSyncTimerRef.current !== null) {
+        window.clearTimeout(seedRowsSyncTimerRef.current);
+        seedRowsSyncTimerRef.current = null;
+      }
+      seedRowsSyncTimerRef.current = window.setTimeout(() => {
+        if (shouldPauseBackgroundWork()) return;
+        const values = form.getValues();
+        const patches = buildStaticSeedRowPatches(liveSchemaRef.current, values as Record<string, unknown>);
+        if (!patches.length && !pendingSeedPatchesRef.current?.length) return;
+        void persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: false });
+      }, 1600);
+    };
 
-    if (seedRowsSyncTimerRef.current !== null) {
-      window.clearTimeout(seedRowsSyncTimerRef.current);
-      seedRowsSyncTimerRef.current = null;
-    }
-
-    seedRowsSyncTimerRef.current = window.setTimeout(() => {
-      void persistStaticSeedRowsToTemplate(form.getValues());
-    }, 700);
+    const subscription = form.watch(() => {
+      if (!hasStaticColumns && !pendingSeedPatchesRef.current?.length) return;
+      scheduleSeedPersist();
+    });
 
     return () => {
+      subscription.unsubscribe();
       if (seedRowsSyncTimerRef.current !== null) {
         window.clearTimeout(seedRowsSyncTimerRef.current);
         seedRowsSyncTimerRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedValues, formHydrated, isLoadingDraft, tenantSlug, templateId, session?.access_token]);
+  }, [formHydrated, isLoadingDraft, tenantSlug, templateId, session?.access_token, hasStaticColumns, form]);
+
+  // Flush seed patches when leaving the page — after paint, never on the click frame.
+  useEffect(() => {
+    const flushOnLeave = () => {
+      markInteractiveNav(2800);
+      if (seedRowsSyncTimerRef.current !== null) {
+        window.clearTimeout(seedRowsSyncTimerRef.current);
+        seedRowsSyncTimerRef.current = null;
+      }
+      if (localDraftWriteTimerRef.current !== null) {
+        window.clearTimeout(localDraftWriteTimerRef.current);
+        localDraftWriteTimerRef.current = null;
+      }
+      scheduleIdleWork(() => {
+        const values = form.getValues();
+        void persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: false });
+      }, 50);
+    };
+    window.addEventListener("pagehide", flushOnLeave);
+    return () => window.removeEventListener("pagehide", flushOnLeave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, tenantSlug, templateId]);
 
   async function persistAudit(
     values: FormValues,
@@ -596,6 +639,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return false;
     }
 
+    const temperatureAlerts = collectTemperatureAlerts(
+      effectiveSchema,
+      values as Record<string, unknown>
+    );
     const normalizedCorrectiveAction = correctiveAction.trim();
     const clientSubmissionId = resolveClientSubmissionId({
       tenantSlug,
@@ -804,7 +851,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }
 
   async function onSubmit(values: FormValues) {
-    await persistStaticSeedRowsToTemplate(values);
+    await persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: true });
     await persistAudit(values, "submit");
   }
 
@@ -921,28 +968,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         return null;
       })}
 
-      {temperatureAlerts.length > 0 ? (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
-          <div className="text-sm font-semibold text-amber-900">Out-of-spec temperature alert</div>
-          <ul className="mt-2 space-y-1 text-xs text-amber-900">
-            {temperatureAlerts.slice(0, 6).map((alert) => (
-              <li key={alert.key}>
-                {alert.label}: {alert.value}
-                {alert.unit ? ` ${alert.unit === "F" ? "°F" : "°C"}` : ""}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3">
-            <label className="mb-1 block text-xs font-medium text-amber-900">Corrective action</label>
-            <textarea
-              className="min-h-24 w-full rounded-md border border-amber-300 bg-background p-2 text-sm"
-              placeholder="Describe the corrective action taken"
-              value={correctiveAction}
-              onChange={(e) => setCorrectiveAction(e.target.value)}
-            />
-          </div>
-        </div>
-      ) : null}
+      <TemperatureAlertsPanel
+        control={form.control}
+        schema={effectiveSchema}
+        correctiveAction={correctiveAction}
+        onCorrectiveActionChange={setCorrectiveAction}
+      />
 
       <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
@@ -972,6 +1003,53 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         onClose={() => setNotification(null)}
       />
     </form>
+  );
+}
+
+/**
+ * Isolated watcher — temperature UI can re-render without rebuilding the full form/grid
+ * on every keystroke in static columns.
+ */
+function TemperatureAlertsPanel({
+  control,
+  schema,
+  correctiveAction,
+  onCorrectiveActionChange,
+}: {
+  control: Control<FormValues>;
+  schema: FormSchemaV1;
+  correctiveAction: string;
+  onCorrectiveActionChange: (value: string) => void;
+}) {
+  const watchedValues = useWatch({ control }) as FormValues;
+  const temperatureAlerts = useMemo(
+    () => collectTemperatureAlerts(schema, (watchedValues || {}) as Record<string, unknown>),
+    [schema, watchedValues]
+  );
+
+  if (!temperatureAlerts.length) return null;
+
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+      <div className="text-sm font-semibold text-amber-900">Out-of-spec temperature alert</div>
+      <ul className="mt-2 space-y-1 text-xs text-amber-900">
+        {temperatureAlerts.slice(0, 6).map((alert: TemperatureAlert) => (
+          <li key={alert.key}>
+            {alert.label}: {alert.value}
+            {alert.unit ? ` ${alert.unit === "F" ? "°F" : "°C"}` : ""}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3">
+        <label className="mb-1 block text-xs font-medium text-amber-900">Corrective action</label>
+        <textarea
+          className="min-h-24 w-full rounded-md border border-amber-300 bg-background p-2 text-sm"
+          placeholder="Describe the corrective action taken"
+          value={correctiveAction}
+          onChange={(e) => onCorrectiveActionChange(e.target.value)}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1295,7 +1373,7 @@ function SignatureFieldInput({
                 }}
                 {...SIGNATURE_CANVAS_PEN}
                 canvasProps={{
-                  className: "signature-pad-canvas h-14 w-full max-w-[12.5rem]",
+                  className: "signature-pad-canvas h-16 w-full max-w-[14rem]",
                   style: { touchAction: "none" },
                 }}
                 onBeginStroke={() => {
@@ -1310,7 +1388,7 @@ function SignatureFieldInput({
                 }}
               />
             ) : (
-              <div className="h-14 w-full max-w-[12.5rem] animate-pulse rounded bg-foreground/5" />
+              <div className="h-16 w-full max-w-[14rem] animate-pulse rounded bg-foreground/5" />
             )}
             <div className="mt-1 flex gap-1.5">
               <button

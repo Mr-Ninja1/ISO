@@ -11,6 +11,11 @@ export function markInteractiveNav(durationMs = 2800) {
   if (until > busyUntilMs) busyUntilMs = until;
 }
 
+if (typeof window !== "undefined") {
+  (window as Window & { __ISO_MARK_INTERACTIVE_NAV__?: typeof markInteractiveNav }).__ISO_MARK_INTERACTIVE_NAV__ =
+    markInteractiveNav;
+}
+
 export function isInteractiveNavBusy(): boolean {
   return Date.now() < busyUntilMs;
 }

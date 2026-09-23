@@ -10,6 +10,7 @@ import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow
 import { readAuditsListCache, writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
+import { PlusCircle } from "lucide-react"; // Add PlusCircle icon
 
 type WorkspaceResponse = {
   tenant: { id: string; name: string; slug: string; logoUrl: string | null };
@@ -209,6 +210,21 @@ function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
   return null;
+}
+
+function DashboardCard({ title, description, icon, href }: { title: string; description: string; icon: React.ReactNode; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex flex-col items-start gap-2 rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all duration-200"
+    >
+      <div className="p-3 rounded-full bg-indigo-100 text-indigo-600">
+        {icon}
+      </div>
+      <h3 className="mt-2 text-lg font-semibold text-gray-800">{title}</h3>
+      <p className="text-sm text-gray-600">{description}</p>
+    </Link>
+  );
 }
 
 export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
@@ -458,28 +474,27 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     1,
     ...timeline.flatMap((entry) => [entry.submissions, entry.alerts, entry.drafts])
   );
-
   return (
-    <div className="flex flex-col gap-5">
-      <div className="rounded-2xl border border-foreground/20 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.95),_rgba(242,245,248,0.96),_rgba(229,231,235,0.92))] p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-col gap-6">
+      <div className="bg-white shadow-md rounded-lg p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-foreground/15 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-foreground/60">
+            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium uppercase tracking-wider text-indigo-700">
               <Sparkles className="h-3.5 w-3.5" />
-              Admin dashboard
+              Admin Dashboard
             </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Compliance and operations overview</h1>
-            <p className="mt-1 max-w-2xl text-sm text-foreground/70">
+            <h1 className="mt-3 text-3xl font-bold tracking-tight text-gray-900">Compliance and Operations Overview</h1>
+            <p className="mt-2 max-w-2xl text-base text-gray-600">
               Track staff activity, temperature alerts, audit throughput, and follow-up risk from one place.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-foreground/65">
-            <span className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-background px-3 py-1">
-              <Clock3 className="h-3.5 w-3.5" />
+          <div className="flex flex-wrap gap-3 text-sm text-gray-500">
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-sm">
+              <Clock3 className="h-4 w-4" />
               {online ? "Live" : "Cached"}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-background px-3 py-1">
-              <ShieldAlert className="h-3.5 w-3.5" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 shadow-sm">
+              <ShieldAlert className="h-4 w-4" />
               {metrics.riskRows} risk events
             </span>
           </div>
@@ -492,21 +507,25 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
       />
 
       {loading ? (
-        <div className="rounded-xl border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
-          <div className="inline-flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading dashboard metrics...
-          </div>
+        <div className="flex items-center justify-center p-6 bg-white rounded-lg shadow-md text-gray-700">
+          <Loader2 className="h-5 w-5 animate-spin mr-3" />
+          Loading dashboard metrics...
         </div>
       ) : null}
 
       {error ? (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="bg-red-50 border border-red-300 text-red-800 px-4 py-3 rounded-md text-sm">
           {error}
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <DashboardCard
+          title="Create Custom Form"
+          description="Design new audit forms and templates from scratch."
+          icon={<PlusCircle className="h-6 w-6" />}
+          href={`/${tenantSlug}/forms/create`} // Assuming this is the correct path for form creation
+        />
         <MetricCard title="Submission rate" value={percent(metrics.submissionRate)} helper={`${metrics.submitted} submitted / ${audits.length} forms`} icon={<BarChart3 className="h-4 w-4" />} />
         <MetricCard title="Drafts" value={String(metrics.drafts)} helper={`${metrics.staleDrafts} stale drafts over 72h`} icon={<FileText className="h-4 w-4" />} />
         <MetricCard title="Overdue drafts" value={String(metrics.overdueDrafts)} helper="Past the template due-date window" icon={<Clock3 className="h-4 w-4" />} />
@@ -518,36 +537,36 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
         <MetricCard title="Recent risk" value={String(metrics.riskRows)} helper="High-impact changes and alerts" icon={<ShieldAlert className="h-4 w-4" />} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.5fr_1fr]">
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">7-day trend</h2>
-              <p className="text-xs text-foreground/60">Submissions, alerts, and draft creation over the last week.</p>
+              <h2 className="text-lg font-semibold text-gray-800">7-day Trend</h2>
+              <p className="text-sm text-gray-600 mt-1">Submissions, alerts, and draft creation over the last week.</p>
             </div>
-            <Link href={`/${tenantSlug}/activity`} className="inline-flex items-center gap-1 text-xs font-medium text-foreground/70 hover:text-foreground">
-              Open activity
-              <ArrowUpRight className="h-3.5 w-3.5" />
+            <Link href={`/${tenantSlug}/activity`} className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-800">
+              Open Activity
+              <ArrowUpRight className="h-4 w-4" />
             </Link>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-5 space-y-4">
             {timeline.map((entry) => {
               const submissionWidth = `${Math.max(5, (entry.submissions / maxTimelineValue) * 100)}%`;
               const alertWidth = `${Math.max(5, (entry.alerts / maxTimelineValue) * 100)}%`;
               const draftWidth = `${Math.max(5, (entry.drafts / maxTimelineValue) * 100)}%`;
               return (
-                <div key={entry.day} className="grid grid-cols-[72px_1fr] items-center gap-3 text-xs sm:grid-cols-[88px_1fr]">
-                  <div className="text-foreground/60">{formatDayLabel(entry.day)}</div>
-                  <div className="space-y-1">
-                    <div className="flex h-2 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="bg-emerald-500" style={{ width: submissionWidth }} />
+                <div key={entry.day} className="grid grid-cols-[80px_1fr] items-center gap-4 text-sm">
+                  <div className="text-gray-600">{formatDayLabel(entry.day)}</div>
+                  <div className="space-y-1.5">
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-emerald-100">
+                      <div className="bg-emerald-500 rounded-l-full" style={{ width: submissionWidth }} />
                     </div>
-                    <div className="flex h-2 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="bg-amber-500" style={{ width: alertWidth }} />
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-amber-100">
+                      <div className="bg-amber-500 rounded-l-full" style={{ width: alertWidth }} />
                     </div>
-                    <div className="flex h-2 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="bg-slate-500" style={{ width: draftWidth }} />
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+                      <div className="bg-slate-500 rounded-l-full" style={{ width: draftWidth }} />
                     </div>
                   </div>
                 </div>
@@ -555,34 +574,34 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
             })}
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-foreground/60">
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Submissions</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Alerts</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-500" /> Drafts</span>
+          <div className="mt-5 flex flex-wrap gap-4 text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Submissions</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Alerts</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-slate-500" /> Drafts</span>
           </div>
         </section>
 
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Compliance alerts</h2>
-              <p className="text-xs text-foreground/60">Latest issues that deserve admin follow-up.</p>
+              <h2 className="text-lg font-semibold text-gray-800">Compliance Alerts</h2>
+              <p className="text-sm text-gray-600 mt-1">Latest issues that deserve admin follow-up.</p>
             </div>
-            <Link href={`/${tenantSlug}/audits`} className="inline-flex items-center gap-1 text-xs font-medium text-foreground/70 hover:text-foreground">
-              View forms
-              <ArrowUpRight className="h-3.5 w-3.5" />
+            <Link href={`/${tenantSlug}/audits`} className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-800">
+              View Forms
+              <ArrowUpRight className="h-4 w-4" />
             </Link>
           </div>
 
-          <div className="mt-4 space-y-2">
+          <div className="mt-5 space-y-3">
             {latestRisks.length > 0 ? latestRisks.map((row) => (
-              <div key={row.id} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <div key={row.id} className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950">
                 <div className="font-medium">{humanizeAction(row.action)}</div>
-                <div className="mt-0.5 text-xs text-amber-900/75">{actorLabel(row)} • {new Date(row.createdAt).toLocaleString()}</div>
-                <div className="mt-1 text-xs text-amber-900/85">{row.entityType}{row.entityId ? ` (${row.entityId.slice(0, 8)})` : ""}</div>
+                <div className="mt-0.5 text-xs text-red-900/75">{actorLabel(row)} • {new Date(row.createdAt).toLocaleString()}</div>
+                <div className="mt-1 text-xs text-red-900/85">{row.entityType}{row.entityId ? ` (${row.entityId.slice(0, 8)})` : ""}</div>
               </div>
             )) : (
-              <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/60">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
                 No risk events were captured in the loaded window.
               </div>
             )}
@@ -590,121 +609,121 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
         </section>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Staff performance</h2>
-              <p className="text-xs text-foreground/60">Who is active, who is submitting, and who is driving change.</p>
+              <h2 className="text-lg font-semibold text-gray-800">Staff Performance</h2>
+              <p className="text-sm text-gray-600 mt-1">Who is active, who is submitting, and who is driving change.</p>
             </div>
-            <span className="text-xs text-foreground/50">{staff.length} staff loaded</span>
+            <span className="text-sm text-gray-500">{staff.length} staff loaded</span>
           </div>
 
-          <div className="mt-4 space-y-2">
+          <div className="mt-5 space-y-3">
             {activityByActor.length > 0 ? activityByActor.map((entry) => (
-              <div key={entry.name} className="rounded-lg border border-foreground/15 p-3">
+              <div key={entry.name} className="rounded-lg border border-gray-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="font-medium">{entry.name}</div>
-                    <div className="text-xs text-foreground/60">{entry.total} actions • {entry.submissions} submissions • {entry.risk} risk events</div>
+                    <div className="font-medium text-gray-800">{entry.name}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">{entry.total} actions • {entry.submissions} submissions • {entry.risk} risk events</div>
                   </div>
-                  <div className="text-sm font-semibold">{entry.total}</div>
+                  <div className="text-lg font-semibold text-gray-700">{entry.total}</div>
                 </div>
               </div>
             )) : (
-              <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/60">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
                 No activity loaded yet.
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Operational summary</h2>
-              <p className="text-xs text-foreground/60">Fast counts from the current tenant snapshot.</p>
+              <h2 className="text-lg font-semibold text-gray-800">Operational Summary</h2>
+              <p className="text-sm text-gray-600 mt-1">Fast counts from the current tenant snapshot.</p>
             </div>
-            <Activity className="h-4 w-4 text-foreground/50" />
+            <Activity className="h-5 w-5 text-gray-500" />
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="mt-5 grid grid-cols-2 gap-4">
             <MiniStat label="Submitted" value={String(metrics.submitted)} />
             <MiniStat label="Drafts" value={String(metrics.drafts)} />
             <MiniStat label="Stale drafts" value={String(metrics.staleDrafts)} />
             <MiniStat label="Active actors" value={String(metrics.activeActors)} />
           </div>
 
-          <div className="mt-4 rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/70">
+          <div className="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
             {workspace?.tenant.name || tenantSlug} is showing a {percent(metrics.submissionRate)} submission completion rate in the loaded window.
           </div>
         </section>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Temperature compliance</h2>
-              <p className="text-xs text-foreground/60">Real readings pulled from saved form payloads.</p>
+              <h2 className="text-lg font-semibold text-gray-800">Temperature Compliance</h2>
+              <p className="text-sm text-gray-600 mt-1">Real readings pulled from saved form payloads.</p>
             </div>
-            <span className="text-xs text-foreground/50">{metrics.realTempReadings} readings</span>
+            <span className="text-sm text-gray-500">{metrics.realTempReadings} readings</span>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <MiniStat label="Readings" value={String(metrics.realTempReadings)} />
             <MiniStat label="Alerts" value={String(metrics.realTempAlerts || metrics.tempAlerts)} />
             <MiniStat label="Average" value={metrics.avgTemp == null ? "-" : `${metrics.avgTemp.toFixed(1)}°`} />
             <MiniStat label="Range" value={metrics.minTemp != null && metrics.maxTemp != null ? `${metrics.minTemp.toFixed(1)}° - ${metrics.maxTemp.toFixed(1)}°` : "-"} />
           </div>
 
-          <div className="mt-4">
+          <div className="mt-5">
             <TemperatureTrendChart daily={dashboardMetrics?.temperature.daily || []} />
           </div>
 
-          <div className="mt-4 grid gap-2">
+          <div className="mt-5 grid gap-3">
             {(dashboardMetrics?.temperature.daily || []).map((entry) => {
               const dayLabel = formatDayLabel(entry.day);
               const alertWidth = `${Math.max(5, Math.min(100, entry.alerts * 30))}%`;
               const readingWidth = `${Math.max(5, Math.min(100, entry.readings * 10))}%`;
               return (
-                <div key={entry.day} className="grid grid-cols-[72px_1fr] items-center gap-3 text-xs sm:grid-cols-[88px_1fr]">
-                  <div className="text-foreground/60">{dayLabel}</div>
-                  <div className="space-y-1">
-                    <div className="flex h-2 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="bg-sky-500" style={{ width: readingWidth }} />
+                <div key={entry.day} className="grid grid-cols-[80px_1fr] items-center gap-4 text-sm">
+                  <div className="text-gray-600">{dayLabel}</div>
+                  <div className="space-y-1.5">
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-sky-100">
+                      <div className="bg-sky-500 rounded-l-full" style={{ width: readingWidth }} />
                     </div>
-                    <div className="flex h-2 overflow-hidden rounded-full bg-foreground/10">
-                      <div className="bg-rose-500" style={{ width: alertWidth }} />
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-rose-100">
+                      <div className="bg-rose-500 rounded-l-full" style={{ width: alertWidth }} />
                     </div>
                   </div>
                 </div>
               );
             })}
           </div>
-          <div className="mt-3 flex flex-wrap gap-3 text-xs text-foreground/60">
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-500" /> Readings</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Alerts</span>
+          <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Readings</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Alerts</span>
           </div>
         </section>
 
-        <section className="rounded-xl border border-foreground/20 bg-background p-4">
+        <section className="bg-white shadow-md rounded-lg p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">Latest out-of-spec values</h2>
-              <p className="text-xs text-foreground/60">Pulled from submitted form payloads and template thresholds.</p>
+              <h2 className="text-lg font-semibold text-gray-800">Latest Out-of-Spec Values</h2>
+              <p className="text-sm text-gray-600 mt-1">Pulled from submitted form payloads and template thresholds.</p>
             </div>
-            <span className="text-xs text-foreground/50">{dashboardMetrics?.temperature.recentAlerts.length || 0} shown</span>
+            <span className="text-sm text-gray-500">{dashboardMetrics?.temperature.recentAlerts.length || 0} shown</span>
           </div>
 
-          <div className="mt-4 space-y-2">
+          <div className="mt-5 space-y-3">
             {(dashboardMetrics?.temperature.recentAlerts || []).slice(0, 5).map((alert) => (
-              <div key={`${alert.auditId}:${alert.key}`} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                <div className="font-medium">{alert.label}</div>
-                <div className="mt-0.5 text-xs text-amber-900/75">
+              <div key={`${alert.auditId}:${alert.key}`} className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-950">
+                <div className="font-medium text-yellow-900">{alert.label}</div>
+                <div className="mt-0.5 text-xs text-yellow-800/75">
                   {alert.templateTitle} • {new Date(alert.createdAt).toLocaleString()}
                 </div>
-                <div className="mt-1 text-xs text-amber-900/85">
+                <div className="mt-1 text-xs text-yellow-800/85">
                   Reading {alert.value}{alert.unit ? `°${alert.unit}` : ""}
                   {typeof alert.alertBelow === "number" ? ` • below ${alert.alertBelow}` : ""}
                   {typeof alert.alertAbove === "number" ? ` • above ${alert.alertAbove}` : ""}
@@ -713,7 +732,7 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
             ))}
 
             {(dashboardMetrics?.temperature.recentAlerts || []).length === 0 ? (
-              <div className="rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3 text-sm text-foreground/60">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
                 No temperature exceptions were found in the loaded submissions.
               </div>
             ) : null}
@@ -726,22 +745,24 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
 
 function MetricCard({ title, value, helper, icon }: { title: string; value: string; helper: string; icon: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-foreground/20 bg-background p-4">
-      <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-wide text-foreground/55">
+    <div className="bg-white shadow-md rounded-lg p-5">
+      <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-wider text-gray-500">
         <span>{title}</span>
-        <span className="inline-flex items-center justify-center rounded-md border border-foreground/15 bg-foreground/[0.03] p-1 text-foreground/60">{icon}</span>
+        <span className="inline-flex items-center justify-center rounded-md bg-gray-100 p-2 text-gray-600">
+          {icon}
+        </span>
       </div>
-      <div className="mt-2 text-2xl font-semibold">{value}</div>
-      <div className="mt-1 text-xs text-foreground/60">{helper}</div>
+      <div className="mt-3 text-3xl font-bold text-gray-900">{value}</div>
+      <div className="mt-1 text-sm text-gray-600">{helper}</div>
     </div>
   );
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-foreground/15 bg-background p-3">
-      <div className="text-xs uppercase tracking-wide text-foreground/55">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+    <div className="bg-white shadow-sm rounded-lg p-4 border border-gray-200">
+      <div className="text-xs uppercase tracking-wider text-gray-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold text-gray-800">{value}</div>
     </div>
   );
 }

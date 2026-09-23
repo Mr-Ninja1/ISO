@@ -561,13 +561,13 @@ export function AuditsListClient({
 
   return (
     <>
-      <div className="rounded-xl border border-foreground/10 bg-background p-3 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="bg-white shadow-md rounded-lg p-6 mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm font-medium text-foreground/90">
-              Saved forms
+            <div className="text-lg font-semibold text-gray-800">
+              Submitted Forms
             </div>
-            <div className="text-xs text-foreground/60">
+            <div className="text-sm text-gray-600 mt-1">
               {offline
                 ? deviceReady
                   ? "Offline mode — showing forms saved on this device."
@@ -580,7 +580,7 @@ export function AuditsListClient({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => {
@@ -592,10 +592,10 @@ export function AuditsListClient({
                 }
               }}
               className={
-                "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium " +
+                "inline-flex h-10 items-center gap-2 rounded-md border text-sm font-medium px-4 transition-colors duration-200 " +
                 (selectionMode
-                  ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)] text-[var(--hse-teal)]"
-                  : "border-foreground/20 hover:bg-foreground/5")
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-50")
               }
             >
               <CheckSquare className="h-4 w-4" />
@@ -617,7 +617,7 @@ export function AuditsListClient({
                 <button
                   type="button"
                   onClick={toggleSelectAllVisible}
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors duration-200"
                 >
                   <CheckSquare className="h-4 w-4" />
                   {submittedRows.length > 0 &&
@@ -625,7 +625,7 @@ export function AuditsListClient({
                     ? "Clear visible"
                     : "Select visible"}
                 </button>
-                <div className="inline-flex h-9 items-center rounded-md border border-emerald-300 bg-emerald-50 px-3 text-sm text-emerald-900">
+                <div className="inline-flex h-10 items-center rounded-md bg-green-50 px-4 text-sm font-medium text-green-800 border border-green-300">
                   {selectedIds.length} selected
                 </div>
                 {canDeleteAudits && !offline && selectedIds.length > 0 ? (
@@ -638,7 +638,7 @@ export function AuditsListClient({
                         `${deletableSelectedIds(selectedIds).length} selected form(s)`,
                       )
                     }
-                    className="inline-flex h-9 items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+                    className="inline-flex h-10 items-center gap-2 rounded-md border border-red-300 bg-red-50 px-4 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60 transition-colors duration-200"
                   >
                     {deleting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -655,7 +655,7 @@ export function AuditsListClient({
                 type="button"
                 disabled={loadingMore || syncing}
                 onClick={() => void loadMoreFromServer()}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs font-medium disabled:opacity-60"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors duration-200"
               >
                 {loadingMore ? "Loading more…" : "Load more"}
               </button>
@@ -665,20 +665,20 @@ export function AuditsListClient({
       </div>
 
       {syncError ? (
-        <div className="rounded-md border border-foreground/20 bg-foreground/5 px-3 py-2 text-sm text-foreground">
+        <div className="bg-red-50 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
           {syncError}
         </div>
       ) : null}
 
       {deleteFeedback ? (
-        <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+        <div className="bg-green-50 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm">
           {deleteFeedback}
         </div>
       ) : null}
 
       {selectionMode ? (
-        <div className="flex flex-wrap gap-2 overflow-x-auto pb-1">
-          <div className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <div className="flex flex-wrap gap-3 overflow-x-auto pb-4">
+          <div className="inline-flex items-center rounded-md bg-blue-50 border border-blue-300 px-4 py-2 text-sm text-blue-800">
             Tick forms to share or delete
             {canDeleteAudits ? " — managers/admins can bulk-delete to free storage" : ""}.
           </div>
@@ -688,26 +688,26 @@ export function AuditsListClient({
               setSelectionMode(false);
               setSelectedIds([]);
             }}
-            className="shrink-0 rounded-md border border-foreground/20 px-3 py-2 text-sm"
+            className="shrink-0 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200"
           >
             Cancel selection
           </button>
         </div>
       ) : null}
 
-      <div className="rounded-md border border-foreground/20 bg-background p-3">
-        <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="bg-white shadow-md rounded-lg p-4 mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by template title"
-            className="h-10 flex-1 rounded-md border border-foreground/20 bg-background px-3 text-sm"
+            className="h-10 flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
           />
           <button
             type="button"
             onClick={() => setQuery("")}
-            className="h-10 rounded-md border border-foreground/20 px-4 text-sm"
+            className="h-10 rounded-md border border-gray-300 px-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200"
           >
             Clear
           </button>
@@ -715,7 +715,7 @@ export function AuditsListClient({
       </div>
 
       {submittedRows.length === 0 ? (
-        <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
+        <div className="bg-white shadow-md rounded-lg p-6 text-sm text-gray-600 text-center">
           {query.trim()
             ? "No forms match your search."
             : offline
@@ -725,20 +725,20 @@ export function AuditsListClient({
                 : "No submitted forms yet."}
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-foreground/90">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between gap-3 px-2">
+            <h3 className="text-xl font-bold text-gray-800">
               Submitted forms ({submittedRows.length})
             </h3>
             {!offline && serverHasMore ? null : null}
           </div>
-          <div className="space-y-5">
+          <div className="space-y-8">
             {groupedRows.map((group) => (
-              <section key={group.dateKey} className="space-y-2">
-                <div className="sticky top-[4.5rem] z-[1] flex items-center justify-between gap-2 rounded-lg border border-foreground/10 bg-background/95 px-3 py-2 backdrop-blur-sm">
+              <section key={group.dateKey} className="space-y-4">
+                <div className="sticky top-[4.5rem] z-[1] flex items-center justify-between gap-2 bg-gray-100 rounded-lg px-4 py-3 shadow-sm border border-gray-200">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground/90">{group.label}</h3>
-                    <p className="text-[11px] text-foreground/55">
+                    <h3 className="text-lg font-semibold text-gray-800">{group.label}</h3>
+                    <p className="text-sm text-gray-600 mt-1">
                       {group.rows.length} form{group.rows.length === 1 ? "" : "s"}
                     </p>
                   </div>
@@ -754,7 +754,7 @@ export function AuditsListClient({
                             : Array.from(new Set([...current, ...ids])),
                         );
                       }}
-                      className="text-xs font-medium text-[var(--hse-teal)] underline"
+                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
                     >
                       {group.rows.every((row) => selectedIds.includes(row.id))
                         ? "Clear group"
@@ -765,24 +765,23 @@ export function AuditsListClient({
                 {group.rows.map((row) => (
               <div
                 key={row.id}
-                className="rounded-xl border border-foreground/15 bg-background p-3 shadow-sm"
+                className="bg-white shadow-md rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3">
+                <div className="flex items-start gap-4">
                     {selectionMode ? (
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(row.id)}
                         onChange={() => toggleSelected(row.id)}
-                        className="mt-1 h-4 w-4 accent-[var(--hse-teal)]"
+                        className="mt-1 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
                         aria-label={`Select ${row.template.title}`}
                       />
                     ) : null}
                     <div>
-                      <div className="line-clamp-2 font-medium">
+                      <div className="line-clamp-2 font-semibold text-gray-800">
                         {row.template.title}
                       </div>
-                      <div className="mt-0.5 text-xs text-foreground/70 break-words">
+                      <div className="mt-1 text-xs text-gray-500 break-words flex items-center">
                         Submitted{" "}
                         {new Date(
                           row.submittedAt || row.updatedAt,
@@ -791,7 +790,7 @@ export function AuditsListClient({
                           minute: "2-digit",
                         })}
                         {row.devicePending || isDevicePendingAuditId(row.id) ? (
-                          <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-900">
+                          <span className="ml-3 rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
                             Pending sync
                           </span>
                         ) : null}
@@ -816,7 +815,6 @@ export function AuditsListClient({
                     />
                   </div>
                 </div>
-              </div>
                 ))}
               </section>
             ))}
@@ -844,3 +842,4 @@ export function AuditsListClient({
     </>
   );
 }
+

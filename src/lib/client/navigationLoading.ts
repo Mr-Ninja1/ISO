@@ -1,3 +1,5 @@
+import { markInteractiveNav } from "@/lib/client/interactionGate";
+
 export const NAVIGATION_START_EVENT = "iso:navigation-start";
 
 type AppRouterLike = {
@@ -40,6 +42,8 @@ export function navigateWithFeedback(
     return;
   }
 
+  // Pause background sync/warmup so leave/open paint stays native-fast.
+  markInteractiveNav(3200);
   signalNavigationStart(href);
   router[method](href);
 }
