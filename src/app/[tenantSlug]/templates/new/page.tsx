@@ -555,7 +555,7 @@ function NewTemplatePageInner() {
   }, [tenantSlug, userId, isEditMode, editTemplateId]);
 
   useEffect(() => {
-    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey) return;
+    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || builderDraftHydrated) return;
 
     // A fresh form-creation visit should always show the mode chooser in the native app.
     // Restoring previous local draft state makes the builder skip the chooser after the first visit.
@@ -571,7 +571,7 @@ function NewTemplatePageInner() {
     } catch {
       // Ignore storage failures while preserving the chooser flow.
     }
-  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey]);
+  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated]);
 
   useEffect(() => {
     if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || !builderDraftHydrated) return;
