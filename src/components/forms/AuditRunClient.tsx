@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -80,6 +80,7 @@ export function AuditRunClient({
   );
   const [error, setError] = useState("");
   const [revalidateTick, setRevalidateTick] = useState(0);
+  const revalidateGenerationRef = useRef(0);
   const [durableCacheChecked, setDurableCacheChecked] = useState(
     () => Boolean(tenantSlug && templateId && readAuditTemplateCache(tenantSlug, templateId))
   );
@@ -143,6 +144,10 @@ export function AuditRunClient({
   useEffect(() => {
     if (!activeTenantSlug || !templateId) return;
 
+    const generation = ++revalidateGenerationRef.current;
+    const controller = new AbortController();
+    let active = true;
+
     const cached = data ?? readAuditTemplateCache(activeTenantSlug, templateId);
 
     if (authLoading) return;
@@ -194,6 +199,7 @@ export function AuditRunClient({
 
       fetch(url.toString(), {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
       })
         .then(async (res) => {
           const json = await res.json().catch(() => ({}));
@@ -206,6 +212,7 @@ export function AuditRunClient({
           return json as AuditTemplatePayload;
         })
         .then((next) => {
+          if (!active || generation !== revalidateGenerationRef.current) return;
           const shouldUpdate =
             !cached ||
             cached.template.updatedAt !== next.template.updatedAt ||
@@ -216,19 +223,31 @@ export function AuditRunClient({
           setError("");
         })
         .catch((err: unknown) => {
+          if (!active || generation !== revalidateGenerationRef.current) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
           if (!cached && !data) {
             setError(err instanceof Error ? err.message : "Unable to load form");
           }
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (active && generation === revalidateGenerationRef.current) setLoading(false);
+        });
     };
 
     if (cached || data) {
       const cancel = scheduleBackgroundTask(runRevalidate, 900);
-      return cancel;
+      return () => {
+        active = false;
+        cancel();
+        controller.abort();
+      };
     }
 
     runRevalidate();
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [
     authLoading,
     user,

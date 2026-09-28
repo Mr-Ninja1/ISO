@@ -57,6 +57,7 @@ export function BackgroundSyncManager() {
   categoryIdRef.current = categoryId;
   const tenantSlugRef = useRef(tenantSlug);
   tenantSlugRef.current = tenantSlug;
+  const flushInFlightRef = useRef<Promise<void> | null>(null);
 
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -207,10 +208,15 @@ export function BackgroundSyncManager() {
     };
 
     const maybeFlush = () => {
-      flushAll().catch(() => {
+      if (flushInFlightRef.current) return;
+      const request = flushAll().catch(() => {
         if (!active) return;
         setSyncing(false);
       });
+      const tracked = request.finally(() => {
+        if (flushInFlightRef.current === tracked) flushInFlightRef.current = null;
+      });
+      flushInFlightRef.current = tracked;
     };
 
     maybeFlush();

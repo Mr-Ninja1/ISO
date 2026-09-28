@@ -33,6 +33,7 @@ import {
   sectionFieldsGridClass,
 } from "@/lib/fieldLayout";
 import { buildDefaultValues, buildZodSchema, mergeDraftValuesIntoDefaults } from "@/lib/schemaDrivenForm";
+import { MAX_GRID_ROWS } from "@/lib/gridLayout";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, notifyAuditOutboxChanged } from "@/lib/client/auditSyncQueue";
@@ -1433,7 +1434,10 @@ function DynamicTableInput({
         <button
           type="button"
           className="h-10 rounded-md border border-foreground/20 px-3"
-          onClick={() => append({})}
+          disabled={fields.length >= MAX_GRID_ROWS}
+          onClick={() => {
+            if (fields.length < MAX_GRID_ROWS) append({});
+          }}
         >
           Add row
         </button>

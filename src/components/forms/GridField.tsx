@@ -14,7 +14,7 @@ import {
 } from "react-hook-form";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
-import { buildGridLayout, buildGridRowDefaults, clampGridRowCount } from "@/lib/gridLayout";
+import { buildGridLayout, buildGridRowDefaults, clampGridRowCount, MAX_GRID_ROWS } from "@/lib/gridLayout";
 import {
   CHECKBOX_COLUMN_WIDTH_PX,
   clampColumnWidthPx,
@@ -535,7 +535,12 @@ export function GridField({
           <button
             type="button"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-foreground/20 px-4 text-sm"
-            onClick={() => append(buildGridRowDefaults(grid, fields.length, fields.length + 1))}
+            disabled={fields.length >= MAX_GRID_ROWS}
+            onClick={() => {
+              if (fields.length < MAX_GRID_ROWS) {
+                append(buildGridRowDefaults(grid, fields.length, fields.length + 1));
+              }
+            }}
           >
             <Plus className="h-4 w-4" />
             Add row

@@ -43,6 +43,7 @@ type WorkspaceCacheEnvelope = {
 };
 
 const FORCE_REFETCH_PREFIX = "workspace-force-refetch:v1:";
+const parsedWorkspaceCache = new Map<string, { raw: string; data: WorkspaceData }>();
 
 /** Online trust window — keep short so multi-device creates appear without re-login. */
 export const ONLINE_WORKSPACE_CACHE_TTL_MS = 45_000;
@@ -103,10 +104,14 @@ export function readWorkspaceCache(
 ): WorkspaceData | null {
   if (!tenantSlug) return null;
   try {
-    const raw = localStorage.getItem(workspaceCacheKey(userId, tenantSlug, categoryId));
+    const key = workspaceCacheKey(userId, tenantSlug, categoryId);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
+    const cached = parsedWorkspaceCache.get(key);
+    if (cached?.raw === raw) return cached.data;
     const parsed = JSON.parse(raw) as WorkspaceCacheEnvelope;
     if (!parsed?.data || typeof parsed.ts !== "number") return null;
+    parsedWorkspaceCache.set(key, { raw, data: parsed.data });
     return parsed.data;
   } catch {
     return null;
@@ -131,7 +136,10 @@ export function writeWorkspaceCache(
   if (!tenantSlug) return;
   try {
     const payload: WorkspaceCacheEnvelope = { ts: Date.now(), data };
-    localStorage.setItem(workspaceCacheKey(userId, tenantSlug, categoryId), JSON.stringify(payload));
+    const key = workspaceCacheKey(userId, tenantSlug, categoryId);
+    const raw = JSON.stringify(payload);
+    localStorage.setItem(key, raw);
+    parsedWorkspaceCache.set(key, { raw, data });
     if (typeof window !== "undefined" && !options?.silent) {
       window.dispatchEvent(
         new CustomEvent("workspace-cache-updated", {
