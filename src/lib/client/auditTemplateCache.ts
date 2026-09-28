@@ -23,6 +23,7 @@ type CacheEnvelope = {
 };
 
 const TEMPLATE_CACHE_TTL_MS = 30 * 60 * 1000;
+const parsedCache = new Map<string, { raw: string; data: AuditTemplatePayload }>();
 
 export function auditTemplateCacheKey(tenantSlug: string, templateId: string) {
   return `audit-template-cache:v1:${tenantSlug}:${templateId}`;
@@ -46,11 +47,20 @@ export function isAuditTemplateCacheFresh(tenantSlug: string, templateId: string
 }
 
 export function readAuditTemplateCache(tenantSlug: string, templateId: string): AuditTemplatePayload | null {
+  const key = auditTemplateCacheKey(tenantSlug, templateId);
   try {
-    const parsed = parseCacheEnvelope(localStorage.getItem(auditTemplateCacheKey(tenantSlug, templateId)));
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      parsedCache.delete(key);
+      return null;
+    }
+    const cached = parsedCache.get(key);
+    if (cached?.raw === raw) return cached.data;
+    const parsed = parseCacheEnvelope(raw);
     if (!parsed) return null;
     // Stale-while-revalidate: return cached payload immediately to keep open latency low.
     // Callers can check freshness via isAuditTemplateCacheFresh and revalidate in background.
+    parsedCache.set(key, { raw, data: parsed.data });
     return parsed.data;
   } catch {
     return null;
@@ -79,7 +89,10 @@ export async function readAuditTemplateCacheAsync(tenantSlug: string, templateId
 export function writeAuditTemplateCache(tenantSlug: string, templateId: string, data: AuditTemplatePayload) {
   try {
     const payload: CacheEnvelope = { ts: Date.now(), data };
-    localStorage.setItem(auditTemplateCacheKey(tenantSlug, templateId), JSON.stringify(payload));
+    const key = auditTemplateCacheKey(tenantSlug, templateId);
+    const raw = JSON.stringify(payload);
+    localStorage.setItem(key, raw);
+    parsedCache.set(key, { raw, data });
   } catch {
     // ignore local storage quota errors
   }

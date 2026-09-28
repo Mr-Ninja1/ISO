@@ -53,7 +53,7 @@ import {
   sectionTitleForBuilder,
   starterCanvasForType,
 } from "@/lib/formBuilderConfig";
-import { buildGridLayout } from "@/lib/gridLayout";
+import { buildGridLayout, clampGridRowCount, MAX_GRID_ROWS } from "@/lib/gridLayout";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 
 type BuilderState = {
@@ -1534,6 +1534,7 @@ function GridBuilder({
               id="row-count"
               type="number"
               min={1}
+              max={MAX_GRID_ROWS}
               className="h-8 w-16 rounded-md border border-foreground/20 bg-background px-2 text-xs"
               value={
                 hasStaticColumns || grid.seedRows?.length
@@ -1543,7 +1544,7 @@ function GridBuilder({
                     : 1
               }
               onChange={(e) => {
-                const next = Math.max(1, Number(e.target.value || 1));
+                const next = clampGridRowCount(Number(e.target.value || 1));
                 if (hasStaticColumns || grid.seedRows?.length) {
                   const seeds = [...(grid.seedRows || [])];
                   while (seeds.length < next) seeds.push({});

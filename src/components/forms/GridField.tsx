@@ -14,7 +14,7 @@ import {
 } from "react-hook-form";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import type { FormStyle, GridSection, SimpleFieldDef } from "@/types/forms";
-import { buildGridLayout, buildGridRowDefaults } from "@/lib/gridLayout";
+import { buildGridLayout, buildGridRowDefaults, clampGridRowCount } from "@/lib/gridLayout";
 import {
   CHECKBOX_COLUMN_WIDTH_PX,
   clampColumnWidthPx,
@@ -133,7 +133,7 @@ export function GridField({
     name: name as any,
   });
 
-  const fixedRows = typeof grid.rows === "number" ? Math.max(0, grid.rows) : null;
+  const fixedRows = typeof grid.rows === "number" ? clampGridRowCount(grid.rows) : null;
   const layoutRowCount = Math.max(fields.length, fixedRows ?? 0, 1);
   const layout = useMemo(() => buildGridLayout(grid, layoutRowCount), [grid, layoutRowCount]);
   const emptyRow = useMemo(() => buildGridRowDefaults(grid, 0, layoutRowCount), [grid, layoutRowCount]);
@@ -141,7 +141,7 @@ export function GridField({
   useEffect(() => {
     if (grid.rows === "dynamic") {
       if (fields.length === 0) {
-        const seedCount = Array.isArray(grid.seedRows) ? grid.seedRows.length : 0;
+        const seedCount = Array.isArray(grid.seedRows) ? clampGridRowCount(grid.seedRows.length) : 0;
         if (seedCount > 0) {
           replace(
             Array.from({ length: seedCount }, (_, idx) =>

@@ -317,7 +317,7 @@ function FormPreviewBody({
                     </thead>
                     <tbody>
                       {Array.from({
-                        length: Math.min(typeof section.rows === "number" ? section.rows : 3, 5),
+                        length: Math.min(Math.max(typeof section.rows === "number" ? section.rows : 3, 0), 5),
                       }).map((_, rowIdx) => (
                         <tr key={`pv-row-${rowIdx}`}>
                           {section.columns.map((col) => (

@@ -1,5 +1,12 @@
 import type { GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
 
+export const MAX_GRID_ROWS = 500;
+
+export function clampGridRowCount(rowCount: number): number {
+  if (!Number.isFinite(rowCount)) return 1;
+  return Math.min(MAX_GRID_ROWS, Math.max(1, Math.floor(rowCount)));
+}
+
 type GridCellLayout =
   | {
       kind: "cell";
@@ -46,6 +53,7 @@ function normalizeMergedCell(
 }
 
 export function buildGridLayout(grid: GridSection, rowCount: number) {
+  rowCount = clampGridRowCount(rowCount);
   const columns = grid.columns.filter(isActiveField);
   const columnCount = columns.length;
   const rows = Array.from({ length: rowCount }, () =>

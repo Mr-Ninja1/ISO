@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FieldDef, FormSchemaV1, FormSection, GridSection, SimpleFieldDef } from "@/types/forms";
-import { buildGridRowDefaults, getGridFieldMap } from "@/lib/gridLayout";
+import { buildGridRowDefaults, clampGridRowCount, getGridFieldMap } from "@/lib/gridLayout";
 import { isStaticColumn } from "@/lib/formFieldConstants";
 
 function emptyStringToUndefined(value: unknown) {
@@ -141,7 +141,7 @@ function isInputField(field: FieldDef | SimpleFieldDef) {
 }
 
 function gridToZod(grid: GridSection) {
-  const rowCount = typeof grid.rows === "number" && Number.isFinite(grid.rows) ? Math.max(1, grid.rows) : 1;
+  const rowCount = typeof grid.rows === "number" ? clampGridRowCount(grid.rows) : 1;
   const rowShape: Record<string, z.ZodTypeAny> = {};
   const fieldMap = getGridFieldMap({ ...grid, columns: grid.columns.filter(isActiveField) }, rowCount);
 
@@ -157,7 +157,7 @@ function gridToZod(grid: GridSection) {
   const arr = z.array(rowObj);
   if (grid.rows === "dynamic") return arr.min(1, "Add at least one row");
   if (typeof grid.rows === "number" && Number.isFinite(grid.rows) && grid.rows >= 0) {
-    return arr.length(grid.rows);
+    return arr.length(clampGridRowCount(grid.rows));
   }
   return arr;
 }

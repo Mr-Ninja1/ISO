@@ -932,21 +932,11 @@ function WorkspacePageInner() {
     const navEpoch = ++outboundNavEpochRef.current;
     const href = tenantRouteHref(tenantSlugForRoute, "audits/new", { templateId });
 
-    // Navigate first; defer storage + prefetch so opens stay paint-instant.
+    rememberRecentTemplate(templateId);
+    rememberWorkspaceViewPref("forms");
     setOpeningTemplateId(templateId);
     setSwitchingCategory(false);
     navigateWithFeedback(router, href, "push");
-
-    scheduleIdleWork(() => {
-      if (outboundNavEpochRef.current !== navEpoch) return;
-      setUiActiveCategoryId(null);
-      pendingCategoryIdRef.current = null;
-      rememberRecentTemplate(templateId);
-      rememberWorkspaceViewPref("forms");
-      if (!readAuditTemplateCache(tenantSlugForRoute, templateId)) {
-        void prefetchTemplateSchema(templateId).catch(() => {});
-      }
-    }, 0);
 
     // Soft nav can be cancelled by a late workspace router.replace — force commit if still here.
     window.setTimeout(() => {
@@ -2702,12 +2692,8 @@ function WorkspacePageInner() {
     if (!tenantSlug || !workspace) return;
 
     const total = workspace.templates.length;
-    const cachedCount = workspace.templates.reduce((n, t) => {
-      return n + (readAuditTemplateCache(tenantSlug, t.id) ? 1 : 0);
-    }, 0);
-
     setPrefetchingSchemas(false);
-    setPrefetchProgress({ done: cachedCount, total });
+    setPrefetchProgress({ done: 0, total });
   }, [tenantSlug, workspace]);
 
   useEffect(() => {
