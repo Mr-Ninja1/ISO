@@ -14,6 +14,8 @@ import {
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
+import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
+import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 
 function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
@@ -185,6 +187,12 @@ export function AuditRunClient({
         setLoading(false);
         setError("This form is not cached on this device yet. Open it once while online to use it offline.");
       }
+      return;
+    }
+
+    // Bootstrap downloads every schema up front. Keep normal form opens local;
+    // ?refresh=1 from the workspace remains the explicit update path.
+    if (cached && isOfflineBootstrapComplete(user?.id || null, activeTenantSlug) && isTenantTemplateBulkCached(activeTenantSlug)) {
       return;
     }
 

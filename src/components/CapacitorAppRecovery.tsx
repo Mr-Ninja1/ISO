@@ -156,8 +156,13 @@ export function CapacitorAppRecovery() {
   useEffect(() => {
     if (!isCapacitorNativeApp()) return;
 
+    const timers = new Set<number>();
     const scheduleCheck = (reason: string, delayMs: number) => {
-      window.setTimeout(() => tryRecover(reason), delayMs);
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        tryRecover(reason);
+      }, delayMs);
+      timers.add(timer);
     };
 
     scheduleCheck("mount-1", 6000);
@@ -172,12 +177,13 @@ export function CapacitorAppRecovery() {
     };
 
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", (event) => {
+    const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
         scheduleCheck("pageshow-1", 2000);
         scheduleCheck("pageshow-2", 8000);
       }
-    });
+    };
+    window.addEventListener("pageshow", onPageShow);
 
     let removeAppListener: (() => void) | undefined;
 
@@ -201,6 +207,9 @@ export function CapacitorAppRecovery() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
       removeAppListener?.();
     };
   }, []);

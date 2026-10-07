@@ -12,9 +12,11 @@ const DEFAULT_MARGIN_MM = 10;
 /** html2canvas multiplier; 2 keeps text sharp on A4 without bloating file size. */
 const DEFAULT_PDF_SCALE = 2;
 /** Native WebView — 1.0 is faster and still sharp enough for A4 export. */
-const NATIVE_PDF_SCALE = 1;
+const NATIVE_PDF_SCALE = 0.8;
 /** Last-resort scale when the first capture fails on a constrained WebView. */
-const NATIVE_PDF_FALLBACK_SCALE = 0.85;
+const NATIVE_PDF_FALLBACK_SCALE = 0.6;
+/** Keep native html2canvas allocations below common Android WebView limits. */
+const NATIVE_PDF_MAX_CANVAS_DIMENSION = 24_000;
 /** Cap logos/signatures while inlining so html2canvas does less work. */
 const PDF_INLINE_IMAGE_MAX_PX = 720;
 /** Slightly lower quality on native for faster encode with little visible loss. */
@@ -100,19 +102,6 @@ function stripEvidenceThumbsForPdf(clone: HTMLElement) {
   });
 }
 
-/** Shrink wide tables so they fit the PDF page width without clipping. */
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.onerror = () =>
-      reject(reader.error || new Error("Failed to read image blob"));
-    reader.readAsDataURL(blob);
-  });
-}
-
 function loadImageAsDataUrl(
   src: string,
   maxPx = PDF_INLINE_IMAGE_MAX_PX,
@@ -160,7 +149,12 @@ async function inlineRemoteImageSrc(src: string): Promise<string> {
       throw new Error(`Image fetch failed (${response.status})`);
     }
     const blob = await response.blob();
-    return await blobToDataUrl(blob);
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await loadImageAsDataUrl(objectUrl);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   } catch {
     return loadImageAsDataUrl(src);
   }
@@ -179,6 +173,9 @@ async function inlineRemoteImagesForPdf(root: HTMLElement) {
         img.setAttribute("src", dataUrl);
         img.removeAttribute("srcset");
         img.removeAttribute("crossorigin");
+        if (typeof img.decode === "function") {
+          await img.decode().catch(() => undefined);
+        }
       } catch (error) {
         console.warn("[pdf] Dropping image that could not be inlined:", src, error);
         img.style.display = "none";
@@ -275,9 +272,16 @@ async function renderPdfCanvas(
   const { default: html2canvas } =
     html2canvasModule ?? (await import("html2canvas"));
   const targetWidthPx = getTargetRenderWidthPx(orientation);
+  const effectiveScale = isCapacitorNativeApp()
+    ? Math.min(
+        scale,
+        NATIVE_PDF_MAX_CANVAS_DIMENSION /
+          Math.max(clone.scrollHeight, targetWidthPx, 1),
+      )
+    : scale;
 
   return html2canvas(clone, {
-    scale,
+    scale: effectiveScale,
     useCORS: true,
     allowTaint: false,
     logging: false,

@@ -3,18 +3,24 @@
 import { apiUrl } from "@/lib/client/apiBase";
 import { patchWorkspaceTemplateCaches } from "@/lib/client/workspaceCache";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
-type TemplateSyncMode = "create" | "save-changes";
+type TemplateSyncMode = "create" | "save-changes" | "update-seed-rows";
+
+export type TemplateSeedRowPatch = {
+  sectionId: string;
+  seedRows?: Array<Record<string, string | number | boolean>>;
+};
 
 type TemplateSyncPayload = {
   tenantSlug: string;
   templateId?: string | null;
-  title: string;
-  categoryId: string | null;
-  schema: {
+  title?: string;
+  categoryId?: string | null;
+  schema?: {
     version: 1;
     title: string;
     sections: unknown[];
   };
+  sections?: TemplateSeedRowPatch[];
 };
 
 export type TemplateSyncItem = {
@@ -25,6 +31,7 @@ export type TemplateSyncItem = {
 };
 
 const KEY = "template-sync-queue:v1";
+const QUEUE_REQUEST_TIMEOUT_MS = 30_000;
 
 function isRetryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
@@ -49,6 +56,11 @@ function compactQueue(items: TemplateSyncItem[]) {
 
     if (item.mode === "save-changes" && templateId && !isLocalTemplateId(templateId)) {
       byTemplateUpdate.set(`${item.payload.tenantSlug}:${templateId}`, item);
+      continue;
+    }
+
+    if (item.mode === "update-seed-rows" && templateId && !isLocalTemplateId(templateId)) {
+      byTemplateUpdate.set(`${item.payload.tenantSlug}:${templateId}:seed-rows`, item);
       continue;
     }
 
@@ -125,6 +137,18 @@ export function enqueueTemplateSync(item: Omit<TemplateSyncItem, "id" | "queuedA
     writeQueue(filtered);
   }
 
+  if (item.mode === "update-seed-rows" && templateId && !isLocalTemplateId(templateId)) {
+    const filtered = queue.filter(
+      (q) =>
+        !(
+          q.mode === "update-seed-rows" &&
+          q.payload.tenantSlug === item.payload.tenantSlug &&
+          q.payload.templateId === templateId
+        )
+    );
+    writeQueue(filtered);
+  }
+
   const id = `tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
   const next: TemplateSyncItem = {
     ...item,
@@ -150,6 +174,8 @@ export async function flushTemplateSyncQueue(accessToken: string) {
   const localIdToServerId = new Map<string, string>();
 
   for (const item of queue) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), QUEUE_REQUEST_TIMEOUT_MS);
     try {
       let payload = item.payload;
 
@@ -172,7 +198,11 @@ export async function flushTemplateSyncQueue(accessToken: string) {
       }
 
       const endpoint = apiUrl(
-        item.mode === "save-changes" ? "/api/templates/save-changes" : "/api/templates/create"
+        item.mode === "update-seed-rows"
+          ? "/api/templates/update-seed-rows"
+          : item.mode === "save-changes"
+            ? "/api/templates/save-changes"
+            : "/api/templates/create"
       );
 
       const res = await fetch(endpoint, {
@@ -182,6 +212,7 @@ export async function flushTemplateSyncQueue(accessToken: string) {
           "content-type": "application/json",
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -191,7 +222,9 @@ export async function flushTemplateSyncQueue(accessToken: string) {
         continue;
       }
 
-      if (item.mode === "create" && isLocalTemplateId(item.payload.templateId)) {
+      if (item.mode === "update-seed-rows") {
+        requestWorkspaceRevalidate(item.payload.tenantSlug);
+      } else if (item.mode === "create" && isLocalTemplateId(item.payload.templateId)) {
         const data = (await res.json().catch(() => ({}))) as { templateId?: string };
         if (item.payload.templateId && data?.templateId) {
           localIdToServerId.set(item.payload.templateId, data.templateId);
@@ -200,8 +233,8 @@ export async function flushTemplateSyncQueue(accessToken: string) {
             item.payload.tenantSlug,
             {
               id: data.templateId,
-              title: item.payload.title,
-              categoryId: item.payload.categoryId,
+              title: item.payload.title || "",
+              categoryId: item.payload.categoryId ?? null,
               updatedAt: new Date().toISOString(),
             },
             { replaceLocalId: item.payload.templateId }
@@ -211,8 +244,8 @@ export async function flushTemplateSyncQueue(accessToken: string) {
       } else if (item.mode === "save-changes" && item.payload.templateId) {
         patchWorkspaceTemplateCaches(null, item.payload.tenantSlug, {
           id: String(payload.templateId),
-          title: item.payload.title,
-          categoryId: item.payload.categoryId,
+          title: item.payload.title || "",
+          categoryId: item.payload.categoryId ?? null,
           updatedAt: new Date().toISOString(),
         });
         requestWorkspaceRevalidate(item.payload.tenantSlug);
@@ -221,6 +254,8 @@ export async function flushTemplateSyncQueue(accessToken: string) {
       processed += 1;
     } catch {
       remaining.push(item);
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
 

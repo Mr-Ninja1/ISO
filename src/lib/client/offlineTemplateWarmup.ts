@@ -13,6 +13,7 @@ import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
 const BULK_CACHE_KEY_PREFIX = "template-schemas-bulk-cached:v1:";
 const inFlightBulkCaches = new Map<string, Promise<number>>();
+const TEMPLATE_CACHE_REQUEST_TIMEOUT_MS = 30_000;
 /** Keep the main thread responsive while writing many large schemas. */
 const WRITE_YIELD_EVERY = 2;
 
@@ -21,7 +22,7 @@ export function tenantTemplateBulkCacheKey(tenantSlug: string) {
 }
 
 /** True after a successful bulk download of every template schema for this brand. */
-export function isTenantTemplateBulkCached(tenantSlug: string, maxAgeMs = 24 * 60 * 60 * 1000) {
+export function isTenantTemplateBulkCached(tenantSlug: string, maxAgeMs = Number.POSITIVE_INFINITY) {
   if (!tenantSlug) return false;
   try {
     const raw = localStorage.getItem(tenantTemplateBulkCacheKey(tenantSlug));
@@ -97,9 +98,22 @@ export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenant
   const templatesUrl = new URL(apiUrl("/api/audit/templates-cache"));
   templatesUrl.searchParams.set("tenantSlug", tenantSlug);
 
-  const res = await fetch(templatesUrl.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), TEMPLATE_CACHE_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(templatesUrl.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Form schema download timed out. Check your connection and try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
   const json = (await res.json().catch(() => ({}))) as TemplatesCacheResponse & { error?: string };
   if (!res.ok) {
     throw new Error(json?.error || `Template cache failed (${res.status})`);

@@ -10,6 +10,7 @@ export type BackgroundMutation = {
 };
 
 const KEY = "background-mutation-queue:v1";
+const QUEUE_REQUEST_TIMEOUT_MS = 30_000;
 
 function readQueue(): BackgroundMutation[] {
   try {
@@ -70,6 +71,8 @@ export async function flushBackgroundMutationQueue(accessToken: string) {
   const remaining: BackgroundMutation[] = [];
 
   for (const item of queue) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), QUEUE_REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(item.url, {
         method: item.method,
@@ -78,6 +81,7 @@ export async function flushBackgroundMutationQueue(accessToken: string) {
           ...(item.body !== undefined ? { "content-type": "application/json" } : {}),
         },
         body: item.body !== undefined ? JSON.stringify(item.body) : undefined,
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -90,6 +94,8 @@ export async function flushBackgroundMutationQueue(accessToken: string) {
       processed += 1;
     } catch {
       remaining.push(item);
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
 

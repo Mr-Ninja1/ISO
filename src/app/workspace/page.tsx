@@ -8,7 +8,7 @@ import { Activity, Clock3, FileText, FolderTree, GraduationCap, LayoutDashboard,
 import { checkForOtaUpdate } from "@/lib/capacitor/otaManualCheck";
 import { Z_HEADER_MENU, Z_HEADER_MENU_BACKDROP, Z_STICKY_HEADER } from "@/lib/ui/zIndex";
 import { hasPersistedAuthCredentials, useAuth } from "@/components/AuthProvider";
-import { createClient, readPersistedSupabaseSession } from "@/lib/auth";
+import { browserSupabaseAuthStorageKey, createClient, writeCachedAuthUser } from "@/lib/auth";
 import { hardNavigate } from "@/lib/client/appEntryNavigation";
 import { fetchUserTenantsViaSupabase } from "@/lib/client/userTenants";
 import { getWorkspaceAccessToken, hasWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
@@ -1750,6 +1750,21 @@ function WorkspacePageInner() {
   }, []);
 
   useEffect(() => {
+    const onWorkspaceUpdatesAvailable = (event: Event) => {
+      const detail = (event as CustomEvent<{ tenantSlug?: string }>).detail;
+      if (detail?.tenantSlug !== tenantSlug) return;
+      setNotification({
+        title: "Updates available",
+        message: "Updated data is available. Use Refresh to apply changes when convenient.",
+        tone: "default",
+      });
+    };
+
+    window.addEventListener("workspace-updates-available", onWorkspaceUpdatesAvailable);
+    return () => window.removeEventListener("workspace-updates-available", onWorkspaceUpdatesAvailable);
+  }, [tenantSlug]);
+
+  useEffect(() => {
     applyWorkspaceThemeToDocument(theme);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -1970,7 +1985,15 @@ function WorkspacePageInner() {
   useEffect(() => {
     if (!sessionRestorePending) return;
     const timeoutId = window.setTimeout(() => {
-      if (!hasWorkspaceAccessToken(session) && !readPersistedSupabaseSession()?.access_token) {
+      if (!hasWorkspaceAccessToken(session)) {
+        try {
+          localStorage.removeItem("lastTenantSlug");
+          localStorage.removeItem("active-staff-profile:v1");
+          localStorage.removeItem(browserSupabaseAuthStorageKey());
+        } catch {
+          // ignore storage errors
+        }
+        writeCachedAuthUser(null);
         router.replace("/login");
       }
     }, 5000);
@@ -2115,7 +2138,26 @@ function WorkspacePageInner() {
     if (forceWorkspaceNetworkRefetchRef.current) {
       forceWorkspaceNetworkRefetchRef.current = false;
     }
+    const preparedOfflineCache =
+      !forceRefresh &&
+      !forceNetworkRefetch &&
+      Boolean(cached) &&
+      isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
+      isTenantTemplateBulkCached(tenantSlug);
 
+    // The first-login bootstrap is the complete download contract. Once it has
+    // succeeded, use the device snapshot until the user explicitly requests refresh.
+    if (preparedOfflineCache) {
+      setWorkspace(cached);
+      setWorkspaceLoading(false);
+      setSwitchingCategory(false);
+      return () => {
+        if (workspaceRetryTimerRef.current !== null) {
+          window.clearTimeout(workspaceRetryTimerRef.current);
+          workspaceRetryTimerRef.current = null;
+        }
+      };
+    }
     // Offline (browser or embedded shell): never call /api/workspace — local caches only.
     if (offlineFromHook) {
       if (cached) {
@@ -2501,6 +2543,12 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
+    if (
+      isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
+      isTenantTemplateBulkCached(tenantSlug)
+    ) {
+      return;
+    }
     const categoryIds = workspace.categories
       .map((category) => category.id)
       .filter((id) => id !== (categoryId || workspace.selectedCategoryId));
@@ -3208,6 +3256,7 @@ function WorkspacePageInner() {
                     onClick={() => {
                       if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
+                      markInteractiveNav(1400);
                       // Optimistic tab highlight immediately — do not wait on URL commit.
                       pendingCategoryIdRef.current = c.id;
                       setUiActiveCategoryId(c.id);

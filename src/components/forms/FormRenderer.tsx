@@ -39,6 +39,7 @@ import { GridField } from "@/components/forms/GridField";
 import { addOfflineSubmittedForm, notifyAuditOutboxChanged } from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
+import { enqueueTemplateSync } from "@/lib/client/templateSyncQueue";
 import { collectTemperatureAlerts, type TemperatureAlert } from "@/lib/temperatureMonitoring";
 import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox, dbFindOutboxByClientSubmissionId, dbDeleteOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
@@ -297,6 +298,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const localDraftWriteTimerRef = useRef<number | null>(null);
   const seedRowsSyncTimerRef = useRef<number | null>(null);
   const seedRowsSyncInFlightRef = useRef(false);
+  const submitInFlightRef = useRef(false);
   const pendingSeedPatchesRef = useRef<Array<{
     sectionId: string;
     seedRows: import("@/types/forms").GridSection["seedRows"];
@@ -523,9 +525,29 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     if (!toSync?.length) return false;
 
     const accessToken = session?.access_token;
-    if (!accessToken || isAppOffline()) return true;
-    if (seedRowsSyncInFlightRef.current) return true;
-    if (shouldPauseBackgroundWork() && !allowLiveSchemaUpdate) return true;
+    const queueStaticSeedRows = () => {
+      enqueueTemplateSync({
+        mode: "update-seed-rows",
+        payload: {
+          tenantSlug,
+          templateId,
+          sections: toSync,
+        },
+      });
+    };
+
+    if (!accessToken || isAppOffline()) {
+      queueStaticSeedRows();
+      return true;
+    }
+    if (seedRowsSyncInFlightRef.current) {
+      queueStaticSeedRows();
+      return true;
+    }
+    if (shouldPauseBackgroundWork() && !allowLiveSchemaUpdate) {
+      queueStaticSeedRows();
+      return true;
+    }
 
     seedRowsSyncInFlightRef.current = true;
     try {
@@ -552,10 +574,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           }
           scheduleIdleWork(() => writeTemplateSeedCache(serverSchema), 0);
         }
+      } else {
+        queueStaticSeedRows();
       }
       return res.ok;
     } catch {
-      // Local cache already updated; pending patches retry on the next edit/submit.
+      queueStaticSeedRows();
       return false;
     } finally {
       seedRowsSyncInFlightRef.current = false;
@@ -691,7 +715,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
     try {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 30_000);
+      const timeout = window.setTimeout(() => controller.abort(), 10_000);
 
       const res = await fetch(apiUrl("/api/audit/submit"), {
         method: "POST",
@@ -852,8 +876,16 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   }
 
   async function onSubmit(values: FormValues) {
-    await persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: true });
-    await persistAudit(values, "submit");
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    // Static template updates are durable and queued independently; never make a
+    // form submission wait for a slow or unavailable template request.
+    try {
+      void persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: true }).catch(() => {});
+      await persistAudit(values, "submit");
+    } finally {
+      submitInFlightRef.current = false;
+    }
   }
 
   async function onSaveDraft() {

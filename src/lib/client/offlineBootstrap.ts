@@ -9,6 +9,23 @@ import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
 
 const BOOTSTRAP_KEY_PREFIX = "offline-full-bootstrap:v1:";
+const BOOTSTRAP_REQUEST_TIMEOUT_MS = 30_000;
+
+async function withBootstrapTimeout<T>(promise: Promise<T>, label: string) {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error(`${label} timed out. Check your connection and try again.`)),
+      BOOTSTRAP_REQUEST_TIMEOUT_MS
+    );
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
 
 export type OfflineBootstrapStage =
   | "workspace"
@@ -70,16 +87,32 @@ export function clearOfflineBootstrapComplete(userId: string | null, tenantSlug:
 async function fetchWorkspace(accessToken: string, tenantSlug: string, categoryId: string | null) {
   if (isCapacitorNativeApp()) {
     const supabase = createClient();
-    return (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
+    return (await withBootstrapTimeout(
+      fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId),
+      "Workspace download"
+    )) as WorkspaceData;
   }
 
   const url = new URL(apiUrl("/api/workspace"));
   url.searchParams.set("tenantSlug", tenantSlug);
   if (categoryId) url.searchParams.set("categoryId", categoryId);
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Workspace download timed out. Check your connection and try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error((json as { error?: string })?.error || `Workspace download failed (${res.status})`);
@@ -141,7 +174,10 @@ export async function runOfflineBootstrap({
   }
 
   report("schemas", "Downloading form schemas & checklists…", 52);
-  const templateCount = await cacheAllTenantTemplates(accessToken, tenantSlug);
+  const templateCount = await withBootstrapTimeout(
+    cacheAllTenantTemplates(accessToken, tenantSlug),
+    "Form schema download"
+  );
   report("schemas", "Form schemas saved on device", 78, `${templateCount} form${templateCount === 1 ? "" : "s"}`);
 
   report("permissions", "Finishing setup…", 88);

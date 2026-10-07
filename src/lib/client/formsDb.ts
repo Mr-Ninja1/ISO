@@ -149,34 +149,52 @@ export async function dbEnqueueOutbox(
   if (!db) return null;
 
   const clientSubmissionId = readClientSubmissionId(row.payload);
-  if (clientSubmissionId) {
-    const existing = await dbFindOutboxByClientSubmissionId(clientSubmissionId);
-    if (existing) {
-      const updated: DbOutboxRow = {
-        ...existing,
-        tenantSlug: row.tenantSlug,
-        templateId: row.templateId,
-        mode: row.mode,
-        auditId: row.auditId,
-        payload: row.payload,
-        clientSubmissionId,
-        lastError: null,
-      };
-      await db.outbox.put(updated);
-      return updated;
-    }
-  }
+  return db.transaction("rw", db.outbox, async () => {
+    if (clientSubmissionId) {
+      const indexedMatches = await db.outbox
+        .where("clientSubmissionId")
+        .equals(clientSubmissionId)
+        .toArray();
+      const payloadMatches = (await db.outbox.toArray()).filter(
+        (candidate) =>
+          readClientSubmissionId(candidate.payload) === clientSubmissionId &&
+          !indexedMatches.some((indexed) => indexed.id === candidate.id)
+      );
+      const matches = [...indexedMatches, ...payloadMatches].sort(
+        (a, b) => a.createdAt - b.createdAt
+      );
+      const existing = matches[0];
 
-  const item: DbOutboxRow = {
-    id: `ob_${Math.random().toString(16).slice(2)}_${Date.now()}`,
-    createdAt: Date.now(),
-    tries: 0,
-    lastError: null,
-    clientSubmissionId: clientSubmissionId || null,
-    ...row,
-  };
-  await db.outbox.put(item);
-  return item;
+      if (existing) {
+        for (const duplicate of matches.slice(1)) {
+          await db.outbox.delete(duplicate.id);
+        }
+        const updated: DbOutboxRow = {
+          ...existing,
+          tenantSlug: row.tenantSlug,
+          templateId: row.templateId,
+          mode: row.mode,
+          auditId: row.auditId,
+          payload: row.payload,
+          clientSubmissionId,
+          lastError: null,
+        };
+        await db.outbox.put(updated);
+        return updated;
+      }
+    }
+
+    const item: DbOutboxRow = {
+      id: `ob_${Math.random().toString(16).slice(2)}_${Date.now()}`,
+      createdAt: Date.now(),
+      tries: 0,
+      lastError: null,
+      clientSubmissionId: clientSubmissionId || null,
+      ...row,
+    };
+    await db.outbox.put(item);
+    return item;
+  });
 }
 
 export async function dbListOutbox(tenantSlug: string): Promise<DbOutboxRow[]> {

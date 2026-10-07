@@ -249,12 +249,20 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
 
   let processed = 0;
   const outboxSubmissionIds = new Set<string>();
+  const seenOutboxSubmissionIds = new Set<string>();
 
   try {
     const outbox = await dbListOutboxAll();
     for (const item of outbox) {
       const submissionId = readClientSubmissionId(item.payload);
-      if (submissionId) outboxSubmissionIds.add(submissionId);
+      if (submissionId) {
+        outboxSubmissionIds.add(submissionId);
+        if (seenOutboxSubmissionIds.has(submissionId)) {
+          await dbDeleteOutbox(item.id);
+          continue;
+        }
+        seenOutboxSubmissionIds.add(submissionId);
+      }
 
       try {
         const result = await postQueuedSubmit(accessToken, item);

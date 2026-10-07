@@ -27,10 +27,16 @@ import {
 } from "@/lib/client/workspaceCache";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { shouldPauseBackgroundWork, waitForInteractiveNavClear } from "@/lib/client/interactionGate";
+import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
+import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
   return auditPending + getPendingTemplateSyncCount() + getPendingBackgroundMutationCount();
+}
+
+function workspaceChangeSignatureKey(tenantSlug: string) {
+  return `workspace-change-signature:v1:${tenantSlug}`;
 }
 
 function tenantSlugFromPath(pathname: string | null, fallback: string | null): string {
@@ -98,10 +104,12 @@ export function BackgroundSyncManager() {
 
     let active = true;
     let pullRunning = false;
+    const pullController = new AbortController();
 
     async function fetchJson<T>(url: string) {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
+        signal: pullController.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any)?.error || `Request failed (${res.status})`);
@@ -125,35 +133,60 @@ export function BackgroundSyncManager() {
           readWorkspaceCache(userId, slug, catId) ?? readWorkspaceCache(userId, slug, null);
         const previousFp = previous ? workspaceContentFingerprint(previous) : "";
 
-        const wsUrl = new URL(apiUrl("/api/workspace"));
-        wsUrl.searchParams.set("tenantSlug", slug);
-        if (catId) wsUrl.searchParams.set("categoryId", catId);
-        const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
-        if (!active) return;
-        if (shouldPauseBackgroundWork()) return;
+        const preparedWorkspace =
+          Boolean(previous) &&
+          isOfflineBootstrapComplete(userId, slug) &&
+          isTenantTemplateBulkCached(slug);
+        if (!preparedWorkspace) {
+          const wsUrl = new URL(apiUrl("/api/workspace"));
+          wsUrl.searchParams.set("tenantSlug", slug);
+          if (catId) wsUrl.searchParams.set("categoryId", catId);
+          const workspace = await fetchJson<WorkspaceData>(wsUrl.toString());
+          if (!active) return;
+          if (shouldPauseBackgroundWork()) return;
 
-        writeWorkspaceCache(userId, slug, null, workspace, { silent: true });
-        if (workspace.selectedCategoryId) {
-          writeWorkspaceCache(userId, slug, workspace.selectedCategoryId, workspace, {
-            silent: true,
-          });
+          writeWorkspaceCache(userId, slug, null, workspace, { silent: true });
+          if (workspace.selectedCategoryId) {
+            writeWorkspaceCache(userId, slug, workspace.selectedCategoryId, workspace, {
+              silent: true,
+            });
+          }
+          if (catId) {
+            writeWorkspaceCache(userId, slug, catId, workspace, { silent: true });
+          }
+
+          const nextFp = workspaceContentFingerprint(workspace);
+          const changed = !previousFp || previousFp !== nextFp;
+
+          // Only notify UI when remote data actually changed — unconditional broadcasts
+          // were freezing form opens (setWorkspace → effect cascades on every 30s pull).
+          if (changed && active && !shouldPauseBackgroundWork()) {
+            window.dispatchEvent(
+              new CustomEvent("workspace-cache-updated", {
+                detail: { tenantSlug: slug, categoryId: catId || workspace.selectedCategoryId || null },
+              })
+            );
+            requestWorkspaceRevalidate(slug);
+          }
         }
-        if (catId) {
-          writeWorkspaceCache(userId, slug, catId, workspace, { silent: true });
-        }
 
-        const nextFp = workspaceContentFingerprint(workspace);
-        const changed = !previousFp || previousFp !== nextFp;
-
-        // Only notify UI when remote data actually changed — unconditional broadcasts
-        // were freezing form opens (setWorkspace → effect cascades on every 30s pull).
-        if (changed && active && !shouldPauseBackgroundWork()) {
-          window.dispatchEvent(
-            new CustomEvent("workspace-cache-updated", {
-              detail: { tenantSlug: slug, categoryId: catId || workspace.selectedCategoryId || null },
-            })
-          );
-          requestWorkspaceRevalidate(slug);
+        if (preparedWorkspace) {
+          const changesUrl = new URL(apiUrl("/api/workspace/changes"));
+          changesUrl.searchParams.set("tenantSlug", slug);
+          const changeState = await fetchJson<{ signature?: string }>(changesUrl.toString());
+          const nextSignature = changeState.signature || "";
+          if (nextSignature) {
+            const storageKey = workspaceChangeSignatureKey(slug);
+            const previousSignature = localStorage.getItem(storageKey);
+            if (previousSignature && previousSignature !== nextSignature) {
+              window.dispatchEvent(
+                new CustomEvent("workspace-updates-available", {
+                  detail: { tenantSlug: slug },
+                })
+              );
+            }
+            localStorage.setItem(storageKey, nextSignature);
+          }
         }
 
         if (!active || shouldPauseBackgroundWork()) return;
@@ -267,6 +300,7 @@ export function BackgroundSyncManager() {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(interval);
       window.clearInterval(pullInterval);
+      pullController.abort();
     };
   }, [accessToken, online, tenantSlug, user?.id]);
 

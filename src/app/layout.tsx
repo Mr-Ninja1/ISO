@@ -15,6 +15,7 @@ import { TenantMessageProvider } from '@/components/messages/TenantMessageCenter
 import { NavigationProgressBar } from '@/components/NavigationProgressBar';
 import { NativeRuntimeShell } from '@/components/NativeRuntimeShell';
 import { CAPACITOR_CRITICAL_CSS } from '@/lib/capacitor/criticalStyles';
+import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 
 export const metadata: Metadata = {
   title: 'ISO Grid',
@@ -67,17 +68,19 @@ export default function RootLayout({
           <NavigationProgressBar />
         </Suspense>
         <InternetStatusBar />
-        <AuthProvider>
-          <CapacitorBootstrap />
-          <NativeRuntimeShell />
-          <RequiresInternetDialogHost />
-          <OfflineNavigationGuard />
-          <SearchParamsBoundary fullScreen>
-            <TenantMessageProvider>
-              <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
-            </TenantMessageProvider>
-          </SearchParamsBoundary>
-        </AuthProvider>
+        <AppErrorBoundary>
+          <AuthProvider>
+            <CapacitorBootstrap />
+            <NativeRuntimeShell />
+            <RequiresInternetDialogHost />
+            <OfflineNavigationGuard />
+            <SearchParamsBoundary fullScreen>
+              <TenantMessageProvider>
+                <OfflineBootstrapGate>{children}</OfflineBootstrapGate>
+              </TenantMessageProvider>
+            </SearchParamsBoundary>
+          </AuthProvider>
+        </AppErrorBoundary>
         <SmallScreenModal />
       </body>
     </html>

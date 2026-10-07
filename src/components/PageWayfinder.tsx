@@ -26,6 +26,12 @@ export function PageWayfinder({ tenantSlug, variant = "compact" }: Props) {
     setLoading(null);
   }, [pathname]);
 
+  useEffect(() => {
+    if (!loading) return;
+    const timeoutId = window.setTimeout(() => setLoading(null), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [loading]);
+
   if (!config) return null;
 
   function go(target: "back" | "home", href: string) {
