@@ -1560,10 +1560,46 @@ body {
     color: #444444 !important;
 }
 
-.pdf-generation-mode .report-field-card,
-.pdf-generation-mode .report-section {
+/* Keep field cards atomic; allow .report-section to split so tall logs
+   can fill leftover page space instead of jumping to a blank next page. */
+.pdf-generation-mode .report-field-card {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+}
+
+.pdf-generation-mode .report-section,
+.pdf-generation-mode .pdf-page-node {
+    break-inside: auto;
+    page-break-inside: auto;
+}
+
+.pdf-generation-mode .report-section-title {
+    break-after: avoid;
+    page-break-after: avoid;
+}
+
+.pdf-generation-mode .report-data-table thead {
+    display: table-header-group;
+}
+
+.pdf-generation-mode .report-data-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.pdf-generation-mode .pdf-soft-page-break {
+    break-before: page;
+    page-break-before: always;
+}
+
+.pdf-generation-mode .pdf-section-may-split {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+}
+
+.pdf-generation-mode .pdf-section-keep-together {
+    break-inside: avoid;
+    page-break-inside: avoid;
 }
 
 .pdf-generation-mode .report-field-card {
@@ -1605,7 +1641,26 @@ body {
     background: #fafafa !important;
 }
 
-/* PDF export (html2canvas) — readable size, crisp signatures */
+/* PDF export — force light palette regardless of active workspace theme */
+.pdf-generation-mode {
+    color-scheme: light !important;
+    --background: #ffffff;
+    --foreground: #1c2b2a;
+    --surface: #ffffff;
+    --surface-muted: #faf6f1;
+    --border: #d4cfc4;
+    --border-strong: #003d33;
+    --accent-soft: #4a635f;
+    --hse-cream: #ffffff;
+    --hse-cream-deep: #faf6f1;
+    --hse-charcoal: #1c2b2a;
+    --ws-panel-bg: #ffffff;
+    --ws-card-bg: #ffffff;
+    --ws-card-border: #e2e8f0;
+    --ws-card-title: #1c2b2a;
+    --ws-card-subtitle: #4a635f;
+}
+
 .pdf-generation-mode,
 .pdf-generation-mode * {
     color: #000000 !important;
@@ -1614,8 +1669,17 @@ body {
 }
 
 .pdf-generation-mode .print-shell,
+.pdf-generation-mode .report-export-root,
+.pdf-generation-mode .report-field-card,
+.pdf-generation-mode .report-section,
+.pdf-generation-mode [class*="bg-background"],
+.pdf-generation-mode [class*="bg-surface"],
+.pdf-generation-mode [class*="bg-foreground"] {
+    background-color: #ffffff !important;
+}
+
+.pdf-generation-mode .print-shell,
 .pdf-generation-mode .report-export-root {
-    background: #ffffff !important;
     border-color: #333333 !important;
     font-size: 11px !important;
     line-height: 1.35 !important;
@@ -1720,7 +1784,19 @@ body {
     html,
     body {
         background: #fff !important;
+        color: #000 !important;
+        color-scheme: light !important;
         font-size: 11pt;
+    }
+
+    .print-shell,
+    .report-export-root,
+    .report-field-card,
+    .report-section,
+    [class*="bg-background"],
+    [class*="bg-surface"] {
+        background: #fff !important;
+        color: #000 !important;
     }
 
     .print-shell,

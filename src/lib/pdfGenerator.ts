@@ -4,21 +4,34 @@ import {
   PDF_JPEG_QUALITY,
 } from "@/lib/pdfImageCompression";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import {
+  reportPdfProgress,
+  type PdfExportProgressCallback,
+} from "@/lib/pdfExportProgress";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 import { recommendedPdfOrientationForColumns } from "@/lib/formFieldConstants";
+
+export type { PdfExportProgress, PdfExportStage } from "@/lib/pdfExportProgress";
 
 const PX_PER_MM = 96 / 25.4;
 const DEFAULT_MARGIN_MM = 10;
 /** html2canvas multiplier; 2 keeps text sharp on A4 without bloating file size. */
 const DEFAULT_PDF_SCALE = 2;
-/** Native WebView — 1.0 is faster and still sharp enough for A4 export. */
-const NATIVE_PDF_SCALE = 0.8;
+/** Native WebView — keep under ~1.0 to avoid Android canvas OOM on long reports. */
+const NATIVE_PDF_SCALE = 0.65;
 /** Last-resort scale when the first capture fails on a constrained WebView. */
-const NATIVE_PDF_FALLBACK_SCALE = 0.6;
-/** Keep native html2canvas allocations below common Android WebView limits. */
-const NATIVE_PDF_MAX_CANVAS_DIMENSION = 24_000;
+const NATIVE_PDF_FALLBACK_SCALE = 0.45;
+/**
+ * Max canvas edge (px) after scale. Android WebViews often crash well below
+ * the theoretical 16k–32k limit once heap pressure from images/base64 is high.
+ */
+const NATIVE_PDF_MAX_CANVAS_DIMENSION = 4_096;
+/** Logical band height before scale — tall sections are captured in slices. */
+const NATIVE_PDF_MAX_BAND_HEIGHT_PX = 1_600;
 /** Cap logos/signatures while inlining so html2canvas does less work. */
 const PDF_INLINE_IMAGE_MAX_PX = 720;
+/** Tighter cap on native — camera photos / signatures as data URLs are the usual OOM trigger. */
+const NATIVE_PDF_INLINE_IMAGE_MAX_PX = 480;
 /** Slightly lower quality on native for faster encode with little visible loss. */
 const NATIVE_PDF_JPEG_QUALITY = 0.62;
 
@@ -62,6 +75,8 @@ export type AuditPdfExportOptions = PdfOptions & {
   evidencePhotos?: ReportEvidencePhoto[];
   /** Shown in PDF viewer metadata and used when saving the file. */
   documentTitle?: string;
+  /** Optional UI progress updates during export. */
+  onProgress?: PdfExportProgressCallback;
 };
 
 export function buildAuditPdfFilename(formTitle: string, tenantSlug?: string) {
@@ -93,13 +108,37 @@ function getTargetRenderWidthPx(orientation: "portrait" | "landscape") {
   return Math.round((page.width - DEFAULT_MARGIN_MM * 2) * PX_PER_MM);
 }
 
-function stripEvidenceThumbsForPdf(clone: HTMLElement) {
+/**
+ * Always remove evidence thumbnail grids before capture.
+ * CSS `display:none` is not enough — inlining still loads every photo into memory.
+ * When evidence pages are appended separately, show the PDF note; otherwise hide it.
+ */
+function prepareEvidenceMarkupForPdf(
+  clone: HTMLElement,
+  includeEvidencePages: boolean,
+) {
   clone.querySelectorAll(".report-evidence-thumb-grid").forEach((node) => {
     node.remove();
   });
   clone.querySelectorAll(".report-evidence-pdf-note").forEach((node) => {
-    (node as HTMLElement).style.display = "block";
+    const el = node as HTMLElement;
+    el.style.display = includeEvidencePages ? "block" : "none";
   });
+}
+
+function pdfInlineImageMaxPx() {
+  return isCapacitorNativeApp()
+    ? NATIVE_PDF_INLINE_IMAGE_MAX_PX
+    : PDF_INLINE_IMAGE_MAX_PX;
+}
+
+function yieldToUi(ms = 50) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+function releaseCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0;
+  canvas.height = 0;
 }
 
 function loadImageAsDataUrl(
@@ -108,7 +147,9 @@ function loadImageAsDataUrl(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    if (!src.startsWith("data:") && !src.startsWith("blob:")) {
+      img.crossOrigin = "anonymous";
+    }
     img.onload = () => {
       const scale = Math.min(
         1,
@@ -128,8 +169,11 @@ function loadImageAsDataUrl(
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       try {
-        resolve(canvasToJpegDataUrl(canvas, PDF_JPEG_QUALITY));
+        const dataUrl = canvasToJpegDataUrl(canvas, PDF_JPEG_QUALITY);
+        releaseCanvas(canvas);
+        resolve(dataUrl);
       } catch (error) {
+        releaseCanvas(canvas);
         reject(error);
       }
     };
@@ -138,9 +182,15 @@ function loadImageAsDataUrl(
   });
 }
 
-async function inlineRemoteImageSrc(src: string): Promise<string> {
-  if (!src || src.startsWith("data:") || src.startsWith("blob:")) {
-    return src;
+async function inlineRemoteImageSrc(
+  src: string,
+  maxPx = pdfInlineImageMaxPx(),
+): Promise<string> {
+  if (!src) return src;
+
+  // Recompress data/blob URLs too — native reports often embed multi‑MB camera photos.
+  if (src.startsWith("data:") || src.startsWith("blob:")) {
+    return loadImageAsDataUrl(src, maxPx);
   }
 
   try {
@@ -151,37 +201,43 @@ async function inlineRemoteImageSrc(src: string): Promise<string> {
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     try {
-      return await loadImageAsDataUrl(objectUrl);
+      return await loadImageAsDataUrl(objectUrl, maxPx);
     } finally {
       URL.revokeObjectURL(objectUrl);
     }
   } catch {
-    return loadImageAsDataUrl(src);
+    return loadImageAsDataUrl(src, maxPx);
   }
 }
 
-/** Cross-origin images taint html2canvas on Capacitor WebView — inline them first. */
-async function inlineRemoteImagesForPdf(root: HTMLElement) {
+/**
+ * Cap every <img> (remote + data URL) before html2canvas so Android WebViews
+ * do not hold full-resolution evidence/signatures in the clone DOM.
+ */
+async function prepareImagesForPdfCapture(root: HTMLElement) {
+  const maxPx = pdfInlineImageMaxPx();
   const images = Array.from(root.querySelectorAll("img"));
-  await Promise.all(
-    images.map(async (img) => {
-      const src = img.currentSrc || img.getAttribute("src") || img.src;
-      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
+  for (const img of images) {
+    const src = img.currentSrc || img.getAttribute("src") || img.src;
+    if (!src) continue;
 
-      try {
-        const dataUrl = await inlineRemoteImageSrc(src);
-        img.setAttribute("src", dataUrl);
-        img.removeAttribute("srcset");
-        img.removeAttribute("crossorigin");
-        if (typeof img.decode === "function") {
-          await img.decode().catch(() => undefined);
-        }
-      } catch (error) {
-        console.warn("[pdf] Dropping image that could not be inlined:", src, error);
-        img.style.display = "none";
+    try {
+      const dataUrl = await inlineRemoteImageSrc(src, maxPx);
+      img.setAttribute("src", dataUrl);
+      img.removeAttribute("srcset");
+      img.removeAttribute("crossorigin");
+      if (typeof img.decode === "function") {
+        await img.decode().catch(() => undefined);
       }
-    }),
-  );
+    } catch (error) {
+      console.warn("[pdf] Dropping image that could not be prepared:", src, error);
+      img.style.display = "none";
+    }
+  }
+}
+
+function stripImagesForNativeFallback(clone: HTMLElement) {
+  clone.querySelectorAll("img").forEach((image) => image.remove());
 }
 
 function fitWideTablesForPdf(clone: HTMLElement) {
@@ -263,57 +319,172 @@ function fitCloneToPageWidth(clone: HTMLElement, targetWidthPx: number) {
   clone.dataset.pdfFitScale = String(scale);
 }
 
-async function renderPdfCanvas(
-  clone: HTMLElement,
+function resolveNativeCaptureScale(
+  requestedScale: number,
+  captureWidthPx: number,
+  bandHeightPx: number,
+) {
+  if (!isCapacitorNativeApp()) return requestedScale;
+  const maxDim = Math.max(captureWidthPx, bandHeightPx, 1);
+  return Math.min(
+    requestedScale,
+    NATIVE_PDF_MAX_CANVAS_DIMENSION / maxDim,
+  );
+}
+
+async function renderPdfCanvasBand(
+  clipHost: HTMLElement,
   orientation: "portrait" | "landscape",
   scale: number,
-  html2canvasModule?: typeof import("html2canvas"),
+  bandHeightPx: number,
+  html2canvasModule: typeof import("html2canvas"),
 ) {
-  const { default: html2canvas } =
-    html2canvasModule ?? (await import("html2canvas"));
+  const { default: html2canvas } = html2canvasModule;
   const targetWidthPx = getTargetRenderWidthPx(orientation);
-  const effectiveScale = isCapacitorNativeApp()
-    ? Math.min(
-        scale,
-        NATIVE_PDF_MAX_CANVAS_DIMENSION /
-          Math.max(clone.scrollHeight, targetWidthPx, 1),
-      )
-    : scale;
+  const effectiveScale = resolveNativeCaptureScale(
+    scale,
+    targetWidthPx,
+    bandHeightPx,
+  );
 
-  return html2canvas(clone, {
+  // Always rasterize at the A4 content width. Using clone.scrollWidth made wide
+  // tables allocate canvases far larger than the clipped host and OOM on Android.
+  return html2canvas(clipHost, {
     scale: effectiveScale,
     useCORS: true,
     allowTaint: false,
     logging: false,
     backgroundColor: "#ffffff",
-    width: clone.scrollWidth,
-    height: clone.scrollHeight,
+    width: targetWidthPx,
+    height: bandHeightPx,
     windowWidth: targetWidthPx,
-    windowHeight: clone.scrollHeight,
+    windowHeight: bandHeightPx,
     imageTimeout: isCapacitorNativeApp() ? 8_000 : 15_000,
     removeContainer: true,
   });
 }
 
-async function captureForPdf(
+type CaptureBandOptions = {
+  maxBandHeightPx?: number;
+};
+
+type BandConsumer = (band: HTMLCanvasElement) => Promise<void>;
+
+/**
+ * Capture a mounted clone in vertical bands so Android WebViews never allocate
+ * one enormous canvas (the main cause of intermittent native PDF failures).
+ * Each band is handed to `onBand` immediately so callers can encode+release it.
+ */
+async function captureMountedCloneBands(
+  host: HTMLElement,
+  clone: HTMLElement,
+  orientation: "portrait" | "landscape",
+  scale: number,
+  html2canvasModule: typeof import("html2canvas"),
+  onBand: BandConsumer,
+  bandOptions?: CaptureBandOptions,
+): Promise<number> {
+  const totalHeight = Math.max(clone.scrollHeight, clone.offsetHeight, 1);
+  const maxBandHeight = isCapacitorNativeApp()
+    ? bandOptions?.maxBandHeightPx ?? NATIVE_PDF_MAX_BAND_HEIGHT_PX
+    : Math.max(totalHeight, 1);
+
+  let bandCount = 0;
+  const previousHostOverflow = host.style.overflow;
+  const previousHostHeight = host.style.height;
+  const previousCloneMarginTop = clone.style.marginTop;
+
+  host.style.overflow = "hidden";
+
+  try {
+    for (let offsetY = 0; offsetY < totalHeight; offsetY += maxBandHeight) {
+      const bandHeight = Math.min(maxBandHeight, totalHeight - offsetY);
+      host.style.height = `${bandHeight}px`;
+      clone.style.marginTop = offsetY === 0 ? "0px" : `-${offsetY}px`;
+
+      // Let layout settle before rasterizing each band.
+      await yieldToUi(16);
+
+      const band = await renderPdfCanvasBand(
+        host,
+        orientation,
+        scale,
+        bandHeight,
+        html2canvasModule,
+      );
+      try {
+        await onBand(band);
+        bandCount += 1;
+      } finally {
+        releaseCanvas(band);
+      }
+
+      if (offsetY + maxBandHeight < totalHeight) {
+        await yieldToUi(isCapacitorNativeApp() ? 80 : 50);
+      }
+    }
+    return bandCount;
+  } finally {
+    host.style.overflow = previousHostOverflow;
+    host.style.height = previousHostHeight;
+    clone.style.marginTop = previousCloneMarginTop;
+  }
+}
+
+type PdfPackState = {
+  pdf: import("jspdf").jsPDF;
+  orientation: "portrait" | "landscape";
+  jpegQuality: number;
+  /** Y position (mm from page top) for the next draw. */
+  cursorYMm: number;
+};
+
+async function createPdfPackState(
+  orientation: "portrait" | "landscape",
+  jpegQuality: number,
+  documentTitle?: string,
+): Promise<PdfPackState> {
+  const { default: jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({
+    orientation,
+    unit: "mm",
+    format: "a4",
+  });
+  applyPdfDocumentTitle(pdf, documentTitle);
+  return {
+    pdf,
+    orientation,
+    jpegQuality,
+    cursorYMm: DEFAULT_MARGIN_MM,
+  };
+}
+
+async function captureElementIntoPdf(
   element: HTMLElement,
   orientation: "portrait" | "landscape",
   scale: number,
-  stripEvidenceThumbs = false,
-) {
+  includeEvidencePages: boolean,
+  jpegQuality: number,
+  documentTitle: string | undefined,
+  existingPdf: import("jspdf").jsPDF | null,
+  packState?: PdfPackState | null,
+): Promise<{ pdf: import("jspdf").jsPDF; packState: PdfPackState }> {
   const clone = element.cloneNode(true) as HTMLElement;
   const host = document.createElement("div");
   const targetWidthPx = getTargetRenderWidthPx(orientation);
 
   host.style.position = "fixed";
-  host.style.left = "0";
+  // Off-screen + visible: some Android WebViews skip painting opacity:0 nodes,
+  // which made html2canvas succeed with a blank/failed canvas.
+  host.style.left = "-10000px";
   host.style.top = "0";
   host.style.width = `${targetWidthPx}px`;
   host.style.background = "#fff";
   host.style.pointerEvents = "none";
-  host.style.opacity = "0";
+  host.style.opacity = "1";
   host.style.zIndex = "-1";
   host.style.overflow = "hidden";
+  host.classList.add("pdf-generation-mode");
 
   clone.classList.add("pdf-generation-mode", "report-export-root");
   clone.style.width = `${targetWidthPx}px`;
@@ -323,10 +494,7 @@ async function captureForPdf(
   clone.style.fontSize = "14px";
   clone.style.overflow = "visible";
 
-  if (stripEvidenceThumbs) {
-    stripEvidenceThumbsForPdf(clone);
-  }
-
+  prepareEvidenceMarkupForPdf(clone, includeEvidencePages);
   fitWideTablesForPdf(clone);
 
   host.appendChild(clone);
@@ -336,33 +504,138 @@ async function captureForPdf(
   fitCloneToPageWidth(clone, targetWidthPx);
 
   const html2canvasPromise = import("html2canvas");
+  let state: PdfPackState | null = packState ?? null;
+  // Legacy: existing PDF without a shared cursor — continue on a fresh page.
+  if (!state && existingPdf) {
+    existingPdf.addPage("a4", orientation);
+    state = {
+      pdf: existingPdf,
+      orientation,
+      jpegQuality,
+      cursorYMm: DEFAULT_MARGIN_MM,
+    };
+  }
+  let capturedBands = 0;
+
+  const consumeBand: BandConsumer = async (band) => {
+    if (!state) {
+      state = await createPdfPackState(
+        orientation,
+        jpegQuality,
+        documentTitle,
+      );
+    }
+    await appendCanvasToPackState(state, band);
+    capturedBands += 1;
+  };
 
   try {
-    await inlineRemoteImagesForPdf(clone);
+    await prepareImagesForPdfCapture(clone);
     const html2canvasModule = await html2canvasPromise;
 
     try {
-      return await renderPdfCanvas(clone, orientation, scale, html2canvasModule);
+      await captureMountedCloneBands(
+        host,
+        clone,
+        orientation,
+        scale,
+        html2canvasModule,
+        consumeBand,
+      );
     } catch (firstError) {
-      if (!isCapacitorNativeApp()) {
+      // Only retry when no pages were written — otherwise we'd duplicate bands.
+      if (!isCapacitorNativeApp() || capturedBands > 0) {
         throw firstError;
       }
 
       const fallbackScale = Math.min(scale, NATIVE_PDF_FALLBACK_SCALE);
       console.warn(
-        "[pdf] Native capture failed, retrying with lower scale:",
+        "[pdf] Native capture failed, retrying with lower scale / no images:",
         firstError,
       );
-      return await renderPdfCanvas(
+      stripImagesForNativeFallback(clone);
+      await captureMountedCloneBands(
+        host,
         clone,
         orientation,
         fallbackScale,
         html2canvasModule,
+        consumeBand,
+        { maxBandHeightPx: Math.floor(NATIVE_PDF_MAX_BAND_HEIGHT_PX * 0.65) },
       );
     }
   } finally {
     host.remove();
   }
+
+  if (!state || capturedBands < 1) {
+    throw new Error("PDF capture produced no pages");
+  }
+  return { pdf: state.pdf, packState: state };
+}
+
+function listPdfCaptureNodes(element: HTMLElement) {
+  return Array.from(
+    element.querySelectorAll<HTMLElement>(".pdf-page-node, .report-footer"),
+  ).filter((node) => !nodesHasPdfPageAncestor(node, element));
+}
+
+/** Native: capture each `.pdf-page-node`, pack onto shared page cursor, free canvases. */
+async function buildPdfFromSegmentedCapture(
+  element: HTMLElement,
+  orientation: "portrait" | "landscape",
+  scale: number,
+  jpegQuality: number,
+  documentTitle: string | undefined,
+  includeEvidencePages: boolean,
+): Promise<import("jspdf").jsPDF | null> {
+  const nodes = listPdfCaptureNodes(element);
+  if (nodes.length < 2) return null;
+
+  let packState: PdfPackState | null = null;
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
+    // Small vertical gap between packed sections on the same page.
+    if (packState && i > 0) {
+      packState.cursorYMm += 3;
+    }
+    try {
+      const result = await captureElementIntoPdf(
+        node,
+        orientation,
+        scale,
+        includeEvidencePages,
+        jpegQuality,
+        documentTitle,
+        packState?.pdf ?? null,
+        packState,
+      );
+      packState = result.packState;
+    } catch (error) {
+      console.error("[pdf] Segment capture failed", {
+        nodeIndex: i,
+        nodeCount: nodes.length,
+        className: node.className,
+        scrollHeight: node.scrollHeight,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      // Never fall back to one full-report canvas on native — that path OOMs.
+      throw new Error(
+        `PDF capture failed on section ${i + 1} of ${nodes.length}. Try exporting without photo evidence or with a shorter report.`,
+      );
+    }
+    await yieldToUi(isCapacitorNativeApp() ? 120 : 50);
+  }
+  return packState?.pdf ?? null;
+}
+
+function nodesHasPdfPageAncestor(node: HTMLElement, root: HTMLElement) {
+  let parent = node.parentElement;
+  while (parent && parent !== root) {
+    if (parent.classList.contains("pdf-page-node")) return true;
+    parent = parent.parentElement;
+  }
+  return false;
 }
 
 function applyPdfDocumentTitle(pdf: import("jspdf").jsPDF, title?: string) {
@@ -381,32 +654,46 @@ async function canvasToA4Pdf(
   documentTitle?: string,
   jpegQuality = PDF_JPEG_QUALITY,
 ) {
-  const { default: jsPDF } = await import("jspdf");
-  const page = getPageSizeMm(orientation);
-  const contentWidthMm = page.width - DEFAULT_MARGIN_MM * 2;
-  const contentHeightMm = page.height - DEFAULT_MARGIN_MM * 2;
-
-  const pdf = new jsPDF({
+  const state = await createPdfPackState(
     orientation,
-    unit: "mm",
-    format: "a4",
-  });
-  applyPdfDocumentTitle(pdf, documentTitle);
-
-  // Fit content to page width, then slice vertically across pages.
-  const pageSliceHeightPx = Math.max(
-    1,
-    Math.floor((canvas.width * contentHeightMm) / contentWidthMm),
+    jpegQuality,
+    documentTitle,
   );
+  await appendCanvasToPackState(state, canvas);
+  return state.pdf;
+}
+
+/** Minimum leftover space (mm) worth packing into before starting a new page. */
+const MIN_PACK_REMAINING_MM = 14;
+
+/**
+ * Draw a canvas into the PDF, continuing on the current page when leftover
+ * space is useful — avoids one-section-per-page blank gaps in segmented capture.
+ */
+async function appendCanvasToPackState(
+  state: PdfPackState,
+  canvas: HTMLCanvasElement,
+) {
+  const page = getPageSizeMm(state.orientation);
+  const contentWidthMm = page.width - DEFAULT_MARGIN_MM * 2;
+  const contentBottomMm = page.height - DEFAULT_MARGIN_MM;
+  const pxPerMm = canvas.width / contentWidthMm;
 
   let renderedHeightPx = 0;
-  let isFirstPage = true;
 
   while (renderedHeightPx < canvas.height) {
-    const sliceHeightPx = Math.min(
-      pageSliceHeightPx,
-      canvas.height - renderedHeightPx,
-    );
+    let remainingMm = contentBottomMm - state.cursorYMm;
+
+    if (remainingMm < MIN_PACK_REMAINING_MM) {
+      state.pdf.addPage("a4", state.orientation);
+      state.cursorYMm = DEFAULT_MARGIN_MM;
+      remainingMm = contentBottomMm - state.cursorYMm;
+    }
+
+    const remainingContentPx = canvas.height - renderedHeightPx;
+    const maxSlicePx = Math.max(1, Math.floor(remainingMm * pxPerMm));
+    const sliceHeightPx = Math.min(maxSlicePx, remainingContentPx);
+
     const sliceCanvas = document.createElement("canvas");
     sliceCanvas.width = canvas.width;
     sliceCanvas.height = sliceHeightPx;
@@ -428,28 +715,33 @@ async function canvasToA4Pdf(
       sliceHeightPx,
     );
 
-    if (!isFirstPage) {
-      pdf.addPage("a4", orientation);
-    }
-
-    const sliceHeightMm = (sliceHeightPx * contentWidthMm) / canvas.width;
-    pdf.addImage(
-      canvasToJpegDataUrl(sliceCanvas, jpegQuality),
+    const sliceHeightMm = sliceHeightPx / pxPerMm;
+    state.pdf.addImage(
+      canvasToJpegDataUrl(sliceCanvas, state.jpegQuality),
       "JPEG",
       DEFAULT_MARGIN_MM,
-      DEFAULT_MARGIN_MM,
+      state.cursorYMm,
       contentWidthMm,
       sliceHeightMm,
       undefined,
       "FAST",
     );
 
+    state.cursorYMm += sliceHeightMm;
     renderedHeightPx += sliceHeightPx;
-    isFirstPage = false;
-  }
+    releaseCanvas(sliceCanvas);
 
-  return pdf;
+    if (
+      state.cursorYMm >= contentBottomMm - 0.5 &&
+      renderedHeightPx < canvas.height
+    ) {
+      state.pdf.addPage("a4", state.orientation);
+      state.cursorYMm = DEFAULT_MARGIN_MM;
+    }
+  }
+  releaseCanvas(canvas);
 }
+
 
 function resolvePdfScale(scaleOption?: number) {
   if (typeof scaleOption === "number" && Number.isFinite(scaleOption)) {
@@ -470,8 +762,10 @@ export { resolvePdfScale };
 export type PdfSaveResult = {
   /** Human-readable path shown after a native save (e.g. Documents/ISO Grid/report.pdf). */
   savedPathLabel: string;
-  /** Native content URI when available (for Share sheet). */
+  /** Native file:// URI when available (for Share sheet). */
   fileUri?: string;
+  /** Cache-relative path for ReportPdf.shareFile fallback. */
+  cachePath?: string;
 };
 
 /** Short native-save confirmation for alerts. */
@@ -483,7 +777,7 @@ export function formatPdfSavedMessage(savedPathLabel: string): string {
       : "app storage";
   const fileName = savedPathLabel.split("/").pop() || "report.pdf";
   if (folder === "app storage") {
-    return `PDF saved: ${fileName}\nOpen the share sheet if you need to move it to Downloads or another app.`;
+    return `PDF saved: ${fileName}\nUse the share sheet to save it to Downloads or send it to another app.`;
   }
   return `PDF saved: ${fileName}\nFind it under Files → ${folder} → ISO Grid`;
 }
@@ -525,38 +819,6 @@ function isCapacitorPluginMissing(error: unknown): boolean {
   return /not implemented|unimplemented|plugin is not implemented|\"Filesystem\"/i.test(message);
 }
 
-function isPermissionDenied(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "";
-  return /permission|denied|not authorized|access/i.test(message);
-}
-
-async function ensurePublicStoragePermission(
-  Filesystem: typeof import("@capacitor/filesystem").Filesystem,
-  required: boolean
-) {
-  try {
-    const status = await Filesystem.checkPermissions();
-    if (status.publicStorage === "granted") return;
-    const requested = await Filesystem.requestPermissions();
-    if (requested.publicStorage === "granted") return;
-    if (required) {
-      throw new Error(
-        "Storage permission is required to save PDFs to Downloads. Allow storage access, then try again."
-      );
-    }
-  } catch (error) {
-    if (isCapacitorPluginMissing(error)) throw error;
-    if (required && isPermissionDenied(error)) throw error;
-    if (required) throw error;
-    console.warn("[pdf] Storage permission check failed:", error);
-  }
-}
-
 async function resolveSavedFileUri(
   Filesystem: typeof import("@capacitor/filesystem").Filesystem,
   directory: import("@capacitor/filesystem").Directory,
@@ -570,14 +832,37 @@ async function resolveSavedFileUri(
   }
 }
 
-/** Best-effort share sheet so users can find / move the PDF after save. */
-export async function shareSavedPdf(fileUri: string, filename: string): Promise<boolean> {
+/**
+ * Best-effort share sheet so users can find / move the PDF after save.
+ * Prefers native ReportPdf.shareFile (FileProvider + ACTION_SEND), then
+ * Capacitor Share with a file:// URL in `files` (not content:// / text).
+ */
+export async function shareSavedPdf(
+  fileUri: string,
+  filename: string,
+  cachePath?: string,
+): Promise<boolean> {
+  if (cachePath) {
+    try {
+      const { ReportPdf } = await import("@/lib/capacitor/reportPdf");
+      await ReportPdf.shareFile({ path: cachePath });
+      return true;
+    } catch (error) {
+      console.warn("[pdf] ReportPdf.shareFile failed, trying Capacitor Share:", error);
+    }
+  }
+
   try {
     const { Share } = await import("@capacitor/share");
+    // Capacitor Share only accepts file:// for files — use `files`, not `url`+`text`.
+    const fileUrl = fileUri.startsWith("file:")
+      ? fileUri
+      : fileUri.startsWith("/")
+        ? `file://${fileUri}`
+        : fileUri;
     await Share.share({
       title: filename,
-      text: filename,
-      url: fileUri,
+      files: [fileUrl],
       dialogTitle: "Share PDF",
     });
     return true;
@@ -596,61 +881,21 @@ async function savePdfBlobOnDevice(
   const relativePath = `${NATIVE_PDF_FOLDER}/${safeName}`;
   const base64 = await blobToBase64(blob);
 
-  const targets: Array<{
-    directory: import("@capacitor/filesystem").Directory;
-    path: string;
-    label: string;
-    needsPublicStorage: boolean;
-  }> = [
-    {
-      directory: Directory.Documents,
-      path: relativePath,
-      label: `Documents/${relativePath}`,
-      needsPublicStorage: false,
-    },
-    {
-      directory: Directory.Cache,
-      path: relativePath,
-      label: `Cache/${relativePath}`,
-      needsPublicStorage: false,
-    },
-    {
-      directory: Directory.Data,
-      path: relativePath,
-      label: `Data/${relativePath}`,
-      needsPublicStorage: false,
-    },
-    {
-      directory: Directory.ExternalStorage,
-      path: `Download/${relativePath}`,
-      label: `Download/${relativePath}`,
-      needsPublicStorage: true,
-    },
-  ];
-
+  const directory = Directory.Cache;
+  const label = `Cache/${relativePath}`;
   let lastError: unknown;
-  let sawPermissionDenial = false;
-
-  for (const target of targets) {
-    try {
-      if (target.needsPublicStorage) {
-        await ensurePublicStoragePermission(Filesystem, true);
-      } else {
-        await ensurePublicStoragePermission(Filesystem, false);
-      }
-      await Filesystem.writeFile({
-        path: target.path,
-        data: base64,
-        directory: target.directory,
-        recursive: true,
-      });
-      const fileUri = await resolveSavedFileUri(Filesystem, target.directory, target.path);
-      return { savedPathLabel: target.label, fileUri };
-    } catch (error) {
-      lastError = error;
-      if (isPermissionDenied(error)) sawPermissionDenial = true;
-      console.warn("[pdf] Could not save to", target.label, error);
-    }
+  try {
+    await Filesystem.writeFile({
+      path: relativePath,
+      data: base64,
+      directory,
+      recursive: true,
+    });
+    const fileUri = await resolveSavedFileUri(Filesystem, directory, relativePath);
+    return { savedPathLabel: label, fileUri };
+  } catch (error) {
+    lastError = error;
+    console.warn("[pdf] Could not save to", label, error);
   }
 
   if (isCapacitorPluginMissing(lastError)) {
@@ -659,14 +904,8 @@ async function savePdfBlobOnDevice(
     );
   }
 
-  if (sawPermissionDenial) {
-    throw new Error(
-      "Storage permission was denied. Allow Files/Storage access for ISO Grid in Android settings, then try again.",
-    );
-  }
-
   throw new Error(
-    "Could not save the PDF to your device. Allow storage access if prompted, then try again.",
+    "Could not save the PDF to app storage. Please try again.",
   );
 }
 
@@ -706,26 +945,77 @@ export async function generateAuditReportPdf(
     evidencePhotos = [],
     documentTitle,
     jpegQuality = resolvePdfJpegQuality(options?.jpegQuality),
+    onProgress,
   } = options || {};
 
+  const withEvidencePages =
+    Boolean(includeEvidencePages) && evidencePhotos.length > 0;
+
+  // Native: WebView print pipeline (no html2canvas OOM on long reports).
+  if (isCapacitorNativeApp()) {
+    try {
+      const { generateNativeAuditPdfSave } = await import(
+        "@/lib/nativePdfExport"
+      );
+      const nativeSaved = await generateNativeAuditPdfSave(element, filename, {
+        orientation,
+        documentTitle,
+        includeEvidencePages: withEvidencePages,
+        evidencePhotos: withEvidencePages ? evidencePhotos : [],
+        filename,
+        onProgress,
+      });
+      if (nativeSaved) {
+        return nativeSaved;
+      }
+      reportPdfProgress(onProgress, {
+        stage: "preparing",
+        label: "Switching capture mode",
+        detail: "Using canvas fallback on this device…",
+        percent: 18,
+      });
+    } catch (error) {
+      console.error("[pdf] Native print export failed", error);
+      throw error instanceof Error
+        ? error
+        : new Error("PDF export failed on this device. Please try again.");
+    }
+  }
+
   warmPdfGenerationLibs();
+  reportPdfProgress(onProgress, {
+    stage: "starting",
+    label: "Starting export",
+    detail: "Loading PDF tools…",
+    percent: 8,
+  });
 
   let blob: Blob;
+  let stage = "capture";
   try {
-    const canvas = await captureForPdf(
+    reportPdfProgress(onProgress, {
+      stage: "rendering",
+      label: "Capturing document",
+      detail: "Rendering pages…",
+      percent: 35,
+    });
+    const pdf = await buildAuditReportPdfDocument(
       element,
       orientation,
       scale,
-      includeEvidencePages && evidencePhotos.length > 0,
-    );
-    const pdf = await canvasToA4Pdf(
-      canvas,
-      orientation,
-      documentTitle,
       jpegQuality,
+      documentTitle,
+      withEvidencePages,
     );
 
-    if (includeEvidencePages && evidencePhotos.length > 0) {
+    stage = "pdf assembly";
+    if (withEvidencePages) {
+      reportPdfProgress(onProgress, {
+        stage: "compacting",
+        label: "Adding evidence",
+        detail: "Appending photo attachment pages…",
+        percent: 72,
+      });
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
@@ -734,14 +1024,53 @@ export async function generateAuditReportPdf(
       );
     }
 
+    reportPdfProgress(onProgress, {
+      stage: "saving",
+      label: "Finalizing PDF",
+      detail: "Encoding file…",
+      percent: 88,
+    });
     blob = pdf.output("blob") as Blob;
   } catch (error) {
-    console.error("Failed to generate PDF:", error);
-    throw new Error("Failed to generate PDF. Please try again.");
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[pdf] Generation failed", {
+      stage,
+      native: isCapacitorNativeApp(),
+      orientation,
+      scale,
+      hasEvidence: evidencePhotos.length > 0,
+      detail,
+    });
+    // Preserve actionable capture messages from segmented retries.
+    if (
+      error instanceof Error &&
+      /PDF capture failed|produced no pages/i.test(error.message)
+    ) {
+      throw error;
+    }
+    throw new Error(
+      stage === "capture"
+        ? "PDF capture failed on this device. Try exporting without photo evidence or with a shorter report."
+        : "PDF assembly failed on this device. Please try again.",
+    );
   }
 
   try {
-    return await deliverPdfBlob(blob, filename);
+    reportPdfProgress(onProgress, {
+      stage: "saving",
+      label: "Saving PDF",
+      detail: isCapacitorNativeApp()
+        ? "Writing to device storage…"
+        : "Starting download…",
+      percent: 94,
+    });
+    const saved = await deliverPdfBlob(blob, filename);
+    reportPdfProgress(onProgress, {
+      stage: "done",
+      label: "PDF ready",
+      percent: 100,
+    });
+    return saved;
   } catch (error) {
     console.error("Failed to deliver PDF:", error);
     throw error instanceof Error
@@ -771,23 +1100,35 @@ export async function generatePdfBlobFromElement(
     jpegQuality = resolvePdfJpegQuality(options?.jpegQuality),
   } = options || {};
 
+  const withEvidencePages =
+    Boolean(includeEvidencePages) && evidencePhotos.length > 0;
+
+  if (isCapacitorNativeApp()) {
+    const { generateNativeAuditPdfBlob } = await import(
+      "@/lib/nativePdfExport"
+    );
+    const nativeBlob = await generateNativeAuditPdfBlob(element, {
+      orientation,
+      documentTitle,
+      includeEvidencePages: withEvidencePages,
+      evidencePhotos: withEvidencePages ? evidencePhotos : [],
+    });
+    if (nativeBlob) return nativeBlob;
+  }
+
   warmPdfGenerationLibs();
 
   try {
-    const canvas = await captureForPdf(
+    const pdf = await buildAuditReportPdfDocument(
       element,
       orientation,
       scale,
-      includeEvidencePages && evidencePhotos.length > 0,
-    );
-    const pdf = await canvasToA4Pdf(
-      canvas,
-      orientation,
-      documentTitle,
       jpegQuality,
+      documentTitle,
+      withEvidencePages,
     );
 
-    if (includeEvidencePages && evidencePhotos.length > 0) {
+    if (withEvidencePages) {
       await appendEvidencePagesToPdf(
         pdf,
         evidencePhotos,
@@ -798,7 +1139,44 @@ export async function generatePdfBlobFromElement(
 
     return pdf.output("blob") as Blob;
   } catch (error) {
-    console.error("Failed to generate PDF blob:", error);
-    throw new Error("Failed to generate PDF. Please try again.");
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[pdf] Failed to generate PDF blob. Details:", errorMessage, error);
+    throw new Error(`Failed to generate PDF: ${errorMessage}. Please try again.`);
   }
+}
+
+/**
+ * Native: segment by `.pdf-page-node`, stream each section into the PDF.
+ * Web: single (or banded) capture, then stream canvases into the PDF.
+ */
+async function buildAuditReportPdfDocument(
+  element: HTMLElement,
+  orientation: "portrait" | "landscape",
+  scale: number,
+  jpegQuality: number,
+  documentTitle: string | undefined,
+  includeEvidencePages: boolean,
+): Promise<import("jspdf").jsPDF> {
+  if (isCapacitorNativeApp()) {
+    const segmented = await buildPdfFromSegmentedCapture(
+      element,
+      orientation,
+      scale,
+      jpegQuality,
+      documentTitle,
+      includeEvidencePages,
+    );
+    if (segmented) return segmented;
+  }
+
+  const result = await captureElementIntoPdf(
+    element,
+    orientation,
+    scale,
+    includeEvidencePages,
+    jpegQuality,
+    documentTitle,
+    null,
+  );
+  return result.pdf;
 }

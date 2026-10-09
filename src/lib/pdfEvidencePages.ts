@@ -41,6 +41,9 @@ export async function appendEvidencePagesToPdf(
 
     try {
       const compressed = await compressImageForPdf(item.src, undefined, jpegQuality);
+      if (!compressed) {
+        throw new Error("Image compression failed, cannot embed image.");
+      }
       const ratio = Math.min(contentW / compressed.width, contentH / compressed.height);
       const drawW = compressed.width * ratio;
       const drawH = compressed.height * ratio;

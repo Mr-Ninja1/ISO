@@ -20,6 +20,8 @@ import {
 } from "@/lib/sharedForms";
 import { adminFetch } from "@/lib/client/adminFetch";
 import { useAuth } from "@/components/AuthProvider";
+import { Share } from "@capacitor/share";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 type Props = {
   tenantSlug: string;
@@ -33,6 +35,14 @@ type Props = {
 };
 
 async function shareOrCopy(url: string, title: string) {
+  if (isCapacitorNativeApp()) {
+    try {
+      await Share.share({ title, text: title, url, dialogTitle: "Share submitted forms" });
+      return "shared";
+    } catch {
+      // Continue to the browser/clipboard fallback if the native sheet is unavailable.
+    }
+  }
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
       await navigator.share({ title, url, text: title });

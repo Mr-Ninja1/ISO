@@ -28,11 +28,20 @@ export function signalNavigationStart(href?: string) {
   window.dispatchEvent(new CustomEvent(NAVIGATION_START_EVENT));
 }
 
+type NavigateWithFeedbackOptions = {
+  /**
+   * Skip the global "Loading…" chip. Use for cache-backed opens (forms, workspace
+   * home, prepared category switches) where soft nav should feel instant.
+   */
+  silent?: boolean;
+};
+
 /** Navigate with immediate global loading feedback (top progress bar). */
 export function navigateWithFeedback(
   router: Pick<AppRouterLike, "push" | "replace">,
   href: string,
   method: "push" | "replace" = "push",
+  options?: NavigateWithFeedbackOptions,
 ) {
   const current = `${window.location.pathname}${window.location.search}`;
   const target = normalizeHrefPathWithSearch(href);
@@ -44,6 +53,8 @@ export function navigateWithFeedback(
 
   // Pause background sync/warmup so leave/open paint stays native-fast.
   markInteractiveNav(3200);
-  signalNavigationStart(href);
+  if (!options?.silent) {
+    signalNavigationStart(href);
+  }
   router[method](href);
 }

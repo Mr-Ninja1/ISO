@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    let timeoutId = window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       if (cancelled) return;
       setLoading(false);
     }, SESSION_HYDRATE_TIMEOUT_MS + 500);
@@ -297,20 +297,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-
     try {
-      localStorage.removeItem("lastTenantSlug");
-      localStorage.removeItem("active-staff-profile:v1");
-      localStorage.removeItem(ISO_MOBILE_SHELL_LS_KEY);
-      localStorage.removeItem(browserSupabaseAuthStorageKey());
-    } catch {
-      // ignore
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } finally {
+      try {
+        localStorage.removeItem("lastTenantSlug");
+        localStorage.removeItem("active-staff-profile:v1");
+        localStorage.removeItem(ISO_MOBILE_SHELL_LS_KEY);
+        localStorage.removeItem(browserSupabaseAuthStorageKey());
+      } catch {
+        // ignore
+      }
+      writeCachedAuthUser(null);
+      setSession(null);
+      setUser(null);
     }
-    writeCachedAuthUser(null);
-    setSession(null);
-    setUser(null);
   }, [supabase]);
 
   const value = useMemo(

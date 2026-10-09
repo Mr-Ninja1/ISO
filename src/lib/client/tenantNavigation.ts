@@ -16,11 +16,7 @@ export function pushTenantRoute(
   options?: { silent?: boolean }
 ) {
   const href = buildTenantHref(tenantSlug, pathAfterTenant, query);
-  if (options?.silent) {
-    router[method](href);
-    return;
-  }
-  navigateWithFeedback(router, href, method);
+  navigateWithFeedback(router, href, method, { silent: options?.silent });
 }
 
 export function tenantRouteHref(

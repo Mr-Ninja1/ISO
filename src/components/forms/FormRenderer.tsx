@@ -282,7 +282,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
-  const [formHydrated, setFormHydrated] = useState(false);
+  // Paint the form immediately with schema defaults; draft overlay is sync (localStorage)
+  // or best-effort async (IndexedDB) without blocking first paint.
+  const [formHydrated, setFormHydrated] = useState(true);
   const [draftAuditId, setDraftAuditId] = useState<string | null>(null);
   const [activeStaffName, setActiveStaffName] = useState<string>("");
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
@@ -381,7 +383,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
   useEffect(() => {
     let alive = true;
-    setFormHydrated(false);
 
     const finishHydration = (values: FormValues, auditId: string | null) => {
       if (!alive) return;
@@ -402,30 +403,19 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return;
     }
 
+    // No sync draft: keep defaults visible (already hydrated). Pull IndexedDB in the
+    // background and apply only if the user has not started editing.
     void (async () => {
       const fromDb = await readLocalDraftAsync(tenantSlug, templateId);
       if (!alive) return;
-      if (fromDb) {
-        if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) {
-          safeReset(baseValues);
-          setFormHydrated(true);
-          return;
-        }
-        finishHydration(fromDb.values, fromDb.auditId || null);
-        return;
-      }
-      safeReset(baseValues);
-      setFormHydrated(true);
+      if (!fromDb) return;
+      if (form.formState.isDirty) return;
+      if (initialAuditId && fromDb.auditId && fromDb.auditId !== initialAuditId) return;
+      finishHydration(fromDb.values, fromDb.auditId || null);
     })();
-
-    const fallback = window.setTimeout(() => {
-      if (!alive) return;
-      setFormHydrated(true);
-    }, 800);
 
     return () => {
       alive = false;
-      window.clearTimeout(fallback);
     };
     // Rehydrate only when the run context changes — not when live seedRows update on the template.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -498,7 +488,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     setLastTemplateSeedSavedAt(Date.now());
   }
 
-  async function persistStaticSeedRowsToTemplate(values: FormValues, options?: { allowLiveSchemaUpdate?: boolean }) {
+  async function persistStaticSeedRowsToTemplate(
+    values: FormValues,
+    options?: { allowLiveSchemaUpdate?: boolean; queueOnly?: boolean },
+  ) {
     if (!tenantSlug || !templateId) return false;
     if (!schemaHasStaticColumns(liveSchemaRef.current)) return false;
 
@@ -535,6 +528,11 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         },
       });
     };
+
+    if (options?.queueOnly) {
+      queueStaticSeedRows();
+      return true;
+    }
 
     if (!accessToken || isAppOffline()) {
       queueStaticSeedRows();
@@ -881,7 +879,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     // Static template updates are durable and queued independently; never make a
     // form submission wait for a slow or unavailable template request.
     try {
-      void persistStaticSeedRowsToTemplate(values, { allowLiveSchemaUpdate: true }).catch(() => {});
+      await persistStaticSeedRowsToTemplate(values, {
+        allowLiveSchemaUpdate: true,
+        queueOnly: true,
+      });
       await persistAudit(values, "submit");
     } finally {
       submitInFlightRef.current = false;

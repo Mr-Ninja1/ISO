@@ -46,6 +46,8 @@ public class MainActivity extends BridgeActivity {
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    // Local plugins must be registered before BridgeActivity initializes the bridge.
+    registerPlugin(ReportPdfPlugin.class);
     resetOtaIfApkUpgraded();
     super.onCreate(savedInstanceState);
     ensureNotificationChannel();

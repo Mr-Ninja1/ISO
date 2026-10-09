@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
+import { PdfExportProgressCard } from "@/components/forms/PdfExportProgressCard";
 import {
   buildAuditPdfFilename,
   formatPdfSavedMessage,
@@ -11,6 +12,10 @@ import {
   warmPdfGenerationLibs,
   type PdfOrientation,
 } from "@/lib/pdfGenerator";
+import {
+  PDF_EXPORT_WEBSITE_TIP_AFTER_MS,
+  type PdfExportProgress,
+} from "@/lib/pdfExportProgress";
 import type { ReportEvidencePhoto } from "@/lib/reportEvidence";
 
 type Props = {
@@ -18,6 +23,13 @@ type Props = {
   tenantSlug?: string;
   evidencePhotos?: ReportEvidencePhoto[];
   defaultOrientation?: PdfOrientation;
+};
+
+const INITIAL_PROGRESS: PdfExportProgress = {
+  stage: "starting",
+  label: "Starting export",
+  detail: "Getting things ready…",
+  percent: 2,
 };
 
 export function PdfGeneratorButton({
@@ -34,10 +46,43 @@ export function PdfGeneratorButton({
   const [orientation, setOrientation] =
     useState<PdfOrientation>(defaultOrientation);
   const [includeEvidence, setIncludeEvidence] = useState(true);
+  const [progress, setProgress] = useState<PdfExportProgress>(INITIAL_PROGRESS);
+  const [showWebsiteTip, setShowWebsiteTip] = useState(false);
+  const tipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     warmPdfGenerationLibs();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (tipTimerRef.current) clearTimeout(tipTimerRef.current);
+    };
+  }, []);
+
+  const clearTipTimer = useCallback(() => {
+    if (tipTimerRef.current) {
+      clearTimeout(tipTimerRef.current);
+      tipTimerRef.current = null;
+    }
+  }, []);
+
+  const beginProgressUi = useCallback(() => {
+    setProgress(INITIAL_PROGRESS);
+    setShowWebsiteTip(false);
+    clearTipTimer();
+    if (nativeSave) {
+      tipTimerRef.current = setTimeout(() => {
+        setShowWebsiteTip(true);
+      }, PDF_EXPORT_WEBSITE_TIP_AFTER_MS);
+    }
+  }, [clearTipTimer, nativeSave]);
+
+  const endProgressUi = useCallback(() => {
+    clearTipTimer();
+    setShowWebsiteTip(false);
+    setGenerating(false);
+  }, [clearTipTimer]);
 
   const hasEvidence = evidencePhotos.length > 0;
 
@@ -55,13 +100,23 @@ export function PdfGeneratorButton({
       includeEvidencePages,
       evidencePhotos: includeEvidencePages ? evidencePhotos : [],
       documentTitle,
+      onProgress: (next) => setProgress(next),
     });
     if (saved?.savedPathLabel) {
-      alert(formatPdfSavedMessage(saved.savedPathLabel));
-      if (saved.fileUri) {
-        // Offer share so the file is easy to find on Android.
-        await shareSavedPdf(saved.fileUri, filename).catch(() => false);
+      // Open share first — alert() blocks and previously hid a failed share behind OK.
+      let shared = false;
+      if (saved.fileUri || saved.cachePath) {
+        shared = await shareSavedPdf(
+          saved.fileUri || "",
+          filename,
+          saved.cachePath,
+        ).catch(() => false);
       }
+      alert(
+        shared
+          ? formatPdfSavedMessage(saved.savedPathLabel)
+          : `${formatPdfSavedMessage(saved.savedPathLabel)}\n\n(Share sheet could not be opened — use Files → Downloads → ISO Grid.)`,
+      );
     }
   }
 
@@ -69,17 +124,22 @@ export function PdfGeneratorButton({
     if (generating) return;
     setGenerating(true);
     setDialogOpen(false);
+    beginProgressUi();
     try {
       await runExport(hasEvidence ? includeEvidence : false, orientation);
     } catch (error) {
       console.error("Failed to generate PDF:", error);
       const message =
-        error instanceof Error && error.message
+        error && typeof error === "object" && "message" in error && typeof error.message === "string"
           ? error.message
-          : "Failed to generate PDF. Please try again.";
+          : error instanceof Error && error.message
+            ? error.message
+            : typeof error === "string"
+              ? error
+              : "Failed to generate PDF. Please try again.";
       alert(message);
     } finally {
-      setGenerating(false);
+      endProgressUi();
     }
   }
 
@@ -93,6 +153,7 @@ export function PdfGeneratorButton({
     }
     void (async () => {
       setGenerating(true);
+      beginProgressUi();
       try {
         await runExport(false, defaultOrientation);
       } catch (error) {
@@ -103,7 +164,7 @@ export function PdfGeneratorButton({
             : "Failed to generate PDF. Please try again.";
         alert(message);
       } finally {
-        setGenerating(false);
+        endProgressUi();
       }
     })();
   }
@@ -124,6 +185,14 @@ export function PdfGeneratorButton({
         )}
         {generating ? "Generating…" : nativeSave ? "Save PDF" : "Download PDF"}
       </button>
+
+      {generating ? (
+        <PdfExportProgressCard
+          progress={progress}
+          showWebsiteTip={showWebsiteTip}
+          formTitle={formTitle}
+        />
+      ) : null}
 
       {dialogOpen && hasEvidence ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 print:hidden">

@@ -296,7 +296,11 @@ export function AuditsListClient({
   const offline = useAppOffline();
   const activeTenantSlug = useResolvedTenantSlug(tenantSlug);
   const [query, setQuery] = useState(initialQuery);
-  const [allRows, setAllRows] = useState<CachedAuditRow[]>(rows);
+  const [allRows, setAllRows] = useState<CachedAuditRow[]>(() => {
+    if (rows.length) return rows;
+    if (typeof window === "undefined" || !tenantSlug) return rows;
+    return readAuditsListCache(user?.id || null, tenantSlug)?.rows ?? rows;
+  });
   const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [syncError, setSyncError] = useState("");
@@ -327,6 +331,13 @@ export function AuditsListClient({
 
   useEffect(() => {
     if (!activeTenantSlug) return;
+    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+    if (cached?.rows?.length) {
+      setAllRows((current) => {
+        const merged = mergeAuditsRows(cached.rows, current);
+        return rowsAreEqual(current, merged) ? current : merged;
+      });
+    }
     let cancelled = false;
 
     void loadDeviceAuditsRows(user?.id || null, activeTenantSlug).then(
@@ -394,16 +405,17 @@ export function AuditsListClient({
 
     void (async () => {
       try {
-        const result = await fetchAndCacheAuditsList(
-          accessToken,
-          user?.id || null,
-          activeTenantSlug,
-          {
-            limit: 50,
-            offset: 0,
-            merge: true,
-          },
-        );
+        const result = await Promise.race([
+          fetchAndCacheAuditsList(
+            accessToken,
+            user?.id || null,
+            activeTenantSlug,
+            { limit: 50, offset: 0, merge: true },
+          ),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error("The server is taking longer than expected. Showing saved forms from this device.")), 12_000),
+          ),
+        ]);
         if (cancelled) return;
         setAllRows(onlySubmittedRows(result.rows));
         setNextServerOffset(result.nextOffset ?? 0);
@@ -414,8 +426,7 @@ export function AuditsListClient({
         const message =
           err instanceof Error ? err.message : "Could not load saved forms";
         const localCount = onlySubmittedRows(
-          readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ??
-            allRows,
+          readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? [],
         ).length;
         if (localCount > 0) {
           setSyncError(
@@ -842,4 +853,3 @@ export function AuditsListClient({
     </>
   );
 }
-

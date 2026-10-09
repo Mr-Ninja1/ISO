@@ -14,51 +14,7 @@ import {
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
-import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
-import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
-
-function templateRevalidateCooldownKey(tenantSlug: string, templateId: string) {
-  return `audit-template-revalidate-cooldown:v1:${tenantSlug}:${templateId}`;
-}
-
-function shouldSkipTemplateRevalidate(tenantSlug: string, templateId: string, ttlMs: number) {
-  try {
-    const raw = localStorage.getItem(templateRevalidateCooldownKey(tenantSlug, templateId));
-    if (!raw) return false;
-    const ts = Number(raw);
-    if (!Number.isFinite(ts)) return false;
-    return Date.now() - ts < ttlMs;
-  } catch {
-    return false;
-  }
-}
-
-function markTemplateRevalidated(tenantSlug: string, templateId: string) {
-  try {
-    localStorage.setItem(templateRevalidateCooldownKey(tenantSlug, templateId), String(Date.now()));
-  } catch {
-    // ignore
-  }
-}
-
-function scheduleBackgroundTask(task: () => void, delayMs: number) {
-  let idleId: number | null = null;
-  const timeoutId = window.setTimeout(() => {
-    if ("requestIdleCallback" in window) {
-      idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(task, { timeout: 1200 });
-      return;
-    }
-    task();
-  }, delayMs);
-
-  return () => {
-    window.clearTimeout(timeoutId);
-    if (idleId !== null && "cancelIdleCallback" in window) {
-      (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
-    }
-  };
-}
 
 export function AuditRunClient({
   tenantSlug,
@@ -77,9 +33,8 @@ export function AuditRunClient({
   const [data, setData] = useState<AuditTemplatePayload | null>(() =>
     tenantSlug && templateId ? readAuditTemplateCache(tenantSlug, templateId) : null
   );
-  const [loading, setLoading] = useState(
-    () => !(tenantSlug && templateId && readAuditTemplateCache(tenantSlug, templateId))
-  );
+  // Only show a loader for a true network miss — sync cache hits and IDB checks stay quiet.
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [revalidateTick, setRevalidateTick] = useState(0);
   const revalidateGenerationRef = useRef(0);
@@ -98,6 +53,8 @@ export function AuditRunClient({
       setData(cached);
       setLoading(false);
       setError("");
+      setDurableCacheChecked(true);
+      return;
     }
 
     (async () => {
@@ -105,6 +62,7 @@ export function AuditRunClient({
       if (!alive) return;
       if (fromDb) {
         setData(fromDb);
+        writeAuditTemplateCache(activeTenantSlug, templateId, fromDb);
         setLoading(false);
         setError("");
       }
@@ -190,13 +148,10 @@ export function AuditRunClient({
       return;
     }
 
-    // Bootstrap downloads every schema up front. Keep normal form opens local;
-    // ?refresh=1 from the workspace remains the explicit update path.
-    if (cached && isOfflineBootstrapComplete(user?.id || null, activeTenantSlug) && isTenantTemplateBulkCached(activeTenantSlug)) {
-      return;
-    }
-
-    if (cached && shouldSkipTemplateRevalidate(activeTenantSlug, templateId, 5 * 60_000)) {
+    // Cached schemas are authoritative for normal opens. Remote metadata checks
+    // and explicit workspace refresh handle cross-device changes without slowing
+    // the form interaction path with a live schema request.
+    if (cached) {
       return;
     }
 
@@ -212,22 +167,14 @@ export function AuditRunClient({
         .then(async (res) => {
           const json = await res.json().catch(() => ({}));
           if (!res.ok) {
-            if (res.status === 401 && cached) {
-              return cached;
-            }
             throw new Error((json as { error?: string })?.error || `Failed to load form (${res.status})`);
           }
           return json as AuditTemplatePayload;
         })
         .then((next) => {
           if (!active || generation !== revalidateGenerationRef.current) return;
-          const shouldUpdate =
-            !cached ||
-            cached.template.updatedAt !== next.template.updatedAt ||
-            cached.template.title !== next.template.title;
-          if (shouldUpdate) setData(next);
+          setData(next);
           writeAuditTemplateCache(activeTenantSlug, templateId, next);
-          markTemplateRevalidated(activeTenantSlug, templateId);
           setError("");
         })
         .catch((err: unknown) => {
@@ -241,15 +188,6 @@ export function AuditRunClient({
           if (active && generation === revalidateGenerationRef.current) setLoading(false);
         });
     };
-
-    if (cached || data) {
-      const cancel = scheduleBackgroundTask(runRevalidate, 900);
-      return () => {
-        active = false;
-        cancel();
-        controller.abort();
-      };
-    }
 
     runRevalidate();
     return () => {
@@ -280,6 +218,24 @@ export function AuditRunClient({
   }, [loading, data, activeTenantSlug, templateId]);
 
   const content = useMemo(() => {
+    if (data) {
+      return (
+        <FormRenderer
+          tenantSlug={activeTenantSlug}
+          tenantName={data.tenant.name}
+          tenantLogoUrl={data.tenant.logoUrl}
+          templateId={data.template.id}
+          initialAuditId={auditId}
+          schema={data.template.schema}
+        />
+      );
+    }
+
+    // Quiet while IndexedDB is still resolving — avoid a loading banner on cache-backed opens.
+    if (!durableCacheChecked) {
+      return null;
+    }
+
     if (loading) {
       return (
         <div className="rounded-lg border border-foreground/20 bg-background p-6">
@@ -291,25 +247,12 @@ export function AuditRunClient({
       );
     }
 
-    if (!data) {
-      return (
-        <div className="rounded-lg border border-foreground/20 bg-background p-6 text-sm">
-          {error || "Form not found"}
-        </div>
-      );
-    }
-
     return (
-      <FormRenderer
-        tenantSlug={activeTenantSlug}
-        tenantName={data.tenant.name}
-        tenantLogoUrl={data.tenant.logoUrl}
-        templateId={data.template.id}
-        initialAuditId={auditId}
-        schema={data.template.schema}
-      />
+      <div className="rounded-lg border border-foreground/20 bg-background p-6 text-sm">
+        {error || "Form not found"}
+      </div>
     );
-  }, [loading, data, error, tenantSlug, auditId]);
+  }, [loading, data, error, activeTenantSlug, auditId, durableCacheChecked]);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-24 sm:pb-6">

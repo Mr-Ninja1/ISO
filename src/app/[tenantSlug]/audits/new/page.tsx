@@ -11,7 +11,7 @@ export default function NewAuditPage({
 }) {
   const { tenantSlug } = use(params);
   return (
-    <SearchParamsBoundary>
+    <SearchParamsBoundary quiet>
       <NewAuditPageClient tenantSlug={tenantSlug} />
     </SearchParamsBoundary>
   );

@@ -3,10 +3,16 @@
 import { getApiBaseUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/connectivityEvents";
+import { shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 
 let cachedReachable: boolean | null = null;
 let lastProbeAt = 0;
 let probeInFlight: Promise<boolean> | null = null;
+
+/** Singleton — many hooks used to start duplicate 12s /login storms on native. */
+let monitorStarted = false;
+let monitorCleanups: Array<() => void> = [];
+let monitorRefCount = 0;
 
 function isLocalDevHost() {
   if (typeof window === "undefined") return false;
@@ -28,8 +34,10 @@ export async function probeInternetReachability(force = false): Promise<boolean>
 
   try {
     if (window.__ISO_FORCE_OFFLINE__ === true) {
+      const wasReachable = cachedReachable;
       cachedReachable = false;
       lastProbeAt = Date.now();
+      if (wasReachable !== false) dispatchOfflineChanged();
       return false;
     }
   } catch {
@@ -41,18 +49,24 @@ export async function probeInternetReachability(force = false): Promise<boolean>
     return cachedReachable;
   }
 
+  // Never contend with form/category opens — trust the last probe (or browser) until idle.
+  if (!force && shouldPauseBackgroundWork()) {
+    if (cachedReachable !== null) return cachedReachable;
+    return typeof navigator !== "undefined" ? navigator.onLine : true;
+  }
+
   if (typeof navigator !== "undefined" && !navigator.onLine) {
-    const wasOnline = cachedReachable === true;
+    const previous = cachedReachable;
     cachedReachable = false;
     lastProbeAt = now;
-    if (wasOnline) dispatchOfflineChanged();
+    if (previous !== false) dispatchOfflineChanged();
     return false;
   }
 
   if (probeInFlight) return probeInFlight;
 
   probeInFlight = (async () => {
-    const wasOffline = cachedReachable === false;
+    const previous = cachedReachable;
     const localDev = isLocalDevHost();
     try {
       const base = getApiBaseUrl();
@@ -74,10 +88,14 @@ export async function probeInternetReachability(force = false): Promise<boolean>
     lastProbeAt = Date.now();
     probeInFlight = null;
 
-    if (cachedReachable && wasOffline) {
+    if (cachedReachable && previous === false) {
       window.dispatchEvent(new CustomEvent(INTERNET_RESTORED_EVENT));
     }
-    dispatchOfflineChanged();
+    // Only notify when the answer actually changed — every-probe broadcasts
+    // re-rendered the whole workspace tree every 12s on native.
+    if (previous !== cachedReachable) {
+      dispatchOfflineChanged();
+    }
     return cachedReachable;
   })();
 
@@ -91,26 +109,50 @@ export function getCachedReachability(): boolean | null {
 export function initReachabilityMonitor(): () => void {
   if (typeof window === "undefined") return () => {};
 
-  const runProbe = () => {
-    void probeInternetReachability(true);
-  };
+  monitorRefCount += 1;
 
-  const handleBrowserOffline = () => {
-    cachedReachable = false;
-    lastProbeAt = Date.now();
-    dispatchOfflineChanged();
-  };
+  if (!monitorStarted) {
+    monitorStarted = true;
 
-  runProbe();
-  window.addEventListener("online", runProbe);
-  window.addEventListener("offline", handleBrowserOffline);
+    const runProbe = () => {
+      if (shouldPauseBackgroundWork()) return;
+      void probeInternetReachability(true);
+    };
 
-  const intervalMs = isCapacitorNativeApp() ? 12_000 : 30_000;
-  const intervalId = window.setInterval(runProbe, intervalMs);
+    const handleBrowserOffline = () => {
+      const wasReachable = cachedReachable;
+      cachedReachable = false;
+      lastProbeAt = Date.now();
+      if (wasReachable !== false) dispatchOfflineChanged();
+    };
+
+    const handleBrowserOnline = () => {
+      // Soft probe — do not force-fight an in-flight navigation.
+      void probeInternetReachability(false);
+    };
+
+    runProbe();
+    window.addEventListener("online", handleBrowserOnline);
+    window.addEventListener("offline", handleBrowserOffline);
+
+    // Native: infrequent heartbeat. Cached workspace/forms do not need a live API pulse.
+    const intervalMs = isCapacitorNativeApp() ? 60_000 : 45_000;
+    const intervalId = window.setInterval(runProbe, intervalMs);
+
+    monitorCleanups = [
+      () => {
+        window.removeEventListener("online", handleBrowserOnline);
+        window.removeEventListener("offline", handleBrowserOffline);
+        window.clearInterval(intervalId);
+      },
+    ];
+  }
 
   return () => {
-    window.removeEventListener("online", runProbe);
-    window.removeEventListener("offline", handleBrowserOffline);
-    window.clearInterval(intervalId);
+    monitorRefCount = Math.max(0, monitorRefCount - 1);
+    if (monitorRefCount > 0) return;
+    for (const cleanup of monitorCleanups) cleanup();
+    monitorCleanups = [];
+    monitorStarted = false;
   };
 }

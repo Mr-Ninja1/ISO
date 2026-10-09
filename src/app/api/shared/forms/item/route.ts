@@ -74,7 +74,7 @@ export async function GET(req: Request) {
     if (link.live_scope === "today") {
       const start = new Date();
       start.setHours(0, 0, 0, 0);
-      liveQuery = liveQuery.gte("updated_at", start.toISOString());
+      liveQuery = liveQuery.gte("submitted_at", start.toISOString());
     }
 
     const { data: liveAudit, error: liveAuditErr } = await liveQuery.maybeSingle();

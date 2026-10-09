@@ -66,13 +66,13 @@ export function AuditReportDisplay({
         className="report-export-root print-shell rounded-lg border border-foreground/25 bg-background p-4 sm:p-6"
         id="report-content"
       >
-        <header className="report-header-block">
+        <header className="report-header-block pdf-page-node">
           <h2 className="text-xl font-semibold">{audit.template.title}</h2>
           <p className="mt-1 text-sm text-foreground/70">
             {audit.status} • {new Date(audit.createdAt).toLocaleString()}
           </p>
         </header>
-        <div className="mt-4 report-field-grid report-field-grid--auto">
+        <div className="mt-4 report-field-grid report-field-grid--auto pdf-page-node">
           {entries.map(([key, value]) => (
             <div key={key} className="report-field-card report-field-card--dense">
               <div className="report-field-label">{key}</div>
@@ -122,7 +122,7 @@ export function AuditReportDisplay({
       className="report-export-root print-shell rounded-lg border border-foreground/25 bg-background p-4 sm:p-6"
       id="report-content"
     >
-      <header className="report-header-block print-page-break-avoid">
+      <header className="report-header-block pdf-page-node">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-foreground/20 bg-background">
@@ -168,7 +168,7 @@ export function AuditReportDisplay({
 
       <div className="mt-5 flex flex-col gap-4">
         {correctiveAction ? (
-          <section className="report-section print-page-break-avoid rounded-md border border-amber-300/80 bg-amber-50/90 p-3">
+          <section className="report-section pdf-page-node rounded-md border border-amber-300/80 bg-amber-50/90 p-3">
             <h3 className="report-section-title text-amber-950">
               Corrective action
             </h3>
@@ -185,7 +185,7 @@ export function AuditReportDisplay({
             return (
               <section
                 key={`fields-${idx}`}
-                className="report-section print-page-break-avoid"
+                className="report-section pdf-page-node"
               >
                 {section.title &&
                 section.title.trim().toLowerCase() !== "fields" ? (
@@ -230,7 +230,7 @@ export function AuditReportDisplay({
           const layout = buildGridLayout(section, rowCount);
 
           return (
-            <section key={`grid-${key}-${idx}`} className="report-section">
+            <section key={`grid-${key}-${idx}`} className="report-section pdf-page-node">
               <h3 className="report-section-title">
                 {section.title || "Log sheet"}
               </h3>
@@ -354,7 +354,7 @@ export function AuditReportDisplay({
           );
         })}
 
-        <section className="report-section print-page-break-avoid">
+        <section className="report-section pdf-page-node">
           <h3 className="report-section-title">Photo evidence</h3>
           {photoListOnlyDefault(defaultEvidence).length > 0 ? (
             <div className="grid gap-2">

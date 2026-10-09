@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { ArrowRight, Database, LogOut, ShieldCheck, Sparkles, Wifi } from 'lucide-react';
 import { WorkspaceLoadingShell } from '@/components/WorkspaceLoadingShell';
 import { useAuth } from '@/components/AuthProvider';
 import { getWorkspaceAccessToken } from '@/lib/client/sessionAccessToken';
@@ -58,69 +58,95 @@ function FirstTimeDownloadScreen({
   error,
   offline,
   onRetry,
+  onSignOut,
+  signingOut,
 }: {
   progress: OfflineBootstrapProgress;
   error: string;
   offline: boolean;
   onRetry: () => void;
+  onSignOut: () => void;
+  signingOut: boolean;
 }) {
+  const isComplete = progress.percent >= 100;
+
   return (
-    <div className='fixed inset-0 z-[9998] flex min-h-dvh items-center justify-center bg-background px-4 py-8'>
-      <div className='w-full max-w-lg overflow-hidden rounded-2xl border border-foreground/20 bg-background p-6 shadow-sm sm:p-8'>
-        <div className='flex items-start gap-3'>
-          <div className='flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-foreground/15 bg-foreground/[0.03]'>
-            <Loader2 className='h-5 w-5 animate-spin text-foreground/70' />
+    <div className='fixed inset-0 z-[9998] flex min-h-dvh items-center justify-center overflow-hidden bg-[#071b1a] px-4 py-8 text-white'>
+      <div className='pointer-events-none absolute inset-0 opacity-70 [background-image:linear-gradient(rgba(108,255,214,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(108,255,214,0.07)_1px,transparent_1px)] [background-size:42px_42px] [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_78%)]' />
+      <div className='pointer-events-none absolute -left-32 top-1/3 h-80 w-80 rounded-full bg-[#27e0b0]/15 blur-3xl' />
+      <div className='pointer-events-none absolute -right-28 top-10 h-72 w-72 rounded-full bg-[#5e7cff]/15 blur-3xl' />
+
+      <div className='relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/15 bg-[#0b2927]/90 shadow-[0_24px_100px_rgba(0,0,0,0.4)] backdrop-blur-xl'>
+        <div className='flex items-center justify-between border-b border-white/10 px-6 py-4 sm:px-8'>
+          <div className='flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-[#9bf9dc]'>
+            <span className='h-2 w-2 animate-pulse rounded-full bg-[#43edbd] shadow-[0_0_12px_#43edbd]' />
+            ISO Grid / Secure setup
           </div>
-          <div className='min-w-0'>
-            <h1 className='text-lg font-semibold sm:text-xl'>Preparing your brand for fast offline use</h1>
-            <p className='mt-1 text-sm text-foreground/70'>
-              One-time setup downloads your workspace, every category, and every form schema to this device. After this,
-              switching categories and opening forms stays local and sharp.
-            </p>
-          </div>
+          <span className='font-mono text-xs text-white/45'>{String(Math.round(progress.percent)).padStart(2, '0')}%</span>
         </div>
 
-        <div className='mt-6 overflow-hidden rounded-full bg-foreground/10'>
-          <div
-            className='h-2 rounded-full bg-foreground transition-all duration-300 ease-out'
-            style={{ width: progress.percent + '%' }}
-          />
-        </div>
-        <p className='mt-2 text-sm font-medium text-foreground'>{progress.label}</p>
-        {progress.detail ? <p className='text-xs text-foreground/60'>{progress.detail}</p> : null}
-
-        <div className='mt-5 grid gap-2 text-sm text-foreground/75 sm:grid-cols-2'>
-          <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
-            Categories and form cards are saved locally so tab switches stay instant.
+        <div className='p-6 sm:p-9'>
+          <div className='flex items-start gap-4'>
+            <div className='relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#5ff0c7]/30 bg-[#5ff0c7]/10 text-[#72f6ce]'>
+              <span className='absolute inset-1 rounded-xl border border-[#5ff0c7]/20' />
+              {isComplete ? <ShieldCheck className='relative h-6 w-6' /> : <Sparkles className='relative h-6 w-6 animate-pulse' />}
+            </div>
+            <div className='min-w-0'>
+              <p className='mb-2 text-xs font-medium uppercase tracking-[0.18em] text-[#72f6ce]/70'>First connection</p>
+              <h1 className='text-2xl font-semibold tracking-tight text-white sm:text-3xl'>Making your workspace yours</h1>
+              <p className='mt-2 max-w-md text-sm leading-6 text-white/60'>A quick one-time sync keeps your workspace fast, even when the signal disappears.</p>
+            </div>
           </div>
-          <div className='rounded-lg border border-foreground/15 bg-foreground/[0.03] p-3'>
-            Form schemas are cached so audits open without waiting on the network.
-          </div>
-        </div>
 
-        {error ? (
-          <div className='mt-4 space-y-3'>
-            <p className='rounded-md border border-foreground/20 bg-foreground/5 p-3 text-sm text-foreground'>{error}</p>
-            {offline ? (
-              <p className='text-xs text-foreground/60'>
-                Connect to the internet to complete first-time download. Offline use is available after this step.
-              </p>
-            ) : null}
-            <button
-              type='button'
-              className='h-10 w-full rounded-md bg-foreground px-4 text-sm font-medium text-background sm:w-auto'
-              onClick={onRetry}
-            >
-              Try again
+          <div className='mt-8'>
+            <div className='h-2 overflow-hidden rounded-full bg-white/10'>
+              <div
+                className='relative h-full rounded-full bg-gradient-to-r from-[#36d9aa] via-[#8af5d1] to-[#88a4ff] transition-all duration-500 ease-out'
+                style={{ width: `${Math.max(3, progress.percent)}%` }}
+              >
+                <span className='absolute right-0 top-1/2 h-5 w-5 -translate-y-1/2 translate-x-1/2 rounded-full bg-white shadow-[0_0_18px_#8af5d1]' />
+              </div>
+            </div>
+            <div className='mt-3 flex items-center justify-between gap-3'>
+              <p className='text-sm font-medium text-white'>{progress.label}</p>
+              {offline ? <span className='rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-[11px] text-amber-100'>Waiting for signal</span> : null}
+            </div>
+            {progress.detail ? <p className='mt-1 text-xs text-white/45'>{progress.detail}</p> : null}
+          </div>
+
+          <div className='mt-7 grid gap-3 sm:grid-cols-2'>
+            <div className='rounded-2xl border border-white/10 bg-white/[0.045] p-4'>
+              <Database className='h-4 w-4 text-[#72f6ce]' />
+              <p className='mt-3 text-sm font-medium text-white/90'>Ready offline</p>
+              <p className='mt-1 text-xs leading-5 text-white/50'>Forms and categories stay on this device.</p>
+            </div>
+            <div className='rounded-2xl border border-white/10 bg-white/[0.045] p-4'>
+              <Wifi className='h-4 w-4 text-[#9aaeff]' />
+              <p className='mt-3 text-sm font-medium text-white/90'>Built for the field</p>
+              <p className='mt-1 text-xs leading-5 text-white/50'>Work keeps moving when coverage does not.</p>
+            </div>
+          </div>
+
+          {error ? (
+            <div className='mt-6 space-y-3 rounded-2xl border border-rose-300/20 bg-rose-300/[0.08] p-4'>
+              <p className='text-sm text-rose-100'>{error}</p>
+              {offline ? <p className='text-xs text-white/50'>Reconnect to finish setup, then try again.</p> : null}
+              <button type='button' className='inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#0b2927] transition hover:bg-[#dffcf2]' onClick={onRetry}>
+                Try again <ArrowRight className='h-4 w-4' />
+              </button>
+            </div>
+          ) : (
+            <p className='mt-6 text-xs text-white/40'>{offline ? 'Connect to the internet to begin your first sync.' : 'This only happens once on each device.'}</p>
+          )}
+
+          <div className='mt-7 flex items-center justify-between gap-4 border-t border-white/10 pt-5'>
+            <p className='text-xs text-white/35'>Need to step away? You can sign out safely.</p>
+            <button type='button' className='inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-white/60 transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50' onClick={onSignOut} disabled={signingOut}>
+              <LogOut className='h-3.5 w-3.5' />
+              {signingOut ? 'Signing out…' : 'Sign out'}
             </button>
           </div>
-        ) : (
-          <p className='mt-4 text-xs text-foreground/55'>
-            {offline
-              ? 'Waiting for internet to start download...'
-              : 'Do not close this page — large brands may take a few minutes the first time only.'}
-          </p>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -167,7 +193,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, session, loading: authLoading } = useAuth();
+  const { user, session, loading: authLoading, signOut } = useAuth();
   const accessToken = getWorkspaceAccessToken(session);
   const userId = user?.id || session?.user?.id || null;
 
@@ -194,6 +220,7 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
   });
   const [error, setError] = useState('');
   const [offline, setOffline] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [clientReady, setClientReady] = useState(false);
   const runIdRef = useRef(0);
   const bootstrapInFlightRef = useRef(false);
@@ -346,6 +373,10 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
     if (skip || !tenantSlug) {
       return <>{children}</>;
     }
+    // Already bootstrapped on this device — never block home/form returns behind a gate shell.
+    if (offlineCacheLooksReady(userId, tenantSlug)) {
+      return <>{children}</>;
+    }
     return (
       <WorkspaceLoadingShell
         title="Loading"
@@ -371,6 +402,14 @@ export function OfflineBootstrapGate({ children }: { children: React.ReactNode }
         progress={progress}
         error={error}
         offline={offline}
+        signingOut={signingOut}
+        onSignOut={() => {
+          if (signingOut) return;
+          setSigningOut(true);
+          void signOut()
+            .catch(() => undefined)
+            .finally(() => router.replace('/login'));
+        }}
         onRetry={() => {
           if (!accessToken) {
             router.push('/login');

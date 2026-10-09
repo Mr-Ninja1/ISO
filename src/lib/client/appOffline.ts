@@ -50,27 +50,39 @@ export function notifyOfflineModeChanged(): void {
   }
 }
 
+let internetMonitorRefCount = 0;
+let internetMonitorCleanup: (() => void) | null = null;
+
 /** Monitor online/offline transitions and notify when internet is restored. */
 export function initInternetStatusMonitor(): () => void {
   if (typeof window === "undefined") return () => {};
 
-  const handleOnline = () => {
-    const wasOffline = lastOnlineStatus === false;
-    lastOnlineStatus = true;
-    if (wasOffline) {
-      window.dispatchEvent(new CustomEvent(INTERNET_RESTORED_EVENT));
-    }
-  };
+  internetMonitorRefCount += 1;
+  if (!internetMonitorCleanup) {
+    const handleOnline = () => {
+      const wasOffline = lastOnlineStatus === false;
+      lastOnlineStatus = true;
+      if (wasOffline) {
+        window.dispatchEvent(new CustomEvent(INTERNET_RESTORED_EVENT));
+      }
+    };
 
-  const handleOffline = () => {
-    lastOnlineStatus = false;
-  };
+    const handleOffline = () => {
+      lastOnlineStatus = false;
+    };
 
-  window.addEventListener("online", handleOnline);
-  window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    internetMonitorCleanup = () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }
 
   return () => {
-    window.removeEventListener("online", handleOnline);
-    window.removeEventListener("offline", handleOffline);
+    internetMonitorRefCount = Math.max(0, internetMonitorRefCount - 1);
+    if (internetMonitorRefCount > 0 || !internetMonitorCleanup) return;
+    internetMonitorCleanup();
+    internetMonitorCleanup = null;
   };
 }

@@ -308,6 +308,22 @@ function readExactCategoryCache(
 /** Offline category-tab snapshots may stay longer; online trust uses ONLINE_WORKSPACE_CACHE_TTL_MS. */
 const CATEGORY_SWITCH_CACHE_TTL_MS = OFFLINE_WORKSPACE_CACHE_TTL_MS;
 
+/** First-login bootstrap finished — device snapshot is authoritative until explicit Refresh. */
+function isDeviceWorkspacePrepared(userId: string | null, tenantSlug: string) {
+  return Boolean(
+    tenantSlug &&
+      isOfflineBootstrapComplete(userId, tenantSlug) &&
+      isTenantTemplateBulkCached(tenantSlug)
+  );
+}
+
+/** Next.js route prefetch fights soft navigations inside the Capacitor WebView. */
+function shouldPrefetchWorkspaceRoutes(userId: string | null, tenantSlug: string) {
+  if (isCapacitorNativeApp()) return false;
+  if (isDeviceWorkspacePrepared(userId, tenantSlug)) return false;
+  return true;
+}
+
 function writeWorkspaceCache(
   userId: string | null,
   tenantSlug: string,
@@ -792,6 +808,9 @@ function WorkspacePageInner() {
    * callbacks must not router.replace back onto /workspace (cancels the outbound nav).
    */
   const outboundNavEpochRef = useRef(0);
+  /** Cancels deferred category URL replaces when a newer tab tap or form open wins. */
+  const categoryUrlEpochRef = useRef(0);
+  const deferredCategoryReplaceTimerRef = useRef<number | null>(null);
   /** Dedupes hover/click template schema prefetches. */
   const prefetchInFlightRef = useRef(new Map<string, Promise<void>>());
   /** Fingerprint of painted workspace — cheap equality for cache-event storms. */
@@ -925,10 +944,34 @@ function WorkspacePageInner() {
     writeRecentTemplateIds(tenantSlug, next);
   }
 
+  function cancelDeferredCategoryUrlReplace() {
+    categoryUrlEpochRef.current += 1;
+    if (deferredCategoryReplaceTimerRef.current !== null) {
+      window.clearTimeout(deferredCategoryReplaceTimerRef.current);
+      deferredCategoryReplaceTimerRef.current = null;
+    }
+  }
+
+  /** Defer category URL commits so they cannot cancel an in-flight form open (nav bounce). */
+  function scheduleCategoryUrlReplace(query: string, outboundEpochAtSchedule: number) {
+    const urlEpoch = ++categoryUrlEpochRef.current;
+    if (deferredCategoryReplaceTimerRef.current !== null) {
+      window.clearTimeout(deferredCategoryReplaceTimerRef.current);
+    }
+    deferredCategoryReplaceTimerRef.current = window.setTimeout(() => {
+      deferredCategoryReplaceTimerRef.current = null;
+      if (categoryUrlEpochRef.current !== urlEpoch) return;
+      if (outboundNavEpochRef.current !== outboundEpochAtSchedule) return;
+      if (!isLiveOnWorkspacePath()) return;
+      router.replace(`/workspace?${query}`);
+    }, 180);
+  }
+
   function openTemplate(templateId: string, tenantSlugForRoute: string) {
     if (openingTemplateId === templateId) return;
     // Pause background sync/warmup immediately — this click owns the main thread.
     markInteractiveNav(3200);
+    cancelDeferredCategoryUrlReplace();
     const navEpoch = ++outboundNavEpochRef.current;
     const href = tenantRouteHref(tenantSlugForRoute, "audits/new", { templateId });
 
@@ -936,14 +979,22 @@ function WorkspacePageInner() {
     rememberWorkspaceViewPref("forms");
     setOpeningTemplateId(templateId);
     setSwitchingCategory(false);
-    navigateWithFeedback(router, href, "push");
+    // Drop any in-flight workspace network work so its .then cannot race the soft nav.
+    workspaceFetchGenRef.current += 1;
+    const prepared = isDeviceWorkspacePrepared(cacheUserId, tenantSlugForRoute);
+    const schemaCached = Boolean(readAuditTemplateCache(tenantSlugForRoute, templateId));
+    // Cache-backed opens must not flash the global Loading chip.
+    navigateWithFeedback(router, href, "push", { silent: prepared || schemaCached });
 
-    // Soft nav can be cancelled by a late workspace router.replace — force commit if still here.
-    window.setTimeout(() => {
-      if (outboundNavEpochRef.current !== navEpoch) return;
-      if (!isLiveOnWorkspacePath()) return;
-      hardNavigate(href);
-    }, 1400);
+    // Only hard-fallback when the device snapshot is incomplete (online path may still
+    // race). After bootstrap, soft nav must win — matching offline feel.
+    if (!prepared) {
+      window.setTimeout(() => {
+        if (outboundNavEpochRef.current !== navEpoch) return;
+        if (!isLiveOnWorkspacePath()) return;
+        hardNavigate(href);
+      }, 1400);
+    }
   }
 
   function markWorkspaceTourSeen() {
@@ -2142,13 +2193,17 @@ function WorkspacePageInner() {
       !forceRefresh &&
       !forceNetworkRefetch &&
       Boolean(cached) &&
-      isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
-      isTenantTemplateBulkCached(tenantSlug);
+      isDeviceWorkspacePrepared(cacheUserId, tenantSlug);
 
     // The first-login bootstrap is the complete download contract. Once it has
     // succeeded, use the device snapshot until the user explicitly requests refresh.
-    if (preparedOfflineCache) {
-      setWorkspace(cached);
+    // Online and offline share this path — connectivity must not change interaction speed.
+    // Also skip network while the user is mid-navigation (form open / leave workspace).
+    if (
+      preparedOfflineCache ||
+      (cached && shouldPauseBackgroundWork() && !forceRefresh && !forceNetworkRefetch)
+    ) {
+      setWorkspace(cached!);
       setWorkspaceLoading(false);
       setSwitchingCategory(false);
       return () => {
@@ -2295,6 +2350,11 @@ function WorkspacePageInner() {
         if (data.selectedCategoryId) {
           writeWorkspaceCache(cacheUserId, tenantSlug, data.selectedCategoryId, data, {
             silent: data.selectedCategoryId !== categoryId,
+          });
+        }
+        if (forceRefresh) {
+          void cacheAllTenantTemplates(accessToken, tenantSlug).catch(() => {
+            // The refreshed workspace remains usable; retry on the next explicit refresh.
           });
         }
 
@@ -2631,6 +2691,7 @@ function WorkspacePageInner() {
 
   useEffect(() => {
     if (!workspace || offlineFromHook) return;
+    if (!shouldPrefetchWorkspaceRoutes(cacheUserId, workspace.tenant.slug)) return;
 
     const role = workspace.role || (workspace.isAdmin ? "ADMIN" : "MEMBER");
     const canAccessSettings =
@@ -2645,15 +2706,17 @@ function WorkspacePageInner() {
     workspace?.isAdmin,
     router,
     offlineFromHook,
+    cacheUserId,
   ]);
 
   useEffect(() => {
     if (!workspace || offlineFromHook) return;
+    if (!shouldPrefetchWorkspaceRoutes(cacheUserId, workspace.tenant.slug)) return;
     const toPrefetch = workspace.templates.slice(0, 8);
     for (const t of toPrefetch) {
       router.prefetch(tenantRouteHref(workspace.tenant.slug, "audits/new", { templateId: t.id }));
     }
-  }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook]);
+  }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook, cacheUserId]);
 
   useEffect(() => {
     revalidateContextRef.current = { tenantSlug, categoryId, cacheUserId };
@@ -2662,9 +2725,14 @@ function WorkspacePageInner() {
   useEffect(() => {
     const maybeRevalidateFromBackground = () => {
       if (isAppOffline()) return;
+      const ctx = revalidateContextRef.current;
+      // After first-login bootstrap, stay on the device snapshot until explicit Refresh
+      // or a mutation invalidate — matches offline sharpness while online.
+      if (ctx.tenantSlug && isDeviceWorkspacePrepared(ctx.cacheUserId, ctx.tenantSlug)) {
+        return;
+      }
       const now = Date.now();
       if (now - lastBackgroundRevalidateRef.current < 45_000) return;
-      const ctx = revalidateContextRef.current;
       if (
         ctx.tenantSlug &&
         isWorkspaceCacheFresh(ctx.cacheUserId, ctx.tenantSlug, ctx.categoryId, ONLINE_WORKSPACE_CACHE_TTL_MS)
@@ -2675,7 +2743,13 @@ function WorkspacePageInner() {
       setRevalidateTick((x) => x + 1);
     };
 
-    const onOnline = () => setRevalidateTick((x) => x + 1);
+    const onOnline = () => {
+      const ctx = revalidateContextRef.current;
+      if (ctx.tenantSlug && isDeviceWorkspacePrepared(ctx.cacheUserId, ctx.tenantSlug)) {
+        return;
+      }
+      setRevalidateTick((x) => x + 1);
+    };
     const onFocus = () => {
       maybeRevalidateFromBackground();
     };
@@ -3261,8 +3335,16 @@ function WorkspacePageInner() {
                       pendingCategoryIdRef.current = c.id;
                       setUiActiveCategoryId(c.id);
                       const cachedCategoryData = readExactCategoryCache(cacheUserId, tenant.slug, c.id);
+                      const prepared = isDeviceWorkspacePrepared(cacheUserId, tenant.slug);
                       if (cachedCategoryData) {
                         setWorkspace(cachedCategoryData);
+                        setSwitchingCategory(false);
+                      } else if (prepared) {
+                        // Bootstrap finished: never flash the category banner or clear cards.
+                        // Keep prior templates until the exact snapshot (or soft fetch) paints.
+                        setWorkspace((prev) =>
+                          prev ? { ...prev, selectedCategoryId: c.id } : prev
+                        );
                         setSwitchingCategory(false);
                       } else {
                         // Keep brand chrome; clear forms until this category loads.
@@ -3280,7 +3362,13 @@ function WorkspacePageInner() {
                       // Category strip only exists on forms surface — never fall back to admin.
                       next.set("view", "forms");
                       rememberWorkspaceViewPref("forms");
-                      if (isLiveOnWorkspacePath()) {
+                      if (!isLiveOnWorkspacePath()) return;
+                      // Cache hit: defer URL replace so it cannot cancel a form open soft-nav.
+                      // Miss: commit immediately so the load effect can fetch this category.
+                      if (cachedCategoryData) {
+                        scheduleCategoryUrlReplace(next.toString(), outboundNavEpochRef.current);
+                      } else {
+                        cancelDeferredCategoryUrlReplace();
                         router.replace(`/workspace?${next.toString()}`);
                       }
                     }}
@@ -3525,16 +3613,19 @@ function WorkspacePageInner() {
                                 type="button"
                                 onMouseEnter={() => {
                                   scheduleTemplatePrefetch(t.id);
-                                  router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                                  if (shouldPrefetchWorkspaceRoutes(cacheUserId, tenant.slug)) {
+                                    router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                                  }
                                 }}
                                 onFocus={() => {
                                   scheduleTemplatePrefetch(t.id);
-                                  router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                                  if (shouldPrefetchWorkspaceRoutes(cacheUserId, tenant.slug)) {
+                                    router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                                  }
                                 }}
                                 onClick={() => {
                                   setRecentOpen(false);
-                                    openTemplate(t.id, tenant.slug);
-                                  window.setTimeout(() => setOpeningTemplateId(null), 600);
+                                  openTemplate(t.id, tenant.slug);
                                 }}
                                 className="rounded-md px-2 py-2 text-left text-sm hover:bg-foreground/5"
                               >
@@ -3643,22 +3734,25 @@ function WorkspacePageInner() {
                       tabIndex={0}
                       onMouseEnter={() => {
                         scheduleTemplatePrefetch(t.id);
-                        router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                        if (shouldPrefetchWorkspaceRoutes(cacheUserId, tenant.slug)) {
+                          router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                        }
                       }}
                       onFocus={() => {
                         scheduleTemplatePrefetch(t.id);
-                        router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                        if (shouldPrefetchWorkspaceRoutes(cacheUserId, tenant.slug)) {
+                          router.prefetch(tenantRouteHref(tenant.slug, "audits/new", { templateId: t.id }));
+                        }
                       }}
                       onClick={() => {
                         openTemplate(t.id, tenant.slug);
-                        window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
                       onKeyDown={(e) => {
                         if (e.key !== "Enter" && e.key !== " ") return;
                         e.preventDefault();
                         openTemplate(t.id, tenant.slug);
-                        window.setTimeout(() => setOpeningTemplateId(null), 600);
                       }}
+                      aria-busy={openingTemplateId === t.id}
                       className={
                         "iso-app-card relative w-full rounded-lg border p-4 text-left focus:outline-none focus:ring-2 focus:ring-foreground/30 " +
                         templateCardClasses(t.settings?.cardColor) +
@@ -3909,7 +4003,9 @@ function WorkspacePageInner() {
 
 export default function WorkspacePage() {
   return (
-    <Suspense fallback={<WorkspaceSkeleton />}>
+    // Null fallback: useSearchParams suspend is brief; a full skeleton reads as a
+    // "Loading…" navigation when returning home from a cached form.
+    <Suspense fallback={null}>
       <BackgroundSyncManager />
       <WorkspacePageInner />
     </Suspense>

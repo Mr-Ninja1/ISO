@@ -30,6 +30,9 @@ import { shouldPauseBackgroundWork, waitForInteractiveNavClear } from "@/lib/cli
 import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 
+const REMOTE_CHANGE_CHECK_INTERVAL_MS = 5 * 60_000;
+const RECONNECT_SETTLE_DELAY_MS = 3_000;
+
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
   return auditPending + getPendingTemplateSyncCount() + getPendingBackgroundMutationCount();
@@ -101,10 +104,16 @@ export function BackgroundSyncManager() {
 
   useEffect(() => {
     if (!accessToken || !online) return;
+    const isAuditInteractionPath = Boolean(
+      pathname?.includes("/audits/new") || pathname?.match(/\/audits\/[^/]+/)
+    );
+    if (isAuditInteractionPath) return;
 
     let active = true;
     let pullRunning = false;
     const pullController = new AbortController();
+    let lastRemoteCheckAt = 0;
+    let reconnectTimer: number | null = null;
 
     async function fetchJson<T>(url: string) {
       const res = await fetch(url, {
@@ -112,9 +121,45 @@ export function BackgroundSyncManager() {
         signal: pullController.signal,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as any)?.error || `Request failed (${res.status})`);
+      if (!res.ok) {
+        const errorMessage =
+          typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error
+            : `Request failed (${res.status})`;
+        throw new Error(errorMessage);
+      }
       return data as T;
     }
+
+    const checkRemoteChanges = async (force = false) => {
+      const slug = tenantSlugRef.current;
+      const userId = user?.id || null;
+      if (!slug || !active || isAppOffline()) return;
+      if (!force && Date.now() - lastRemoteCheckAt < REMOTE_CHANGE_CHECK_INTERVAL_MS) return;
+      if (!isOfflineBootstrapComplete(userId, slug) || !isTenantTemplateBulkCached(slug)) return;
+
+      lastRemoteCheckAt = Date.now();
+      try {
+        const changesUrl = new URL(apiUrl("/api/workspace/changes"));
+        changesUrl.searchParams.set("tenantSlug", slug);
+        const changeState = await fetchJson<{ signature?: string }>(changesUrl.toString());
+        const nextSignature = changeState.signature || "";
+        if (!nextSignature || !active) return;
+
+        const storageKey = workspaceChangeSignatureKey(slug);
+        const previousSignature = localStorage.getItem(storageKey);
+        if (previousSignature && previousSignature !== nextSignature) {
+          window.dispatchEvent(
+            new CustomEvent("workspace-updates-available", {
+              detail: { tenantSlug: slug },
+            })
+          );
+        }
+        localStorage.setItem(storageKey, nextSignature);
+      } catch {
+        // Remote checks are advisory; local cached work remains available.
+      }
+    };
 
     const runPullSync = async () => {
       const slug = tenantSlugRef.current;
@@ -229,8 +274,6 @@ export function BackgroundSyncManager() {
         await flushTemplateSyncQueue(accessToken);
         if (!active) return;
         await flushBackgroundMutationQueue(accessToken);
-        if (!active) return;
-        await runPullSync();
       } finally {
         if (!active) return;
         setSyncing(false);
@@ -252,57 +295,61 @@ export function BackgroundSyncManager() {
       flushInFlightRef.current = tracked;
     };
 
-    maybeFlush();
-    runPullSync().catch(() => {
-      // ignore initial pull sync failures
-    });
-    const onOnline = () => {
+    // Initial flush after settle — never compete with first paint / first taps.
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      if (!active || shouldPauseBackgroundWork()) return;
       maybeFlush();
-      runPullSync().catch(() => {
-        // ignore reconnect sync failures
-      });
+      void checkRemoteChanges();
+    }, RECONNECT_SETTLE_DELAY_MS);
+
+    const onOnline = () => {
+      // Defer flush so reconnect radio work never fights the user's first taps.
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        if (shouldPauseBackgroundWork()) return;
+        maybeFlush();
+        void checkRemoteChanges(true);
+      }, RECONNECT_SETTLE_DELAY_MS);
     };
     const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        maybeFlush();
-        runPullSync().catch(() => {
-          // ignore
-        });
-      }
+      if (document.visibilityState !== "visible") return;
+      if (shouldPauseBackgroundWork()) return;
+      maybeFlush();
+      void checkRemoteChanges();
     };
     const onFocus = () => {
+      if (shouldPauseBackgroundWork()) return;
       maybeFlush();
+      void checkRemoteChanges();
+    };
+    const onExplicitSync = () => {
       runPullSync().catch(() => {
-        // ignore
+        // ignore explicit refresh failures
       });
     };
     const interval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       if (shouldPauseBackgroundWork()) return;
       maybeFlush();
-    }, 15_000);
-    // Pull often enough that other devices' forms/categories appear without re-login.
-    const pullInterval = window.setInterval(() => {
-      if (document.visibilityState === "hidden") return;
-      if (shouldPauseBackgroundWork()) return;
-      runPullSync().catch(() => {
-        // ignore
-      });
-    }, 30_000);
+    }, 60_000);
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("workspace-sync-requested", onExplicitSync);
 
     return () => {
       active = false;
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("workspace-sync-requested", onExplicitSync);
       window.clearInterval(interval);
-      window.clearInterval(pullInterval);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       pullController.abort();
     };
-  }, [accessToken, online, tenantSlug, user?.id]);
+  }, [accessToken, online, pathname, tenantSlug, user?.id]);
 
   const label = useMemo(() => {
     if (!online) return "Offline mode";

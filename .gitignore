@@ -45,5 +45,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+web/dist/iso-grid.apk
 dist/iso-grid.apk
+web\dist\iso-grid.apk
 dist/iso-grid.apk

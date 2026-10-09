@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { AuditReportDisplay } from "@/components/forms/AuditReportDisplay";
+import { PdfGeneratorButton } from "@/components/forms/PdfGeneratorButton";
 import { apiUrl } from "@/lib/client/apiBase";
 import type { AuditReportData } from "@/types/auditReport";
 
@@ -81,12 +82,19 @@ function SharedFormViewer() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
       <div className="print:hidden">
-        <Link
-          href={`/shared/forms?token=${encodeURIComponent(token)}`}
-          className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
-        >
-          Back to shared forms
-        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link
+            href={`/shared/forms?token=${encodeURIComponent(token)}`}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm hover:bg-foreground/5"
+          >
+            Back to shared forms
+          </Link>
+          <PdfGeneratorButton
+            formTitle={audit.template.title}
+            tenantSlug={audit.tenant.slug}
+            defaultOrientation="landscape"
+          />
+        </div>
       </div>
       <AuditReportDisplay audit={audit} tenantSlug={audit.tenant.slug} auditId={audit.id} />
     </div>

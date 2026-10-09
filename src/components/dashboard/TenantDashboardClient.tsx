@@ -8,6 +8,7 @@ import { FeatureSyncNotice } from "@/components/FeatureSyncNotice";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { readCachedActivityRows, writeCachedActivityRows, type CachedActivityRow } from "@/lib/client/activityCache";
 import { readAuditsListCache, writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
+import { readWorkspaceCache } from "@/lib/client/workspaceCache";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { PlusCircle } from "lucide-react"; // Add PlusCircle icon
@@ -251,6 +252,12 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     if (cachedAudits?.rows?.length) {
       setAudits(cachedAudits.rows);
     }
+
+    const cachedWorkspace = readWorkspaceCache(session?.user?.id || null, tenantSlug, null);
+    if (cachedWorkspace) {
+      setWorkspace(cachedWorkspace as WorkspaceResponse);
+      setLoading(false);
+    }
   }, [tenantSlug, session?.user?.id]);
 
   useEffect(() => {
@@ -279,7 +286,6 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
   useEffect(() => {
     const token = session?.access_token || "";
     if (authLoading) {
-      setLoading(true);
       return;
     }
 
@@ -294,7 +300,14 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     }
 
     let cancelled = false;
-    setLoading(true);
+    const hasPaintedCache =
+      Boolean(readWorkspaceCache(session?.user?.id || null, tenantSlug, null)) ||
+      Boolean(readAuditsListCache(session?.user?.id || null, tenantSlug)?.rows?.length) ||
+      readCachedActivityRows(tenantSlug).length > 0;
+    // Soft revalidate: keep cached UI visible — do not blank the screen for network.
+    if (!hasPaintedCache) {
+      setLoading(true);
+    }
     setError("");
 
     const fetchJson = async <T,>(url: string) => {
@@ -367,7 +380,7 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
         activityResult.status === "fulfilled" ||
         staffResult.status === "fulfilled" ||
         metricsResult?.status === "fulfilled";
-      if (!usableData && !online) {
+      if (!usableData && !online && !hasPaintedCache) {
         setError("This dashboard is cached locally but needs internet to refresh cross-device data.");
       }
 
@@ -385,6 +398,7 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- paint from cache; refresh only on auth/online/tenant
   }, [authLoading, online, session?.access_token, session?.user?.id, tenantSlug]);
 
   if (!online) {

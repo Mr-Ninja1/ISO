@@ -56,13 +56,14 @@ export async function GET(req: Request) {
       )
       .eq("tenant_id", link.tenant_id)
       .eq("status", "SUBMITTED")
+      .order("submitted_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false })
       .limit(500);
 
     if (link.live_scope === "today") {
       const start = new Date();
       start.setHours(0, 0, 0, 0);
-      query = query.gte("updated_at", start.toISOString());
+      query = query.gte("submitted_at", start.toISOString());
     }
 
     const { data: liveRows, error: liveErr } = await query;
@@ -108,18 +109,22 @@ export async function GET(req: Request) {
     ];
   });
 
-  return NextResponse.json({
-    share: {
-      title: link.title,
-      mode: link.mode,
-      createdAt: link.created_at,
-      expiresAt: link.expires_at,
-      tenant: {
-        name: typeof tenant?.name === "string" ? tenant.name : "Brand",
-        slug: typeof tenant?.slug === "string" ? tenant.slug : "",
-        logoUrl: typeof tenant?.logo_url === "string" ? tenant.logo_url : null,
+  return NextResponse.json(
+    {
+      share: {
+        title: link.title,
+        tenantId: link.tenant_id,
+        mode: link.mode,
+        createdAt: link.created_at,
+        expiresAt: link.expires_at,
+        tenant: {
+          name: typeof tenant?.name === "string" ? tenant.name : "Brand",
+          slug: typeof tenant?.slug === "string" ? tenant.slug : "",
+          logoUrl: typeof tenant?.logo_url === "string" ? tenant.logo_url : null,
+        },
+        rows,
       },
-      rows,
     },
-  });
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
 }

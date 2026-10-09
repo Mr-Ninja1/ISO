@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const MIN_VISIBLE_MS = 60;
 const MAX_VISIBLE_MS = 8000;
-const START_DELAY_MS = 180;
+/** Delay before the chip appears so cache-backed soft navs that finish quickly stay silent. */
+const START_DELAY_MS = 420;
 
 function isInternalNavigableAnchor(target: EventTarget | null): HTMLAnchorElement | null {
   if (!(target instanceof Element)) return null;

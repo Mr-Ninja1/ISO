@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { isAppOffline, INTERNET_RESTORED_EVENT, OFFLINE_MODE_CHANGED_EVENT, initInternetStatusMonitor } from "./appOffline";
 import { initReachabilityMonitor } from "./reachability";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 /** Reactive offline state (browser + `window.__ISO_FORCE_OFFLINE__` from mobile shell). */
 export function useAppOffline(): boolean {
@@ -12,14 +11,16 @@ export function useAppOffline(): boolean {
   );
 
   useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
-
-    const sync = () => setOffline(isAppOffline());
+    const sync = () => {
+      const next = isAppOffline();
+      setOffline((prev) => (prev === next ? prev : next));
+    };
 
     sync();
+    // Shared singletons — safe to call from every consumer.
     const unsubscribe = initInternetStatusMonitor();
     const stopReachability = initReachabilityMonitor();
-    
+
     window.addEventListener("online", sync);
     window.addEventListener("offline", sync);
     window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, sync);
