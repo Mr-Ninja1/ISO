@@ -17,6 +17,8 @@ import {
   Camera,
   Check,
   CheckSquare,
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   Ellipsis,
@@ -361,6 +363,10 @@ function DisplayFieldCard({
   onChange,
   onRemove,
   canDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   field: import("@/types/forms").DisplayField;
   isActive: boolean;
@@ -369,6 +375,10 @@ function DisplayFieldCard({
   onChange: (next: import("@/types/forms").DisplayField) => void;
   onRemove?: () => void;
   canDelete?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }) {
   const previewText = displayFieldText(field);
   const variant = field.variant || "body";
@@ -384,6 +394,16 @@ function DisplayFieldCard({
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="text-xs font-semibold text-[var(--hse-teal)]">Read-only label</div>
           <div className="flex items-center gap-1">
+            {onMoveUp ? (
+              <button type="button" onClick={onMoveUp} disabled={!canMoveUp} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-40" title="Move field up" aria-label="Move field up">
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            ) : null}
+            {onMoveDown ? (
+              <button type="button" onClick={onMoveDown} disabled={!canMoveDown} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-40" title="Move field down" aria-label="Move field down">
+                <ArrowDown className="h-4 w-4" />
+              </button>
+            ) : null}
             {onRemove && canDelete ? (
               <button
                 type="button"
@@ -493,6 +513,16 @@ function DisplayFieldCard({
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         ) : null}
+        {onMoveUp ? (
+          <button type="button" onClick={onMoveUp} disabled={!canMoveUp} className="shrink-0 rounded-md border border-foreground/20 p-1 hover:bg-foreground/5 disabled:opacity-40" title="Move field up" aria-label="Move field up">
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {onMoveDown ? (
+          <button type="button" onClick={onMoveDown} disabled={!canMoveDown} className="shrink-0 rounded-md border border-foreground/20 p-1 hover:bg-foreground/5 disabled:opacity-40" title="Move field down" aria-label="Move field down">
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -504,12 +534,20 @@ function FieldCard({
   onRemove,
   onToggleActive,
   canDelete = true,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   field: FieldDef;
   onChange: (next: FieldDef) => void;
   onRemove?: () => void;
   onToggleActive?: () => void;
   canDelete?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const supportsPlaceholder = field.type === "text" || field.type === "date" || field.type === "number";
@@ -525,6 +563,10 @@ function FieldCard({
         onChange={onChange as (next: import("@/types/forms").DisplayField) => void}
         onRemove={onRemove}
         canDelete={canDelete}
+        onMoveUp={onMoveUp}
+        onMoveDown={onMoveDown}
+        canMoveUp={canMoveUp}
+        canMoveDown={canMoveDown}
       />
     );
   }
@@ -535,6 +577,16 @@ function FieldCard({
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="text-xs font-semibold opacity-70">{field.type}</div>
           <div className="flex items-center gap-1">
+            {onMoveUp ? (
+              <button type="button" onClick={onMoveUp} disabled={!canMoveUp} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-40" title="Move field up" aria-label="Move field up">
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            ) : null}
+            {onMoveDown ? (
+              <button type="button" onClick={onMoveDown} disabled={!canMoveDown} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/5 disabled:opacity-40" title="Move field down" aria-label="Move field down">
+                <ArrowDown className="h-4 w-4" />
+              </button>
+            ) : null}
             {onToggleActive ? (
               <button
                 type="button"
@@ -543,6 +595,16 @@ function FieldCard({
                 title={isActive ? "Hide field" : "Show field"}
               >
                 {isActive ? "Hide" : "Show"}
+              </button>
+            ) : null}
+            {onMoveUp ? (
+              <button type="button" onClick={onMoveUp} disabled={!canMoveUp} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/10 disabled:opacity-40" title="Move field up" aria-label="Move field up">
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            ) : null}
+            {onMoveDown ? (
+              <button type="button" onClick={onMoveDown} disabled={!canMoveDown} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-foreground/20 hover:bg-foreground/10 disabled:opacity-40" title="Move field down" aria-label="Move field down">
+                <ArrowDown className="h-4 w-4" />
               </button>
             ) : null}
             {onRemove && canDelete ? (
@@ -985,6 +1047,7 @@ function ColumnEditorModal({
   onClose,
   onUpdateColumn,
   onApplyGridChange,
+  onInsertColumn,
   onDelete,
   onEditStaticItems,
 }: {
@@ -995,6 +1058,7 @@ function ColumnEditorModal({
   onClose: () => void;
   onUpdateColumn: (colId: string, patch: Partial<SimpleFieldDef>) => void;
   onApplyGridChange: (next: GridSection) => void;
+  onInsertColumn: (position: "before" | "after") => void;
   onDelete: () => void;
   onEditStaticItems?: (columnId: string) => void;
 }) {
@@ -1025,6 +1089,24 @@ function ColumnEditorModal({
               placeholder={COLUMN_HEADER_PLACEHOLDER}
               autoFocus
             />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-foreground/20 text-sm hover:bg-foreground/5"
+              onClick={() => onInsertColumn("before")}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+              Insert before
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-foreground/20 text-sm hover:bg-foreground/5"
+              onClick={() => onInsertColumn("after")}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+              Insert after
+            </button>
           </div>
           <div className="grid gap-1">
             <div className="text-xs font-medium text-foreground/70">Data type</div>
@@ -1348,6 +1430,10 @@ function GridBuilder({
   }
 
   function addColumn() {
+    insertColumnAt(grid.columns.length);
+  }
+
+  function insertColumnAt(index: number) {
     const colId = makeId("col");
     const nextCol: SimpleFieldDef = {
       id: colId,
@@ -1355,8 +1441,11 @@ function GridBuilder({
       label: COLUMN_HEADER_PLACEHOLDER,
       required: false,
     } as SimpleFieldDef;
-    applyGridChange({ ...grid, columns: [...grid.columns, nextCol] });
+    const columns = [...grid.columns];
+    columns.splice(Math.max(0, Math.min(index, columns.length)), 0, nextCol);
+    applyGridChange({ ...grid, columns });
     setActiveColId(colId);
+    setEditingColumnId(colId);
   }
 
   const previewRows = Math.max(
@@ -2053,6 +2142,10 @@ function GridBuilder({
           onClose={() => setEditingColumnId(null)}
           onUpdateColumn={updateColumn}
           onApplyGridChange={applyGridChange}
+          onInsertColumn={(position) => {
+            const index = grid.columns.findIndex((column) => column.id === activeCol.id);
+            insertColumnAt(index + (position === "after" ? 1 : 0));
+          }}
           onEditStaticItems={openStaticItemsEditor}
           onDelete={() => {
             applyGridChange({ ...grid, columns: grid.columns.filter((c) => c.id !== activeCol.id) });
@@ -2174,6 +2267,17 @@ export function FormBuilder({
 
   function sync(next: BuilderState) {
     setState(next);
+  }
+
+  function moveField(section: "top" | "bottom", fieldId: string, direction: -1 | 1) {
+    const fields = section === "top" ? state.topFields : state.bottomFields;
+    const index = fields.findIndex((field) => field.id === fieldId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= fields.length) return;
+    const nextFields = [...fields];
+    const [field] = nextFields.splice(index, 1);
+    nextFields.splice(nextIndex, 0, field);
+    sync(section === "top" ? { ...state, topFields: nextFields } : { ...state, bottomFields: nextFields });
   }
 
   function applyStarterLayout() {
@@ -2551,7 +2655,7 @@ export function FormBuilder({
                     </div>
                     {state.topFields.length ? (
                       <div className={"mt-3 " + sectionColumnsClass(state.topFieldsColumns)}>
-                        {state.topFields.map((f) => (
+                        {state.topFields.map((f, index) => (
                           <FieldCard
                             key={f.id}
                             field={f}
@@ -2571,6 +2675,10 @@ export function FormBuilder({
                             onChange={(next) => {
                               sync({ ...state, topFields: state.topFields.map((x) => (x.id === f.id ? next : x)) });
                             }}
+                            onMoveUp={() => moveField("top", f.id, -1)}
+                            onMoveDown={() => moveField("top", f.id, 1)}
+                            canMoveUp={index > 0}
+                            canMoveDown={index < state.topFields.length - 1}
                             onRemove={() => {
                               const next = state.topFields.filter((x) => x.id !== f.id);
                               sync({ ...state, topFields: next });
@@ -2679,7 +2787,7 @@ export function FormBuilder({
 
                       {state.bottomFields.length ? (
                         <div className={"mt-3 " + sectionColumnsClass(state.bottomFieldsColumns)}>
-                          {state.bottomFields.map((f) => (
+                          {state.bottomFields.map((f, index) => (
                             <FieldCard
                               key={f.id}
                               field={f}
@@ -2699,6 +2807,10 @@ export function FormBuilder({
                               onChange={(next) => {
                                 sync({ ...state, bottomFields: state.bottomFields.map((x) => (x.id === f.id ? next : x)) });
                               }}
+                              onMoveUp={() => moveField("bottom", f.id, -1)}
+                              onMoveDown={() => moveField("bottom", f.id, 1)}
+                              canMoveUp={index > 0}
+                              canMoveDown={index < state.bottomFields.length - 1}
                               onRemove={() => {
                                 const next = state.bottomFields.filter((x) => x.id !== f.id);
                                 sync({ ...state, bottomFields: next });
