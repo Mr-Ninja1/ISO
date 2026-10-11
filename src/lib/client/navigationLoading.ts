@@ -34,7 +34,28 @@ type NavigateWithFeedbackOptions = {
    * home, prepared category switches) where soft nav should feel instant.
    */
   silent?: boolean;
+  /** How long to pause background sync while the route paints (ms). */
+  busyMs?: number;
 };
+
+function runRouterNav(
+  router: Pick<AppRouterLike, "push" | "replace">,
+  href: string,
+  method: "push" | "replace",
+) {
+  const go = () => router[method](href);
+  // View Transitions give a native cross-fade when the browser supports them.
+  const doc = typeof document !== "undefined" ? document : null;
+  if (doc && "startViewTransition" in doc) {
+    try {
+      (doc as Document & { startViewTransition: (cb: () => void) => void }).startViewTransition(go);
+      return;
+    } catch {
+      // Fall through to plain navigation.
+    }
+  }
+  go();
+}
 
 /** Navigate with immediate global loading feedback (top progress bar). */
 export function navigateWithFeedback(
@@ -52,9 +73,9 @@ export function navigateWithFeedback(
   }
 
   // Pause background sync/warmup so leave/open paint stays native-fast.
-  markInteractiveNav(3200);
+  markInteractiveNav(options?.busyMs ?? 3200);
   if (!options?.silent) {
     signalNavigationStart(href);
   }
-  router[method](href);
+  runRouterNav(router, href, method);
 }

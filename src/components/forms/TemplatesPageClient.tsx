@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
+import { SoftNavLink } from "@/components/SoftNavLink";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import {
@@ -14,6 +15,7 @@ import {
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
+import { scheduleIdleWork, shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 
 type CategoryRow = { id: string; name: string; sortOrder: number };
 type TemplateRow = {
@@ -96,30 +98,40 @@ export function TemplatesPageClient({ routeSlug }: { routeSlug: string }) {
     let cancelled = false;
     setError("");
 
-    const url = new URL(apiUrl("/api/workspace"));
-    url.searchParams.set("tenantSlug", tenantSlug);
+    const run = () => {
+      if (cancelled || shouldPauseBackgroundWork()) {
+        if (!cancelled && cached) setLoading(false);
+        return;
+      }
 
-    fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || `Failed to load templates (${res.status})`);
-        return data as WorkspaceData;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        writeWorkspaceCache(userId, tenantSlug, null, data);
-        applyCachedLists(data, setCategories, setTemplates);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        if (!cached) setError(err?.message || "Failed to load templates");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      const url = new URL(apiUrl("/api/workspace"));
+      url.searchParams.set("tenantSlug", tenantSlug);
+
+      fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || `Failed to load templates (${res.status})`);
+          return data as WorkspaceData;
+        })
+        .then((data) => {
+          if (cancelled) return;
+          writeWorkspaceCache(userId, tenantSlug, null, data, { silent: Boolean(cached) });
+          applyCachedLists(data, setCategories, setTemplates);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (!cached) setError(err?.message || "Failed to load templates");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    const cancelIdle = scheduleIdleWork(run, cached ? 280 : 0);
 
     return () => {
       cancelled = true;
+      cancelIdle();
     };
   }, [tenantSlug, accessToken, offline, userId, tick]);
 
@@ -171,15 +183,18 @@ export function TemplatesPageClient({ routeSlug }: { routeSlug: string }) {
           <p className="text-sm text-foreground/70">Open a form to fill it, or create a new one.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link
+          <SoftNavLink
             href={createHref}
             className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 text-sm font-medium text-background"
           >
             Create form
-          </Link>
-          <Link href={workspaceHref} className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm">
+          </SoftNavLink>
+          <SoftNavLink
+            href={workspaceHref}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
+          >
             Workspace
-          </Link>
+          </SoftNavLink>
         </div>
       </div>
 
@@ -189,16 +204,16 @@ export function TemplatesPageClient({ routeSlug }: { routeSlug: string }) {
             <h3 className="text-sm font-semibold text-foreground/80">{cat.name}</h3>
             <div className="grid gap-2">
               {(templatesByCategoryId.get(cat.id) ?? []).map((t) => (
-                <Link
+                <SoftNavLink
                   key={t.id}
-                  className="rounded-md border border-foreground/20 p-4"
+                  className="nav-pressable rounded-md border border-foreground/20 p-4"
                   href={buildTenantHref(tenantSlug, "audits/new", { templateId: t.id })}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="font-medium">{t.title}</div>
                     <span className="text-sm text-foreground/70">Run</span>
                   </div>
-                </Link>
+                </SoftNavLink>
               ))}
             </div>
           </section>
@@ -209,16 +224,16 @@ export function TemplatesPageClient({ routeSlug }: { routeSlug: string }) {
             <h3 className="text-sm font-semibold text-foreground/80">Uncategorized</h3>
             <div className="grid gap-2">
               {(templatesByCategoryId.get("uncategorized") ?? []).map((t) => (
-                <Link
+                <SoftNavLink
                   key={t.id}
-                  className="rounded-md border border-foreground/20 p-4"
+                  className="nav-pressable rounded-md border border-foreground/20 p-4"
                   href={buildTenantHref(tenantSlug, "audits/new", { templateId: t.id })}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="font-medium">{t.title}</div>
                     <span className="text-sm text-foreground/70">Run</span>
                   </div>
-                </Link>
+                </SoftNavLink>
               ))}
             </div>
           </section>

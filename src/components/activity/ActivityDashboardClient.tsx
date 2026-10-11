@@ -130,7 +130,8 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
   useEffect(() => {
     const token = session?.access_token;
     if (authLoading) {
-      setLoading(true);
+      // Keep painted cache visible while auth finishes — do not flash a spinner.
+      if (rows.length === 0) setLoading(true);
       return;
     }
 
@@ -148,7 +149,9 @@ export function ActivityDashboardClient({ tenantSlug }: { tenantSlug: string }) 
     }
 
     let cancelled = false;
-    setLoading(true);
+    const hasCachedRows = rows.length > 0;
+    // Soft revalidate: never blank a cache-painted activity feed for network.
+    if (!hasCachedRows) setLoading(true);
     setError("");
 
     const url = new URL(apiUrl("/api/activity"));

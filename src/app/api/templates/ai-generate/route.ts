@@ -5,10 +5,13 @@ import {
   assessFormSchemaContext,
   generateFormSchemaFromInput,
   looksLikeMeaningfulFormRequest,
+  refineFormSchemaFromInput,
+  sanitizeAiFormSchema,
 } from "@/lib/ai/generateFormSchema";
 import { getGeminiModelName, isGeminiConfigured } from "@/lib/ai/gemini";
 import { validateSourceDocument } from "@/lib/ai/sourceDocument";
 import { ensureTenantPlan, getAiQuotaStatus, recordAiUsage } from "@/lib/tenantPlan";
+import type { FormSchemaV1 } from "@/types/forms";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -78,6 +81,7 @@ export async function POST(req: Request) {
     let phase = "generate";
     let answersRaw = "";
     let file: File | null = null;
+    let schemaRaw: unknown = null;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
@@ -85,6 +89,14 @@ export async function POST(req: Request) {
       prompt = String(formData.get("prompt") || "").trim();
       phase = String(formData.get("phase") || "generate").trim().toLowerCase();
       answersRaw = String(formData.get("answers") || "").trim();
+      const schemaField = formData.get("schema");
+      if (typeof schemaField === "string" && schemaField.trim()) {
+        try {
+          schemaRaw = JSON.parse(schemaField);
+        } catch {
+          schemaRaw = null;
+        }
+      }
       const rawFile = formData.get("file");
       file = rawFile instanceof File && rawFile.size > 0 ? rawFile : null;
     } else {
@@ -93,14 +105,74 @@ export async function POST(req: Request) {
         prompt?: string;
         phase?: string;
         answers?: Record<string, string>;
+        schema?: FormSchemaV1;
       };
       tenantSlug = String(body.tenantSlug || "").trim();
       prompt = String(body.prompt || "").trim();
       phase = String(body.phase || "generate").trim().toLowerCase();
       answersRaw = body.answers ? JSON.stringify(body.answers) : "";
+      schemaRaw = body.schema || null;
     }
 
     if (!tenantSlug) return NextResponse.json({ error: "tenantSlug is required" }, { status: 400 });
+
+    const auth = await authorizeTenant(token, tenantSlug);
+    if ("error" in auth && auth.error) return auth.error;
+
+    const plan = await ensureTenantPlan(auth.sb, auth.tenantId);
+    const quota = await getAiQuotaStatus(auth.sb, auth.tenantId);
+
+    if (phase === "refine") {
+      if (!prompt.trim()) {
+        return NextResponse.json({ error: "Describe how to refine the form." }, { status: 400 });
+      }
+      if (prompt.length > 2000) {
+        return NextResponse.json({ error: "Refine instruction is too long (max 2000 characters)" }, { status: 400 });
+      }
+      if (!schemaRaw || typeof schemaRaw !== "object") {
+        return NextResponse.json({ error: "Current form schema is required to refine." }, { status: 400 });
+      }
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            error: `AI form limit reached for this month (${quota.used}/${quota.limit}). Contact your platform developer to upgrade this brand.`,
+            code: "AI_QUOTA_EXCEEDED",
+            quota,
+          },
+          { status: 402 },
+        );
+      }
+
+      const currentSchema = sanitizeAiFormSchema(schemaRaw, "Form");
+      const refined = await refineFormSchemaFromInput({
+        schema: currentSchema,
+        instruction: prompt,
+      });
+
+      await recordAiUsage(auth.sb, {
+        tenantId: auth.tenantId,
+        userId: auth.user.id,
+        usageKind: "form_ai_generate",
+        metadata: { phase: "refine", model: getGeminiModelName() },
+      });
+
+      const quotaAfter = await getAiQuotaStatus(auth.sb, auth.tenantId);
+      return NextResponse.json({
+        title: refined.schema.title,
+        schema: refined.schema,
+        sections: refined.schema.sections,
+        summary: refined.summary || null,
+        provider: "gemini",
+        model: getGeminiModelName(),
+        quota: {
+          used: quotaAfter.used,
+          limit: quotaAfter.limit,
+          remaining: quotaAfter.remaining,
+          unlimited: quotaAfter.unlimited,
+        },
+      });
+    }
+
     if (!prompt && !file) {
       return NextResponse.json(
         { error: "Provide a description, a PDF/JPG/PNG document, or both." },
@@ -124,12 +196,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: validated.error }, { status: 400 });
       }
     }
-
-    const auth = await authorizeTenant(token, tenantSlug);
-    if ("error" in auth && auth.error) return auth.error;
-
-    const plan = await ensureTenantPlan(auth.sb, auth.tenantId);
-    const quota = await getAiQuotaStatus(auth.sb, auth.tenantId);
 
     if (phase === "generate" && !quota.allowed) {
       return NextResponse.json(

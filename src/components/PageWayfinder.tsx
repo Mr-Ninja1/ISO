@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import { ChevronLeft, Home } from "lucide-react";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
+import { markInteractiveNav } from "@/lib/client/interactionGate";
 import { resolvePageWayfinder } from "@/lib/client/resolvePageWayfinder";
 
 type Props = {
@@ -30,6 +31,7 @@ export function PageWayfinder({ tenantSlug, variant = "compact" }: Props) {
 
   function goBack() {
     if (typeof window !== "undefined" && window.history.length > 1) {
+      markInteractiveNav(3200);
       router.back();
       return;
     }

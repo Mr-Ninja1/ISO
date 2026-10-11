@@ -10,8 +10,12 @@ import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalid
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { apiUrl } from "@/lib/client/apiBase";
-import { patchWorkspaceCategoryCaches } from "@/lib/client/workspaceCache";
+import {
+  patchWorkspaceCategoryCaches,
+  readWorkspaceCacheResolved,
+} from "@/lib/client/workspaceCache";
 import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
+import { scheduleIdleWork, shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 
 type CategoryRow = {
   id: string;
@@ -45,12 +49,31 @@ type TemplateItem = {
   categoryName: string;
 };
 
+function templatesFromWorkspaceCache(
+  userId: string | null,
+  tenantSlug: string,
+  categories: CategoryItem[],
+): TemplateItem[] {
+  const cached = readWorkspaceCacheResolved(userId, tenantSlug, null);
+  if (!cached?.templates?.length) return [];
+  const catMap = new Map(categories.map((c) => [c.id, c.name]));
+  return cached.templates.map((t) => ({
+    id: t.id,
+    title: t.title,
+    categoryId: t.categoryId ?? null,
+    categoryName: t.categoryId ? catMap.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+  }));
+}
+
 export function CategoriesManager({ tenant }: Props) {
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const router = useRouter();
   const offline = useAppOffline();
+  const userId = user?.id || session?.user?.id || null;
   const [categories, setCategories] = useState<CategoryItem[]>(tenant.categories);
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templates, setTemplates] = useState<TemplateItem[]>(() =>
+    templatesFromWorkspaceCache(userId, tenant.slug, tenant.categories),
+  );
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -67,69 +90,89 @@ export function CategoriesManager({ tenant }: Props) {
   }, [categories]);
 
   useEffect(() => {
+    setCategories(tenant.categories);
+    const cachedTemplates = templatesFromWorkspaceCache(userId, tenant.slug, tenant.categories);
+    if (cachedTemplates.length) setTemplates(cachedTemplates);
+  }, [tenant.categories, tenant.slug, userId]);
+
+  useEffect(() => {
     const token = session?.access_token;
     if (!token || offline) return;
 
     let cancelled = false;
-    setTemplatesLoading(true);
+    const hasLocal = templates.length > 0 || categories.length > 0;
+    // Soft revalidate — keep cache-painted lists visible while online refresh runs.
+    if (!hasLocal) setTemplatesLoading(true);
     setMessage("");
 
-    const categoriesUrl = new URL(apiUrl("/api/categories"));
-    categoriesUrl.searchParams.set("tenantSlug", tenant.slug);
-
-    const templatesUrl = new URL(apiUrl("/api/templates/list"));
-    templatesUrl.searchParams.set("tenantSlug", tenant.slug);
-
-    const headers = { Authorization: `Bearer ${token}` };
-
-    Promise.all([
-      fetch(categoriesUrl.toString(), { headers }).then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Failed to load categories (${res.status})`);
-        return (json.categories || []) as Array<{ id: string; name: string; sortOrder?: number }>;
-      }),
-      fetch(templatesUrl.toString(), { headers }).then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Failed to load forms (${res.status})`);
-        return (json.templates || []) as Array<{
-          id: string;
-          title: string;
-          categoryId?: string | null;
-        }>;
-      }),
-    ])
-      .then(([cats, rows]) => {
-        if (cancelled) return;
-        const now = new Date();
-        setCategories(
-          cats.map((c) => ({
-            id: c.id,
-            name: c.name,
-            sortOrder: c.sortOrder ?? 0,
-          }))
-        );
-        const catMap = new Map(cats.map((c) => [c.id, c.name]));
-        setTemplates(
-          rows.map((t) => ({
-            id: t.id,
-            title: t.title,
-            categoryId: t.categoryId ?? null,
-            categoryName: t.categoryId ? catMap.get(t.categoryId) || "Uncategorized" : "Uncategorized",
-          }))
-        );
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setTemplates([]);
-        setMessage(err instanceof Error ? err.message : "Failed to load brand categories and forms");
-      })
-      .finally(() => {
+    const run = () => {
+      if (cancelled || shouldPauseBackgroundWork()) {
         if (!cancelled) setTemplatesLoading(false);
-      });
+        return;
+      }
+
+      const categoriesUrl = new URL(apiUrl("/api/categories"));
+      categoriesUrl.searchParams.set("tenantSlug", tenant.slug);
+
+      const templatesUrl = new URL(apiUrl("/api/templates/list"));
+      templatesUrl.searchParams.set("tenantSlug", tenant.slug);
+
+      const headers = { Authorization: `Bearer ${token}` };
+
+      Promise.all([
+        fetch(categoriesUrl.toString(), { headers }).then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Failed to load categories (${res.status})`);
+          return (json.categories || []) as Array<{ id: string; name: string; sortOrder?: number }>;
+        }),
+        fetch(templatesUrl.toString(), { headers }).then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Failed to load forms (${res.status})`);
+          return (json.templates || []) as Array<{
+            id: string;
+            title: string;
+            categoryId?: string | null;
+          }>;
+        }),
+      ])
+        .then(([cats, rows]) => {
+          if (cancelled) return;
+          setCategories(
+            cats.map((c) => ({
+              id: c.id,
+              name: c.name,
+              sortOrder: c.sortOrder ?? 0,
+            })),
+          );
+          const catMap = new Map(cats.map((c) => [c.id, c.name]));
+          setTemplates(
+            rows.map((t) => ({
+              id: t.id,
+              title: t.title,
+              categoryId: t.categoryId ?? null,
+              categoryName: t.categoryId ? catMap.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+            })),
+          );
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          if (!hasLocal) {
+            setTemplates([]);
+            setMessage(err instanceof Error ? err.message : "Failed to load brand categories and forms");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setTemplatesLoading(false);
+        });
+    };
+
+    const cancelIdle = scheduleIdleWork(run, hasLocal ? 320 : 0);
 
     return () => {
       cancelled = true;
+      cancelIdle();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed from cache; refresh on auth/tenant/online
   }, [session?.access_token, tenant.slug, tenant.id, offline]);
 
   if (offline) {

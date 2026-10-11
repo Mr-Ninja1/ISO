@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { SoftNavLink } from "@/components/SoftNavLink";
 import { useNavCapabilities } from "@/hooks/useNavCapabilities";
 import { buildTenantHref } from "@/lib/client/tenantHref";
 
@@ -22,21 +20,6 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
   const activityPath = buildTenantHref(tenantSlug, "activity");
   const correctiveActionsPath = buildTenantHref(tenantSlug, "corrective-actions");
   const templatesPath = buildTenantHref(tenantSlug, "templates");
-  const [loadingPath, setLoadingPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoadingPath(null);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!loadingPath) return;
-    const timer = window.setTimeout(() => setLoadingPath(null), 4000);
-    return () => window.clearTimeout(timer);
-  }, [loadingPath]);
-
-  const handleLinkClick = (path: string) => {
-    setLoadingPath(path);
-  };
 
   const pathActive = (href: string) => {
     if (!pathname) return false;
@@ -51,56 +34,34 @@ export function TenantBottomTabNav({ tenantSlug }: { tenantSlug: string }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)] bg-[var(--hse-cream)]/98 p-2 md:hidden">
       <div className="mx-auto flex max-w-[760px] items-center gap-1">
-        <Link
+        <SoftNavLink
           href={formsPath}
-          className={tabClass(pathActive(formsPath) && !pathActive(offlinePath))}
-          onClick={() => handleLinkClick(formsPath)}
-          prefetch
+          active={pathActive(formsPath) && !pathActive(offlinePath)}
+          className={tabClass}
         >
-          {loadingPath === formsPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Saved forms
-        </Link>
-        <Link
-          href={offlinePath}
-          className={tabClass(pathActive(offlinePath))}
-          onClick={() => handleLinkClick(offlinePath)}
-          prefetch
-        >
-          {loadingPath === offlinePath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        </SoftNavLink>
+        <SoftNavLink href={offlinePath} active={pathActive(offlinePath)} className={tabClass}>
           Offline
-        </Link>
+        </SoftNavLink>
         {caps.canSeeAdminRoutes ? (
-          <Link
-            href={activityPath}
-            className={tabClass(pathActive(activityPath))}
-            onClick={() => handleLinkClick(activityPath)}
-            prefetch
-          >
-            {loadingPath === activityPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          <SoftNavLink href={activityPath} active={pathActive(activityPath)} className={tabClass}>
             Activity
-          </Link>
+          </SoftNavLink>
         ) : null}
         {caps.canSeeAdminRoutes ? (
-          <Link
+          <SoftNavLink
             href={correctiveActionsPath}
-            className={tabClass(pathActive(correctiveActionsPath))}
-            onClick={() => handleLinkClick(correctiveActionsPath)}
-            prefetch
+            active={pathActive(correctiveActionsPath)}
+            className={tabClass}
           >
-            {loadingPath === correctiveActionsPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Actions
-          </Link>
+          </SoftNavLink>
         ) : null}
         {caps.canCreateForms ? (
-          <Link
-            href={templatesPath}
-            className={tabClass(pathActive(templatesPath))}
-            onClick={() => handleLinkClick(templatesPath)}
-            prefetch
-          >
-            {loadingPath === templatesPath ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          <SoftNavLink href={templatesPath} active={pathActive(templatesPath)} className={tabClass}>
             Templates
-          </Link>
+          </SoftNavLink>
         ) : null}
       </div>
     </nav>

@@ -100,6 +100,15 @@
     opacity: 0.92;
 }
 
+/* Soft route transitions (supported browsers) — keeps online nav feeling native. */
+@supports (view-transition-name: none) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        animation-duration: 140ms;
+        animation-timing-function: ease-out;
+    }
+}
+
 :root,
 :root[data-theme="default"],
 :root[data-theme="hse-pro"] {
@@ -1325,6 +1334,7 @@ body {
 
 .tenant-shell {
     min-height: 100dvh;
+    view-transition-name: tenant-shell;
     background: linear-gradient(
         180deg,
         var(--hse-cream) 0%,
@@ -1560,8 +1570,8 @@ body {
     color: #444444 !important;
 }
 
-/* Keep field cards atomic; allow .report-section to split so tall logs
-   can fill leftover page space instead of jumping to a blank next page. */
+/* Keep only self-contained field cards and individual table rows atomic.
+   Top-level report sections must be allowed to flow between pages. */
 .pdf-generation-mode .report-field-card {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
@@ -1569,8 +1579,8 @@ body {
 
 .pdf-generation-mode .report-section,
 .pdf-generation-mode .pdf-page-node {
-    break-inside: auto;
-    page-break-inside: auto;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
 }
 
 .pdf-generation-mode .report-section-title {
@@ -1583,21 +1593,6 @@ body {
 }
 
 .pdf-generation-mode .report-data-table tr {
-    break-inside: avoid;
-    page-break-inside: avoid;
-}
-
-.pdf-generation-mode .pdf-soft-page-break {
-    break-before: page;
-    page-break-before: always;
-}
-
-.pdf-generation-mode .pdf-section-may-split {
-    break-inside: auto !important;
-    page-break-inside: auto !important;
-}
-
-.pdf-generation-mode .pdf-section-keep-together {
     break-inside: avoid;
     page-break-inside: avoid;
 }
@@ -1740,6 +1735,20 @@ body {
     overflow: visible !important;
     width: 100% !important;
     max-width: 100% !important;
+}
+
+/* Android WebView can leave large gaps when a flex column is fragmented. */
+.pdf-generation-mode > .flex.flex-col {
+    display: block !important;
+}
+
+.pdf-generation-mode > .flex.flex-col > * {
+    margin-top: 0 !important;
+    margin-bottom: 12px !important;
+}
+
+.pdf-generation-mode > .flex.flex-col > *:last-child {
+    margin-bottom: 0 !important;
 }
 
 .pdf-generation-mode table.pdf-compact-table th,

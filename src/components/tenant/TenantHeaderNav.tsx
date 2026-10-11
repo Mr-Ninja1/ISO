@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Loader2, Mail } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Mail } from "lucide-react";
+import { SoftNavLink } from "@/components/SoftNavLink";
 import { buildGeneralSupportMailto } from "@/lib/supportContact";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { showRequiresInternetDialog } from "@/components/RequiresInternetDialog";
@@ -11,6 +10,7 @@ import { HeaderKebabMenu, HeaderMenuItem } from "@/components/ui/HeaderKebabMenu
 import { buildTenantHref } from "@/lib/client/tenantHref";
 import { buildWorkspaceFormsHref } from "@/lib/client/workspaceNavigation";
 import { useNavCapabilities } from "@/hooks/useNavCapabilities";
+import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 
 function navLinkClass(active: boolean) {
   return (
@@ -23,6 +23,7 @@ function navLinkClass(active: boolean) {
 
 export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const pathname = usePathname();
+  const router = useRouter();
   const offline = useAppOffline();
   const caps = useNavCapabilities(tenantSlug);
   const settingsBase = buildTenantHref(tenantSlug, "settings");
@@ -42,20 +43,8 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
   const onTemplates = pathname?.includes("/templates") ?? false;
   const onCategories = pathname?.includes("/categories") ?? false;
 
-  const [loadingPath, setLoadingPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoadingPath(null);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!loadingPath) return;
-    const timer = window.setTimeout(() => setLoadingPath(null), 4000);
-    return () => window.clearTimeout(timer);
-  }, [loadingPath]);
-
-  const handleLinkClick = (path: string) => {
-    setLoadingPath(path);
+  const softGo = (href: string) => {
+    navigateWithFeedback(router, href, "push", { silent: true });
   };
 
   const blockOffline = (label: string, e?: React.MouseEvent) => {
@@ -69,8 +58,14 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
 
   const menuItems = (
     <>
-      <HeaderMenuItem href={auditsBase} className={onAudits ? "bg-foreground text-background" : ""} onClick={() => handleLinkClick(auditsBase)}>
-        {loadingPath === auditsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+      <HeaderMenuItem
+        href={auditsBase}
+        className={onAudits ? "bg-foreground text-background" : ""}
+        onClick={(e) => {
+          e.preventDefault();
+          softGo(auditsBase);
+        }}
+      >
         Saved forms
       </HeaderMenuItem>
 
@@ -84,10 +79,10 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               blockOffline("Dashboard");
               return;
             }
-            handleLinkClick(dashboardBase);
+            e.preventDefault();
+            softGo(dashboardBase);
           }}
         >
-          {loadingPath === dashboardBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Dashboard
         </HeaderMenuItem>
       ) : null}
@@ -102,10 +97,10 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               blockOffline("Corrective actions");
               return;
             }
-            handleLinkClick(correctiveActionsBase);
+            e.preventDefault();
+            softGo(correctiveActionsBase);
           }}
         >
-          {loadingPath === correctiveActionsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Corrective actions
         </HeaderMenuItem>
       ) : null}
@@ -120,10 +115,10 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
               blockOffline("Activity");
               return;
             }
-            handleLinkClick(activityBase);
+            e.preventDefault();
+            softGo(activityBase);
           }}
         >
-          {loadingPath === activityBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Activity
         </HeaderMenuItem>
       ) : null}
@@ -132,9 +127,11 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
         <HeaderMenuItem
           href={templatesBase}
           className={onTemplates ? "bg-foreground text-background" : ""}
-          onClick={() => handleLinkClick(templatesBase)}
+          onClick={(e) => {
+            e.preventDefault();
+            softGo(templatesBase);
+          }}
         >
-          {loadingPath === templatesBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Templates
         </HeaderMenuItem>
       ) : null}
@@ -150,10 +147,10 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
                 blockOffline("Settings");
                 return;
               }
-              handleLinkClick(settingsBase);
+              e.preventDefault();
+              softGo(settingsBase);
             }}
           >
-            {loadingPath === settingsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Settings
           </HeaderMenuItem>
           <HeaderMenuItem
@@ -165,17 +162,22 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
                 blockOffline("Categories");
                 return;
               }
-              handleLinkClick(categoriesBase);
+              e.preventDefault();
+              softGo(categoriesBase);
             }}
           >
-            {loadingPath === categoriesBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Categories
           </HeaderMenuItem>
         </>
       ) : null}
 
-      <HeaderMenuItem href={workspaceHref} onClick={() => handleLinkClick(workspaceHref)}>
-        {loadingPath === workspaceHref ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+      <HeaderMenuItem
+        href={workspaceHref}
+        onClick={(e) => {
+          e.preventDefault();
+          softGo(workspaceHref);
+        }}
+      >
         Workspace
       </HeaderMenuItem>
 
@@ -188,10 +190,13 @@ export function TenantHeaderNav({ tenantSlug }: { tenantSlug: string }) {
 
   return (
     <nav className="flex items-center gap-2 text-sm">
-      <Link href={auditsBase} prefetch onClick={() => handleLinkClick(auditsBase)} className={"hidden sm:inline-flex " + navLinkClass(onAudits)}>
-        {loadingPath === auditsBase ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+      <SoftNavLink
+        href={auditsBase}
+        active={onAudits}
+        className={(active) => "hidden sm:inline-flex " + navLinkClass(active)}
+      >
         Saved forms
-      </Link>
+      </SoftNavLink>
       <HeaderKebabMenu label="More navigation" menuClassName="w-52">
         {menuItems}
       </HeaderKebabMenu>

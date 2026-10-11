@@ -23,7 +23,7 @@ import {
 } from "@/lib/ai/examplePrompts";
 import { getFormBuilderConfig } from "@/lib/formBuilderConfig";
 import { SOURCE_DOCUMENT_ACCEPT, validateSourceDocument } from "@/lib/ai/sourceDocument";
-import type { FormType } from "@/types/forms";
+import { AiBlueprintingLoader } from "@/components/forms/AiBlueprintingLoader";
 
 export type AiChatMessage = {
   id: string;
@@ -31,6 +31,10 @@ export type AiChatMessage = {
   content: string;
   attachmentName?: string;
   isTyping?: boolean;
+  /** Shown while isTyping — e.g. Checking… / Building… */
+  typingLabel?: string;
+  /** Multi-stage AI blueprinting UI instead of bounce dots */
+  blueprint?: boolean;
 };
 
 type Props = {
@@ -65,6 +69,19 @@ function MessageBubble({ message }: { message: AiChatMessage }) {
   const isUser = message.role === "user";
 
   if (message.isTyping) {
+    if (message.blueprint) {
+      return (
+        <div className="flex justify-start">
+          <div className="w-full max-w-[min(100%,22rem)] sm:max-w-[92%]">
+            <AiBlueprintingLoader
+              active
+              compact
+              title={message.typingLabel || "Building your form"}
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex justify-start">
         <div className="flex max-w-[85%] items-center gap-2 rounded-2xl rounded-bl-md border border-foreground/10 bg-background px-4 py-3">
@@ -73,7 +90,7 @@ function MessageBubble({ message }: { message: AiChatMessage }) {
             <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--hse-teal)] [animation-delay:150ms]" />
             <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--hse-teal)] [animation-delay:300ms]" />
           </div>
-          <span className="text-xs text-foreground/50">Reading your request…</span>
+          <span className="text-xs text-foreground/50">{message.typingLabel || "Checking…"}</span>
         </div>
       </div>
     );
@@ -230,15 +247,6 @@ export function AiFormChatModal({
     handleFileSelect(file);
   }
 
-  const groupedExamples = AI_EXAMPLE_PROMPTS.reduce(
-    (acc, ex) => {
-      if (!acc[ex.formType]) acc[ex.formType] = [];
-      acc[ex.formType].push(ex);
-      return acc;
-    },
-    {} as Record<FormType, ExamplePrompt[]>
-  );
-
   return (
     <CenteredOverlay
       open={open}
@@ -318,10 +326,7 @@ export function AiFormChatModal({
           {step === "input" && !hasConversation ? (
             <div className="mb-5 space-y-4">
               {generating ? (
-                <div className="mb-2 flex items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_18%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] px-3 py-2 text-[11px] font-medium text-[var(--hse-teal)]">
-                  <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[var(--hse-teal)]" />
-                  Reading your form structure…
-                </div>
+                <AiBlueprintingLoader active compact title="Reading your request" className="mb-2" />
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
@@ -421,6 +426,28 @@ export function AiFormChatModal({
                   />
                 </div>
               ) : null}
+
+              <div className="rounded-2xl border border-foreground/10 bg-background/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
+                  Try an example
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-foreground/50">
+                  Tap a chip to fill the prompt — you can edit it before sending.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {AI_EXAMPLE_PROMPTS.slice(0, 6).map((example) => (
+                    <ExampleChip
+                      key={example.id}
+                      example={example}
+                      disabled={generating}
+                      onSelect={() => {
+                        setInputMode("prompt");
+                        onExampleSelect(example);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -502,7 +529,7 @@ export function AiFormChatModal({
                   onClick={onGenerate}
                 >
                   {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {generating ? "Building…" : "Generate form"}
+                  {generating ? "Blueprinting…" : "Generate form"}
                 </button>
               </div>
             </div>

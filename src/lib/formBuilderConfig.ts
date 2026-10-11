@@ -1,4 +1,4 @@
-import type { FieldDef, FieldType, FormSection, FormType, SimpleFieldDef } from "@/types/forms";
+import type { FieldDef, FieldType, FormSection, FormType, GridSection, SimpleFieldDef } from "@/types/forms";
 import { COLUMN_HEADER_PLACEHOLDER } from "@/lib/formFieldConstants";
 
 export type FormCanvasMode = "flexible" | "questions" | "checklist" | "inspection" | "handwritten";
@@ -303,18 +303,79 @@ export function blankCanvasForType(_formType: FormType): FormSection[] {
 /** Optional richer starter (user-triggered, not applied on type switch). */
 export function starterCanvasForType(formType: FormType): FormSection[] {
   const config = getFormBuilderConfig(formType);
-  const blank = blankCanvasForType(formType);
+  if (!config.starterGrid) return blankCanvasForType(formType);
 
-  if (!config.starterGrid) return blank;
+  const grid = defaultGridSectionForType(formType);
+  if (grid.type !== "grid") return [];
 
-  return blank.map((section) => {
-    if (section.type !== "grid") return section;
-    return {
-      ...section,
-      rows: config.starterGrid!.rows,
-      columns: config.starterGrid!.columns.map((col) => ({ ...col, id: makeId(col.type) })),
-    };
-  });
+  return [
+    {
+      ...grid,
+      rows: config.starterGrid.rows,
+      columns: config.starterGrid.columns.map((col) => ({ ...col, id: makeId(col.type) })),
+    },
+  ];
+}
+
+export type BuilderStateShape = {
+  topFields: FieldDef[];
+  topFieldsColumns: 1 | 2 | 3 | 4;
+  bottomFields: FieldDef[];
+  bottomFieldsColumns: 1 | 2 | 3 | 4;
+  grids: GridSection[];
+};
+
+/** Collapse FormSchemaV1 sections into header + ordered grids + footer for the builder. */
+export function builderStateFromSections(
+  initialSections: FormSection[] | undefined,
+  formType: FormType
+): BuilderStateShape {
+  const config = getFormBuilderConfig(formType);
+  const topFields: FieldDef[] = [];
+  const bottomFields: FieldDef[] = [];
+  let topFieldsColumns: 1 | 2 | 3 | 4 = config.headerColumnsDefault;
+  let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
+  const grids: BuilderStateShape["grids"] = [];
+
+  if (!initialSections?.length) {
+    return { topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grids };
+  }
+
+  let firstGridIndex = -1;
+  for (let i = 0; i < initialSections.length; i += 1) {
+    if (initialSections[i]?.type === "grid") {
+      firstGridIndex = i;
+      break;
+    }
+  }
+
+  for (let i = 0; i < initialSections.length; i += 1) {
+    const section = initialSections[i];
+    if (!section) continue;
+    if (section.type === "grid") {
+      grids.push(section);
+      continue;
+    }
+    if (section.type !== "fields") continue;
+
+    const beforeFirstGrid = firstGridIndex === -1 || i < firstGridIndex;
+    if (beforeFirstGrid) {
+      const bucket = sectionTitleForBuilder(section, formType);
+      if (bucket === "bottom") {
+        bottomFields.push(...section.fields);
+        bottomFieldsColumns = section.columns || bottomFieldsColumns;
+      } else {
+        topFields.push(...section.fields);
+        topFieldsColumns = section.columns || topFieldsColumns;
+      }
+    } else {
+      // Between grids or after the last grid — keep as footer so tables are never dropped.
+      bottomFields.push(...section.fields);
+      bottomFieldsColumns = section.columns || bottomFieldsColumns;
+    }
+  }
+
+  return { topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grids };
 }
 
 export function convertSectionsToHandwritten(sections: FormSection[]): FormSection[] {
@@ -374,12 +435,21 @@ export function buildSectionsFromBuilderState(
     topFieldsColumns: 1 | 2 | 3 | 4;
     bottomFields: FieldDef[];
     bottomFieldsColumns: 1 | 2 | 3 | 4;
-    grid: { type: "grid"; id?: string; title?: string; rows: number | "dynamic"; columns: SimpleFieldDef[] } | null;
+    /** Preferred: ordered list of tables. */
+    grids?: BuilderStateShape["grids"];
+    /** @deprecated Prefer `grids`. Still accepted for older call sites. */
+    grid?: BuilderStateShape["grids"][number] | null;
   },
   formType: FormType
 ): FormSection[] {
   const config = getFormBuilderConfig(formType);
   const sections: FormSection[] = [];
+  const grids =
+    Array.isArray(state.grids) && state.grids.length > 0
+      ? state.grids
+      : state.grid
+        ? [state.grid]
+        : [];
 
   if (config.sections.header && state.topFields.length > 0) {
     sections.push({
@@ -390,11 +460,13 @@ export function buildSectionsFromBuilderState(
     });
   }
 
-  if (config.sections.table && state.grid) {
-    sections.push({
-      ...state.grid,
-      title: state.grid.title || config.sectionLabels.table,
-    });
+  if (config.sections.table) {
+    for (const grid of grids) {
+      sections.push({
+        ...grid,
+        title: grid.title || config.sectionLabels.table,
+      });
+    }
   }
 
   if (config.sections.footer && state.bottomFields.length) {

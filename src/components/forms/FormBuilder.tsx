@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -49,22 +50,17 @@ import { displayAlignClass, displayFieldText, displayVariantClass } from "@/lib/
 import type { FieldDef, FieldType, FormSection, FormType, GridMergedCell, GridSection, SimpleFieldDef } from "@/types/forms";
 import {
   buildSectionsFromBuilderState,
+  builderStateFromSections,
   defaultGridSectionForType,
   getFormBuilderConfig,
   resolvePaletteSplit,
-  sectionTitleForBuilder,
   starterCanvasForType,
+  type BuilderStateShape,
 } from "@/lib/formBuilderConfig";
 import { buildGridLayout, clampGridRowCount, MAX_GRID_ROWS } from "@/lib/gridLayout";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 
-type BuilderState = {
-  topFields: FieldDef[];
-  topFieldsColumns: 1 | 2 | 3 | 4;
-  bottomFields: FieldDef[];
-  bottomFieldsColumns: 1 | 2 | 3 | 4;
-  grid: GridSection | null;
-};
+type BuilderState = BuilderStateShape;
 
 type PaletteItem = {
   id: string;
@@ -137,7 +133,7 @@ function defaultGrid(formType: FormType): GridSection {
   if (section.type !== "grid") {
     return {
       type: "grid",
-      id: "form_data",
+      id: makeId("grid"),
       title: "Log Sheet",
       rows: 10,
       columns: [
@@ -147,7 +143,7 @@ function defaultGrid(formType: FormType): GridSection {
       ],
     };
   }
-  return section;
+  return { ...section, id: section.id || makeId("grid") };
 }
 
 function columnWidthPx(col: SimpleFieldDef): number {
@@ -342,14 +338,15 @@ function DraggablePaletteItem({
       type="button"
       onClick={onClick}
       className={
-        "inline-flex items-center gap-2 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm whitespace-nowrap hover:bg-foreground/5 transition-colors " +
+        "group inline-flex items-center gap-2 rounded-xl border border-foreground/12 bg-background/95 px-3 py-2 text-sm whitespace-nowrap shadow-sm " +
+        "transition-all hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] " +
         (isDragging ? "opacity-50" : "")
       }
       {...listeners}
       {...attributes}
       title={`Drag to add ${item.label.toLowerCase()}`}
     >
-      {item.icon}
+      <span className="text-foreground/70 transition-colors group-hover:text-[var(--hse-teal)]">{item.icon}</span>
       <span className="font-medium">{item.label}</span>
     </button>
   );
@@ -1151,6 +1148,33 @@ function ColumnEditorModal({
           </div>
           <div className="grid gap-1">
             <div className="text-xs font-medium text-foreground/70">Column size</div>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { label: "Compact", px: activeCol.type === "checkbox" ? CHECKBOX_COLUMN_WIDTH_PX : 88 },
+                  { label: "Standard", px: COLUMN_DEFAULT_WIDTH_PX },
+                  { label: "Wide", px: 240 },
+                ] as const
+              ).map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className={
+                    "inline-flex h-7 items-center rounded-full border px-2.5 text-[11px] font-medium " +
+                    (columnWidthPx(activeCol) === preset.px
+                      ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)] text-[var(--hse-teal)]"
+                      : "border-foreground/15 text-foreground/70 hover:bg-foreground/5")
+                  }
+                  onClick={() =>
+                    onUpdateColumn(activeCol.id, {
+                      widthPx: clampColumnWidthPx(preset.px),
+                    } as Partial<SimpleFieldDef>)
+                  }
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             <div className="text-[11px] leading-4 text-foreground/55">
               Drag the resize handle on the column header, use the slider, or type a pixel width ({COLUMN_MIN_WIDTH_PX}–{COLUMN_MAX_WIDTH_PX}).
             </div>
@@ -1603,11 +1627,19 @@ function GridBuilder({
     setStaticExpandSignal((n) => n + 1);
   }
 
+  const tableTitle = grid.title?.trim() || "Data Log Table";
+  const rowCountInputId = `row-count-${grid.id || "table"}`;
+
   return (
     <div className={"rounded-lg border border-foreground/20 bg-background flex flex-col h-full " + (compact ? "p-3" : "p-4")}>
       <div className={"flex items-center justify-between gap-4 border-b border-foreground/20 " + (compact ? "pb-3" : "pb-4")}>
-        <div>
-          <div className="text-sm font-semibold">Data Log Table</div>
+        <div className="min-w-0 flex-1">
+          <input
+            className="h-8 w-full max-w-md rounded-md border border-transparent bg-transparent px-1 text-sm font-semibold hover:border-foreground/15 focus:border-foreground/25 focus:outline-none"
+            value={tableTitle}
+            onChange={(e) => applyGridChange({ ...grid, title: e.target.value }, { skipHistory: true })}
+            aria-label="Table title"
+          />
           <div className="text-xs text-foreground/70 mt-0.5">
             Click headers to edit columns · {grid.columns.length} columns
             {hasStaticColumns ? " · static columns editable below" : ""}
@@ -1618,9 +1650,9 @@ function GridBuilder({
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <label htmlFor="row-count" className="text-xs font-medium text-foreground/70">Rows:</label>
+            <label htmlFor={rowCountInputId} className="text-xs font-medium text-foreground/70">Rows:</label>
             <input
-              id="row-count"
+              id={rowCountInputId}
               type="number"
               min={1}
               max={MAX_GRID_ROWS}
@@ -1716,7 +1748,7 @@ function GridBuilder({
         <table className="w-full min-w-max border-collapse text-xs border border-foreground/35">
           <thead>
             <tr>
-              {activeColumns.map((col) => (
+              {activeColumns.map((col, index) => (
                 <th
                   key={col.id}
                   className={
@@ -1734,6 +1766,19 @@ function GridBuilder({
                       : { width: columnWidthPx(col), minWidth: columnWidthPx(col) }
                   }
                 >
+                  <button
+                    type="button"
+                    className="absolute left-[-10px] top-[-10px] z-30 inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--hse-teal)] bg-background text-[var(--hse-teal)] shadow-sm transition-colors hover:bg-[var(--hse-teal)] hover:text-white"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      insertColumnAt(grid.columns.findIndex((column) => column.id === col.id));
+                    }}
+                    title={`Insert column before ${columnHeaderDisplayLabel(col.label)}`}
+                    aria-label={`Insert column before ${columnHeaderDisplayLabel(col.label)}`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
                   {col.type !== "checkbox" ? (
                     <ColumnResizeHandle
                       onResizeDelta={(delta) =>
@@ -1817,6 +1862,22 @@ function GridBuilder({
                       title={`Edit printed items for ${columnHeaderDisplayLabel(col.label)}`}
                     >
                       Edit items
+                    </button>
+                  ) : null}
+                  {index === activeColumns.length - 1 ? (
+                    <button
+                      type="button"
+                      className="absolute right-[-10px] top-[-10px] z-30 inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--hse-teal)] bg-background text-[var(--hse-teal)] shadow-sm transition-colors hover:bg-[var(--hse-teal)] hover:text-white"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const columnIndex = grid.columns.findIndex((column) => column.id === col.id);
+                        insertColumnAt(columnIndex + 1);
+                      }}
+                      title="Insert column after last column"
+                      aria-label="Insert column after last column"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
                     </button>
                   ) : null}
                 </th>
@@ -2181,45 +2242,19 @@ export function FormBuilder({
 }) {
   const builderConfig = useMemo(() => getFormBuilderConfig(formType), [formType]);
 
-  const initialState = useMemo<BuilderState>(() => {
-    const topFields: FieldDef[] = [];
-    const bottomFields: FieldDef[] = [];
-    let topFieldsColumns: 1 | 2 | 3 | 4 = builderConfig.headerColumnsDefault;
-    let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
-    let grid: GridSection | null = null;
-    let gridSeen = false;
-
-    if (initialSections?.length) {
-      for (const section of initialSections) {
-        if (section.type === "fields") {
-          const bucket = gridSeen ? "bottom" : sectionTitleForBuilder(section, formType);
-          if (bucket === "bottom") {
-            bottomFields.push(...section.fields);
-            bottomFieldsColumns = section.columns || bottomFieldsColumns;
-          } else {
-            topFields.push(...section.fields);
-            topFieldsColumns = section.columns || topFieldsColumns;
-          }
-          continue;
-        }
-        if (section.type === "grid") {
-          gridSeen = true;
-          if (!grid) {
-            grid = section;
-            continue;
-          }
-        }
-      }
-    }
-
-    return { topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grid };
-  }, [initialSections, formType, builderConfig.headerColumnsDefault]);
+  const initialState = useMemo<BuilderState>(
+    () => builderStateFromSections(initialSections, formType),
+    [initialSections, formType]
+  );
 
   const [state, setState] = useState<BuilderState>(initialState);
   // Keep footer tools when the saved schema already has after-table fields, even if the
   // form-type preset normally hides footer (checklist / questionnaire / etc.).
   const supportsFooter = builderConfig.sections.footer || state.bottomFields.length > 0;
   const showPlacementToggle = builderConfig.showPlacementToggle || supportsFooter;
+  const canAddAnotherTable =
+    Boolean(builderConfig.sections.table) &&
+    (builderConfig.canvasMode === "flexible" || state.grids.length === 0);
 
   useEffect(() => {
     if (typeof resetKey === "string") {
@@ -2243,6 +2278,12 @@ export function FormBuilder({
   const [moreToolsOpen, setMoreToolsOpen] = useState(false);
   const lockedFieldIdSet = useMemo(() => new Set(lockedFieldIds), [lockedFieldIds]);
   const lockedGridColumnIdSet = useMemo(() => new Set(lockedGridColumnIds), [lockedGridColumnIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    setCompactBuilder(window.matchMedia("(max-width: 767px)").matches);
+  }, []);
+
   useEffect(() => {
     setQuestionType(builderConfig.defaultQuestionFieldType);
     if (state.topFields.length === 0) setHeaderAreaOpen(false);
@@ -2258,7 +2299,10 @@ export function FormBuilder({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+  );
 
   const computedSections = useMemo<FormSection[]>(
     () => buildSectionsFromBuilderState(state, formType),
@@ -2281,35 +2325,17 @@ export function FormBuilder({
   }
 
   function applyStarterLayout() {
-    const starter = starterCanvasForType(formType);
-    const topFields: FieldDef[] = [];
-    const bottomFields: FieldDef[] = [];
-    let topFieldsColumns: 1 | 2 | 3 | 4 = builderConfig.headerColumnsDefault;
-    let bottomFieldsColumns: 1 | 2 | 3 | 4 = 1;
-    let grid: GridSection | null = null;
-
-    for (const section of starter) {
-      if (section.type === "fields") {
-        const bucket = sectionTitleForBuilder(section, formType);
-        if (bucket === "bottom") {
-          bottomFields.push(...section.fields);
-          bottomFieldsColumns = section.columns || bottomFieldsColumns;
-        } else {
-          topFields.push(...section.fields);
-          topFieldsColumns = section.columns || topFieldsColumns;
-        }
-        continue;
-      }
-      if (section.type === "grid") grid = section;
-    }
-
-    sync({ topFields, topFieldsColumns, bottomFields, bottomFieldsColumns, grid });
+    sync(builderStateFromSections(starterCanvasForType(formType), formType));
   }
 
   function addItem(fieldType: FieldType | "table", target: "top" | "bottom" = "top") {
     if (fieldType === "table") {
-      if (state.grid) return;
-      sync({ ...state, grid: defaultGrid(formType) });
+      if (!canAddAnotherTable) return;
+      const nextGrid = defaultGrid(formType);
+      if (state.grids.length > 0) {
+        nextGrid.title = `${builderConfig.sectionLabels.table} ${state.grids.length + 1}`;
+      }
+      sync({ ...state, grids: [...state.grids, nextGrid] });
       return;
     }
     const nextField = defaultField(fieldType);
@@ -2349,8 +2375,13 @@ export function FormBuilder({
       addItem(fieldType, "bottom");
       return;
     }
-    if (overId === "drop_canvas" || overId === "drop_top_fields") {
+    if (overId === "drop_top_fields") {
       addItem(fieldType, "top");
+      return;
+    }
+    // Canvas drop honors Placement toggle (same as click-to-add).
+    if (overId === "drop_canvas") {
+      addItem(fieldType, insertTarget === "bottom" && supportsFooter ? "bottom" : "top");
     }
   }
 
@@ -2369,15 +2400,25 @@ export function FormBuilder({
     setQuestionLabel("");
   }
 
+  const placementLabel =
+    insertTarget === "bottom" && supportsFooter
+      ? builderConfig.sectionLabels.footer || "After table"
+      : builderConfig.sectionLabels.header;
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex flex-col">
         {/* Ribbon */}
-        <div className="border-b border-foreground/20 bg-background px-3 py-3 sm:px-6">
+        <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/90 px-3 py-3 shadow-[0_8px_24px_-18px_rgba(0,61,51,0.35)] backdrop-blur-md sm:px-6">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
-            <div className="min-w-0 flex-1 rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">
-                Quick add · {builderConfig.label}
+            <div className="min-w-0 flex-1 rounded-2xl border border-foreground/10 bg-gradient-to-br from-foreground/[0.02] to-[color-mix(in_srgb,var(--hse-sky)_22%,transparent)] p-2.5">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground/55">
+                  Quick add · {builderConfig.label}
+                </div>
+                <span className="inline-flex items-center rounded-full border border-[var(--hse-teal)]/30 bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--hse-teal)]">
+                  Adding to: {placementLabel}
+                </span>
               </div>
               <div className="relative flex flex-wrap items-center gap-2">
                 {quickPaletteItems.map((item) => (
@@ -2481,16 +2522,31 @@ export function FormBuilder({
           <CanvasDropSurface>
             <div data-formbuilder-scroll="true" className={compactBuilder ? "p-2 pb-36 sm:p-4 sm:pb-44" : "p-3 pb-44 sm:p-6 sm:pb-52"}>
               <div className="w-full">
-                <div className={"rounded-lg border-2 border-foreground/40 bg-background shadow-sm " + (compactBuilder ? "p-4" : "p-6")}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-foreground/70">Page</div>
+                <div
+                  className={
+                    "relative overflow-hidden rounded-2xl border border-foreground/12 bg-background shadow-[0_18px_50px_-36px_rgba(0,61,51,0.45)] " +
+                    (compactBuilder ? "p-4" : "p-6")
+                  }
+                >
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-24 opacity-80"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, color-mix(in srgb, var(--hse-teal) 8%, transparent), color-mix(in srgb, var(--hse-sky) 40%, transparent) 55%, transparent)",
+                    }}
+                  />
+                  <div className="relative text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground/50">
+                    Canvas
+                  </div>
 
-                  <div className="mt-4 flex justify-center">
+                  <div className="relative mt-4 flex justify-center">
                     <div className="w-full max-w-xl">
-                      <label className="mb-1 block text-center text-xs font-medium uppercase tracking-wide text-foreground/70">
-                        Add form title
+                      <label className="mb-1 block text-center text-xs font-medium uppercase tracking-wide text-foreground/55">
+                        Form title
                       </label>
                       <input
-                        className="h-11 w-full rounded-md border border-foreground/20 bg-background px-4 text-center text-lg font-semibold"
+                        className="h-12 w-full rounded-xl border border-foreground/15 bg-background/95 px-4 text-center text-lg font-semibold shadow-sm outline-none transition focus:border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)]"
                         value={title ?? ""}
                         onChange={(e) => onTitleChange?.(e.target.value)}
                         placeholder="Form title"
@@ -2498,7 +2554,7 @@ export function FormBuilder({
                     </div>
                   </div>
 
-                  {state.topFields.length === 0 && state.bottomFields.length === 0 && !state.grid ? (
+                  {state.topFields.length === 0 && state.bottomFields.length === 0 && state.grids.length === 0 ? (
                     <div className="mt-4 rounded-lg border border-dashed border-foreground/20 bg-foreground/[0.02] p-6 text-center">
                       <div className="text-sm font-medium text-foreground/70">
                         Blank {builderConfig.label} canvas
@@ -2506,12 +2562,21 @@ export function FormBuilder({
                       <p className="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-foreground/50">
                         {builderConfig.emptyCanvasHint}
                       </p>
+                      {builderConfig.starterGrid ? (
+                        <button
+                          type="button"
+                          className="mt-3 inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 bg-background px-3 text-xs font-medium hover:bg-foreground/5"
+                          onClick={applyStarterLayout}
+                        >
+                          Load starter layout
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
 
                   {(() => {
                     const canAddHeader = builderConfig.sections.header && !headerAreaOpen;
-                    const canAddTable = builderConfig.sections.table && !state.grid;
+                    const canAddTable = canAddAnotherTable;
                     const canAddFooter = supportsFooter && !footerAreaOpen;
                     if (!canAddHeader && !canAddTable && !canAddFooter) return null;
                     return (
@@ -2531,7 +2596,7 @@ export function FormBuilder({
                             className="inline-flex h-8 items-center justify-center rounded-full border border-dashed border-[var(--hse-teal)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]"
                             onClick={() => addItem("table", "top")}
                           >
-                            + {builderConfig.sectionLabels.table}
+                            + {state.grids.length > 0 ? "Data table" : builderConfig.sectionLabels.table}
                           </button>
                         ) : null}
                         {canAddFooter ? (
@@ -2694,18 +2759,28 @@ export function FormBuilder({
                   </div>
                   ) : null}
 
-                  {state.grid ? (
-                  <div className="mt-5">
-                    <GridBuilder
-                      grid={state.grid}
-                      onChange={(next) => sync({ ...state, grid: next })}
-                      onRemoveTable={() => sync({ ...state, grid: null })}
-                      lockExistingDeletes={lockExistingDeletes}
-                      lockedColumnIds={lockedGridColumnIdSet}
-                      compact={compactBuilder}
-                    />
-                  </div>
-                  ) : null}
+                  {state.grids.map((grid, gridIndex) => (
+                    <div key={grid.id || `grid_${gridIndex}`} className="mt-5">
+                      <GridBuilder
+                        grid={grid as GridSection}
+                        onChange={(next) =>
+                          sync({
+                            ...state,
+                            grids: state.grids.map((g, i) => (i === gridIndex ? next : g)),
+                          })
+                        }
+                        onRemoveTable={() =>
+                          sync({
+                            ...state,
+                            grids: state.grids.filter((_, i) => i !== gridIndex),
+                          })
+                        }
+                        lockExistingDeletes={lockExistingDeletes}
+                        lockedColumnIds={lockedGridColumnIdSet}
+                        compact={compactBuilder}
+                      />
+                    </div>
+                  ))}
 
                   {supportsFooter && footerAreaOpen ? (
                   <div className="mt-5">

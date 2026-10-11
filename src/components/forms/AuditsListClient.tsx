@@ -89,7 +89,8 @@ function SavedFormRowActions({
     if (busy) return;
     setBusy(true);
     setOpen(false);
-    navigateWithFeedback(router, reportPath);
+    // Prefer silent open — list rows are already local; network report hydrate is soft.
+    navigateWithFeedback(router, reportPath, "push", { silent: true });
   }
 
   const viewLabel = busy ? "Opening…" : "View report";
@@ -400,7 +401,11 @@ export function AuditsListClient({
     if (!accessToken || !activeTenantSlug || offline) return;
 
     let cancelled = false;
-    setSyncing(true);
+    const localCount = onlySubmittedRows(
+      readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? [],
+    ).length;
+    // Soft sync: only show "Loading…" when nothing local is painted yet.
+    if (localCount === 0) setSyncing(true);
     setSyncError("");
 
     void (async () => {
@@ -425,9 +430,6 @@ export function AuditsListClient({
         if (cancelled) return;
         const message =
           err instanceof Error ? err.message : "Could not load saved forms";
-        const localCount = onlySubmittedRows(
-          readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? [],
-        ).length;
         if (localCount > 0) {
           setSyncError(
             `${message} Showing ${localCount} form(s) saved on this device.`,
@@ -583,9 +585,9 @@ export function AuditsListClient({
                 ? deviceReady
                   ? "Offline mode — showing forms saved on this device."
                   : "Loading forms saved on this device…"
-                : syncing && !hasLoadedFromServer
+                : syncing && submittedRows.length === 0
                   ? "Loading recent forms…"
-                  : hasLoadedFromServer
+                  : hasLoadedFromServer || submittedRows.length > 0
                     ? "Recent forms are ready. Load more when you need older history."
                     : "Browse and share submitted forms."}
             </div>

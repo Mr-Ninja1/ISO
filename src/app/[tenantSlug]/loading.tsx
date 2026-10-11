@@ -1,8 +1,8 @@
+/**
+ * Avoid skeleton flashes on tenant route changes.
+ * Cache-first clients paint immediately; a pulse placeholder made online nav feel slower
+ * than offline even when data was already local.
+ */
 export default function TenantLoading() {
-  return (
-    <div className="flex flex-col gap-3 py-2" aria-busy="true" aria-label="Loading page">
-      <div className="h-5 w-40 animate-pulse rounded bg-foreground/8" />
-      <div className="h-4 w-56 max-w-[70vw] animate-pulse rounded bg-foreground/6" />
-    </div>
-  );
+  return null;
 }

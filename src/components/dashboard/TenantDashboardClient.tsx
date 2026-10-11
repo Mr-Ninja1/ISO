@@ -11,6 +11,7 @@ import { readAuditsListCache, writeAuditsListCache, type CachedAuditRow } from "
 import { readWorkspaceCache } from "@/lib/client/workspaceCache";
 import { apiUrl } from "@/lib/client/apiBase";
 import { useAppOffline } from "@/lib/client/useAppOffline";
+import { scheduleIdleWork, shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 import { PlusCircle } from "lucide-react"; // Add PlusCircle icon
 
 type WorkspaceResponse = {
@@ -320,6 +321,8 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
     };
 
     const load = async () => {
+      if (shouldPauseBackgroundWork()) return;
+
       const workspaceUrl = new URL(apiUrl("/api/workspace"));
       workspaceUrl.searchParams.set("tenantSlug", tenantSlug);
 
@@ -387,16 +390,20 @@ export function TenantDashboardClient({ tenantSlug }: { tenantSlug: string }) {
       setLoading(false);
     };
 
-    load().catch((err) => {
-      if (cancelled) return;
-      if (!workspace && audits.length === 0 && activity.length === 0 && staff.length === 0) {
-        setError(err?.message || "Failed to load dashboard");
-      }
-      setLoading(false);
-    });
+    // Defer the fan-out until the route paints — online dashboards were starving tab switches.
+    const cancelIdle = scheduleIdleWork(() => {
+      load().catch((err) => {
+        if (cancelled) return;
+        if (!workspace && audits.length === 0 && activity.length === 0 && staff.length === 0) {
+          setError(err?.message || "Failed to load dashboard");
+        }
+        setLoading(false);
+      });
+    }, hasPaintedCache ? 360 : 0);
 
     return () => {
       cancelled = true;
+      cancelIdle();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- paint from cache; refresh only on auth/online/tenant
   }, [authLoading, online, session?.access_token, session?.user?.id, tenantSlug]);

@@ -220,68 +220,10 @@ function escapeAttr(value: string) {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
-/** A4 content height (page − margins) used for smart packing measurements. */
-function pageContentHeightPx(orientation: NativePdfOrientation): number {
-  const pageHeightMm = orientation === "landscape" ? 210 : 297;
-  const marginMm = 10;
-  return Math.round(((pageHeightMm - marginMm * 2) * 96) / 25.4);
-}
-
 function pageContentWidthPx(orientation: NativePdfOrientation): number {
   const pageWidthMm = orientation === "landscape" ? 297 : 210;
   const marginMm = 10;
   return Math.round(((pageWidthMm - marginMm * 2) * 96) / 25.4);
-}
-
-/**
- * Pack report blocks onto pages by measured height.
- * Tall sections may split across leftover space; short blocks stay atomic.
- * Soft page breaks are only inserted when a keep-together block won't fit
- * the remaining strip — tall tables fill leftover space instead of blanking it.
- */
-function applySmartPagePacking(
-  clone: HTMLElement,
-  orientation: NativePdfOrientation,
-) {
-  const pageH = pageContentHeightPx(orientation);
-  const gapPx = 12;
-
-  const blocks = Array.from(
-    clone.querySelectorAll<HTMLElement>(
-      ".report-header-block, .report-section, .report-footer",
-    ),
-  );
-
-  let usedOnPage = 0;
-
-  for (const block of blocks) {
-    const height = Math.ceil(block.getBoundingClientRect().height);
-    if (height <= 0) continue;
-
-    const isTall = height > pageH * 0.92;
-    const remaining = Math.max(0, pageH - usedOnPage);
-
-    if (isTall) {
-      // Fragment across pages so leftover space on the current page is used.
-      block.classList.add("pdf-section-may-split");
-      block.classList.remove("print-page-break-avoid");
-      const spanned = usedOnPage + height;
-      usedOnPage = spanned % pageH;
-      if (usedOnPage > 0) usedOnPage += gapPx;
-      if (usedOnPage >= pageH) usedOnPage = usedOnPage % pageH;
-      continue;
-    }
-
-    // Short / medium blocks: keep together (don't tear header/cards mid-box).
-    block.classList.add("pdf-section-keep-together");
-    if (usedOnPage > 0 && height + gapPx > remaining) {
-      block.classList.add("pdf-soft-page-break");
-      usedOnPage = Math.min(height + gapPx, pageH - 1);
-    } else {
-      usedOnPage += height + gapPx;
-      if (usedOnPage >= pageH) usedOnPage = usedOnPage % pageH;
-    }
-  }
 }
 
 function buildPrintChromeCss(orientation: NativePdfOrientation) {
@@ -322,6 +264,17 @@ body {
   width: 100%;
   box-sizing: border-box;
 }
+/* Flex containers are difficult for Android WebView to fragment across pages. */
+.native-pdf-root > .flex.flex-col {
+  display: block !important;
+}
+.native-pdf-root > .flex.flex-col > * {
+  margin-top: 0 !important;
+  margin-bottom: 12px;
+}
+.native-pdf-root > .flex.flex-col > *:last-child {
+  margin-bottom: 0;
+}
 .native-pdf-evidence-page {
   page-break-before: always;
   break-before: page;
@@ -349,25 +302,12 @@ body {
   color: #777;
   font-size: 12px;
 }
-/* Soft break only when packing decides the next block won't fit leftover space */
-.pdf-soft-page-break {
-  break-before: page;
-  page-break-before: always;
-}
-/* Default: sections may fragment — unbreakable sections caused blank page gaps */
+/* Top-level report blocks must remain in normal flow so headers and tables can
+   share a page and long tables can continue across page boundaries. */
 .pdf-page-node,
 .report-section {
   break-inside: auto;
   page-break-inside: auto;
-}
-.pdf-section-may-split {
-  break-inside: auto !important;
-  page-break-inside: auto !important;
-}
-/* Short blocks measured to fit one page stay atomic */
-.pdf-section-keep-together {
-  break-inside: avoid;
-  page-break-inside: avoid;
 }
 .report-field-card,
 .report-cell-signature,
@@ -441,12 +381,11 @@ async function serializeReportHtml(
     reportPdfProgress(onProgress, {
       stage: "layout",
       label: "Optimizing layout",
-      detail: "Packing sections onto pages…",
+      detail: "Finalizing continuous page flow…",
       percent: 54,
     });
-    // Force layout, then pack sections intelligently onto pages.
+    // Force layout before serializing so the WebView receives stable dimensions.
     void clone.offsetHeight;
-    applySmartPagePacking(clone, options.orientation);
 
     const evidenceHtml = includeEvidence
       ? await buildEvidenceHtml(options.evidencePhotos || [], onProgress)

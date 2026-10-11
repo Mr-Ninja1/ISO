@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Laptop, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Hand, Laptop, Loader2, Sparkles } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
@@ -12,6 +12,9 @@ import { readWorkspaceCacheResolved, patchWorkspaceTemplateCaches } from "@/lib/
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import { FormTypePicker } from "@/components/forms/FormTypePicker";
 import { AiFormChatModal, type AiChatMessage } from "@/components/forms/AiFormChatModal";
+import { AiBuilderAssist } from "@/components/forms/AiBuilderAssist";
+import { AiFormBriefing } from "@/components/forms/AiFormBriefing";
+import { FormInteractivePreview } from "@/components/forms/FormInteractivePreview";
 import { FormBuilderModeChooser } from "@/components/forms/FormBuilderModeChooser";
 import { PlanLimitModal } from "@/components/plan/PlanLimitModal";
 import { PlanLimitReachedError, isPlanLimitError } from "@/lib/planLimitErrors";
@@ -21,15 +24,17 @@ import {
   isSchemaEmpty,
   parseFormType,
 } from "@/lib/formBuilderConfig";
+import {
+  applySmartLayoutAction,
+  type SmartLayoutActionId,
+} from "@/lib/ai/smartLayout";
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { dbGetTemplate } from "@/lib/client/formsDb";
 import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
-import type { FieldDef, FormSchemaV1, FormSection, FormStyle, FormType } from "@/types/forms";
-import { columnHeaderDisplayLabel, isColumnHeaderPlaceholder } from "@/lib/formFieldConstants";
-import { displayFieldText, displayVariantClass } from "@/lib/displayFieldStyles";
+import type { FormSchemaV1, FormSection, FormStyle, FormType } from "@/types/forms";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import {
   enqueueTemplateSync,
@@ -38,7 +43,7 @@ import {
 } from "@/lib/client/templateSyncQueue";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { buildWorkspaceReturnHref } from "@/lib/client/workspaceNavigation";
-import type { AiClarificationQuestion, AiExtractionSummary } from "@/lib/ai/types";
+import type { AiClarificationQuestion, AiExtractionSummary, AiSuggestedAction } from "@/lib/ai/types";
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
 import { normalizeFormSchema } from "@/lib/normalizeFormSchema";
@@ -191,182 +196,68 @@ function cacheTemplateSchemaForOffline(
   });
 }
 
-function previewFieldInput(type: FieldDef["type"]) {
-  if (type === "display") {
-    return (
-      <div className="rounded-md border border-dashed border-foreground/25 bg-foreground/[0.03] px-2 py-1.5 text-xs italic text-foreground/60">
-        Read-only label (instructions / form code)
-      </div>
-    );
-  }
-  if (type === "yesno") {
-    return (
-      <select className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm">
-        <option>Yes / No</option>
-      </select>
-    );
-  }
-  if (type === "checkbox") {
-    return <input type="checkbox" className="h-5 w-5 accent-foreground" />;
-  }
-  if (type === "signature") {
-    return (
-      <div className="flex h-10 items-center rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 text-xs text-foreground/60">
-        Signature area
-      </div>
-    );
-  }
-  if (type === "photo") {
-    return (
-      <div className="flex h-10 items-center rounded-md border border-foreground/20 bg-foreground/[0.03] px-3 text-xs text-foreground/60">
-        Photo capture
-      </div>
-    );
-  }
-  if (type === "date") {
-    return <input type="date" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
-  }
-  if (type === "time") {
-    return <input type="time" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
-  }
-  if (type === "number" || type === "temp") {
-    return <input type="number" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
-  }
-  return <input type="text" className="h-10 w-full rounded-md border border-foreground/20 bg-background px-3 text-sm" />;
-}
-
-function FormPreviewBody({
-  title,
-  sections,
-  maxHeightClass = "max-h-[78vh]",
-}: {
-  title: string;
-  sections: FormSection[];
-  maxHeightClass?: string;
-}) {
-  return (
-    <div className={`overflow-auto ${maxHeightClass} p-4`}>
-      <div className="mx-auto w-full max-w-4xl rounded-lg border border-foreground/20 bg-background p-5 shadow-sm">
-        <div className="text-center text-xl font-semibold">{title || "Untitled form"}</div>
-        <div className="mt-4 space-y-4">
-          {sections.map((section, idx) =>
-            section.type === "fields" ? (
-              <section key={`pv-f-${idx}`} className="rounded-md border border-foreground/15 p-3">
-                {section.title ? (
-                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                    {section.title}
-                  </div>
-                ) : null}
-                <div
-                  className={
-                    "grid gap-3 " +
-                    (section.columns === 4
-                      ? "md:grid-cols-4"
-                      : section.columns === 3
-                        ? "md:grid-cols-3"
-                        : section.columns === 2
-                          ? "md:grid-cols-2"
-                          : "md:grid-cols-1")
-                  }
-                >
-                  {section.fields.map((field) => (
-                    <div
-                      key={field.id}
-                      className={field.type === "display" ? "space-y-1 md:col-span-full" : "space-y-1"}
-                    >
-                      {field.type === "display" ? (
-                        <div
-                          className={
-                            "rounded-md border border-foreground/10 px-2 py-1.5 text-sm " +
-                            displayVariantClass((field as import("@/types/forms").DisplayField).variant || "body")
-                          }
-                        >
-                          {displayFieldText(field as import("@/types/forms").DisplayField)}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="text-xs font-medium text-foreground/70">{field.label}</div>
-                          {previewFieldInput(field.type)}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <section key={`pv-g-${idx}`} className="rounded-md border border-foreground/15 p-3">
-                <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-foreground/70">
-                  {section.title || "Log Sheet"}
-                </div>
-                <div className="overflow-x-auto rounded-md border border-foreground/15">
-                  <table className="w-full min-w-max border-collapse text-xs">
-                    <thead>
-                      <tr>
-                        {section.columns.map((col) => (
-                          <th
-                            key={col.id}
-                            className={
-                              "border-b border-r border-foreground/15 px-2 py-2 text-left " +
-                              (isColumnHeaderPlaceholder(col.label) ? "italic text-foreground/45" : "")
-                            }
-                          >
-                            {columnHeaderDisplayLabel(col.label)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from({
-                        length: Math.min(Math.max(typeof section.rows === "number" ? section.rows : 3, 0), 5),
-                      }).map((_, rowIdx) => (
-                        <tr key={`pv-row-${rowIdx}`}>
-                          {section.columns.map((col) => (
-                            <td key={`${rowIdx}-${col.id}`} className="border-b border-r border-foreground/10 px-2 py-2">
-                              {col.type === "checkbox" ? "[ ]" : col.type === "signature" ? "Sign" : "..."}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            ),
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function FormStructurePreview({
   open,
   onClose,
   title,
   sections,
+  formStyle = "default",
+  auditorMode = false,
+  onAuditorModeChange,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   sections: FormSection[];
+  formStyle?: FormStyle;
+  auditorMode?: boolean;
+  onAuditorModeChange?: (enabled: boolean) => void;
 }) {
   return (
-    <CenteredOverlay open={open} onClose={onClose} maxWidthClass="max-w-5xl">
-      <div>
-        <div className="flex items-center justify-between gap-3 border-b border-foreground/15 px-4 py-3">
+    <CenteredOverlay
+      open={open}
+      onClose={onClose}
+      maxWidthClass="max-w-5xl"
+      panelClassName="!max-h-[min(92dvh,900px)] !overflow-hidden !p-0 flex flex-col"
+    >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-foreground/10 bg-background/95 px-4 py-3 backdrop-blur">
           <div>
-            <div className="text-sm font-semibold">Form preview</div>
-            <div className="text-xs text-foreground/70">How your final form structure will look</div>
+            <div className="text-sm font-semibold">Interactive preview</div>
+            <div className="text-xs text-foreground/60">Fill fields like a real audit — nothing is saved</div>
           </div>
-          <button
-            type="button"
-            className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-            onClick={onClose}
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {onAuditorModeChange ? (
+              <button
+                type="button"
+                className={
+                  "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors " +
+                  (auditorMode
+                    ? "border-[var(--hse-teal)] bg-[var(--hse-teal)] text-white"
+                    : "border-foreground/15 text-foreground hover:bg-foreground/[0.04]")
+                }
+                onClick={() => onAuditorModeChange(!auditorMode)}
+              >
+                <Hand className="h-3.5 w-3.5" />
+                {auditorMode ? "Auditor on" : "Test as auditor"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-xl border border-foreground/15 px-3 text-sm"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
         </div>
-        <FormPreviewBody title={title} sections={sections} />
+        <FormInteractivePreview
+          title={title}
+          sections={sections}
+          formStyle={formStyle}
+          auditorMode={auditorMode}
+          maxHeightClass="min-h-0 flex-1"
+        />
       </div>
     </CenteredOverlay>
   );
@@ -448,6 +339,11 @@ function NewTemplatePageInner() {
   const [showFormTypeModal, setShowFormTypeModal] = useState(false);
   const [showAiCompleteModal, setShowAiCompleteModal] = useState(false);
   const [aiCompleteStep, setAiCompleteStep] = useState<"success" | "preview">("success");
+  const [aiDraftBannerOpen, setAiDraftBannerOpen] = useState(false);
+  const [aiAssistOpen, setAiAssistOpen] = useState(false);
+  const [refiningAi, setRefiningAi] = useState(false);
+  const [schemaHistory, setSchemaHistory] = useState<FormSection[][]>([]);
+  const [schemaFuture, setSchemaFuture] = useState<FormSection[][]>([]);
   const [online, setOnline] = useState(true);
   const [builderBlockedSmallScreen, setBuilderBlockedSmallScreen] = useState(false);
 
@@ -456,6 +352,8 @@ function NewTemplatePageInner() {
   const [hasAudits, setHasAudits] = useState(false);
   const [auditCount, setAuditCount] = useState(0);
   const [showFormPreview, setShowFormPreview] = useState(false);
+  const [auditorMode, setAuditorMode] = useState(false);
+  const [aiBriefingOpen, setAiBriefingOpen] = useState(false);
   const [builderResetKey, setBuilderResetKey] = useState("create-initial");
   const [queuedTemplateSaves, setQueuedTemplateSaves] = useState(0);
   const [offlineDraftTemplateId, setOfflineDraftTemplateId] = useState<string | null>(null);
@@ -962,6 +860,86 @@ function NewTemplatePageInner() {
     }
   }
 
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+
+  function cloneSections(next: FormSection[]): FormSection[] {
+    return JSON.parse(JSON.stringify(next)) as FormSection[];
+  }
+
+  function buildCurrentSchema(): FormSchemaV1 {
+    return {
+      version: 1,
+      title,
+      sections: sectionsRef.current,
+      meta: {
+        ...schemaMeta,
+        formType,
+        formStyle,
+        cardIcon,
+        cardColor,
+      },
+    };
+  }
+
+  function pushSchemaHistory(previous: FormSection[]) {
+    setSchemaHistory((hist) => [...hist.slice(-39), cloneSections(previous)]);
+    setSchemaFuture([]);
+  }
+
+  function commitSections(next: FormSection[], options?: { recordHistory?: boolean; resetKeyPrefix?: string }) {
+    const prev = sectionsRef.current;
+    const prevJson = JSON.stringify(prev);
+    const nextJson = JSON.stringify(next);
+    if (prevJson === nextJson) {
+      if (options?.resetKeyPrefix) setBuilderResetKey(`${options.resetKeyPrefix}-${Date.now()}`);
+      return;
+    }
+    if (options?.recordHistory !== false) {
+      pushSchemaHistory(prev);
+    }
+    sectionsRef.current = next;
+    setSections(next);
+    if (options?.resetKeyPrefix) {
+      setBuilderResetKey(`${options.resetKeyPrefix}-${Date.now()}`);
+    }
+  }
+
+  const handleBuilderSectionsChange = useCallback((next: FormSection[]) => {
+    const prev = sectionsRef.current;
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    setSchemaHistory((hist) => [...hist.slice(-39), cloneSections(prev)]);
+    setSchemaFuture([]);
+    sectionsRef.current = next;
+    setSections(next);
+  }, []);
+
+  function undoSchemaChange() {
+    setSchemaHistory((hist) => {
+      if (!hist.length) return hist;
+      const previous = hist[hist.length - 1];
+      const current = sectionsRef.current;
+      setSchemaFuture((future) => [cloneSections(current), ...future].slice(0, 40));
+      sectionsRef.current = previous;
+      setSections(previous);
+      setBuilderResetKey(`undo-${Date.now()}`);
+      return hist.slice(0, -1);
+    });
+  }
+
+  function redoSchemaChange() {
+    setSchemaFuture((future) => {
+      if (!future.length) return future;
+      const [next, ...rest] = future;
+      const current = sectionsRef.current;
+      setSchemaHistory((hist) => [...hist.slice(-39), cloneSections(current)]);
+      sectionsRef.current = next;
+      setSections(next);
+      setBuilderResetKey(`redo-${Date.now()}`);
+      return rest;
+    });
+  }
+
   function applyImportedSchema(
     data: { title?: string; sections?: FormSection[]; schema?: FormSchemaV1 },
     resetKeyPrefix: string,
@@ -998,10 +976,92 @@ function NewTemplatePageInner() {
     setFormStyle(nextFormStyle);
     setCardIcon(nextCardIcon);
     setCardColor(nextCardColor);
-    setSchemaMeta({});
+    setSchemaMeta({ ...meta });
     setBaseSections(importedSections);
     setBuilderResetKey(`${resetKeyPrefix}-${Date.now()}`);
     setShowFormPreview(false);
+    setSchemaHistory([]);
+    setSchemaFuture([]);
+    setAiAssistOpen(true);
+
+    const gridCount = importedSections.filter((section) => section.type === "grid").length;
+    if (gridCount > 1) {
+      setError(`Loaded ${gridCount} tables from the draft — all are editable in the builder.`);
+    }
+  }
+
+  function handleLocalAiAction(action: AiSuggestedAction) {
+    if (action.id === "paste_static_items") {
+      setAiAssistOpen(true);
+      setAiDraftBannerOpen(true);
+      setError("Use Edit static items on the printed-item column to paste the list.");
+      return;
+    }
+    if (!action.localAction) return;
+    const polished = applySmartLayoutAction(buildCurrentSchema(), action.localAction as SmartLayoutActionId);
+    if (polished.meta?.formStyle && polished.meta.formStyle !== formStyle) {
+      setFormStyle(polished.meta.formStyle as FormStyle);
+    }
+    commitSections(polished.sections || [], { resetKeyPrefix: `smart-${action.id}` });
+    setError("");
+  }
+
+  async function refineCurrentForm(instruction: string) {
+    if (!accessToken || !tenantSlug || !instruction.trim()) return;
+    const ok = await refreshAiQuota();
+    if (!ok) return;
+
+    setRefiningAi(true);
+    setError("");
+    try {
+      const res = await fetch(apiUrl("/api/templates/ai-generate"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tenantSlug,
+          phase: "refine",
+          prompt: instruction.trim(),
+          schema: buildCurrentSchema(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.quota) setAiQuota(data.quota);
+      if (!res.ok) {
+        if (data?.code === "AI_QUOTA_EXCEEDED") {
+          setPlanLimitDetails({ used: data.quota?.used, limit: data.quota?.limit });
+          setPlanLimitOpen(true);
+          return;
+        }
+        throw new Error(typeof data?.error === "string" ? data.error : "Failed to refine form.");
+      }
+      const nextSections = Array.isArray(data.sections)
+        ? (data.sections as FormSection[])
+        : Array.isArray(data.schema?.sections)
+          ? (data.schema.sections as FormSection[])
+          : sections;
+      if (typeof data.title === "string" && data.title.trim()) setTitle(data.title.trim());
+      const meta = data.schema?.meta;
+      if (meta?.formType) setFormType(parseFormType(meta.formType));
+      if (meta?.formStyle) setFormStyle(meta.formStyle as FormStyle);
+      commitSections(nextSections, { resetKeyPrefix: "ai-refine" });
+      if (typeof data.summary === "string" && data.summary.trim()) {
+        setAiExtraction((prev) => ({
+          summary: data.summary,
+          adaptations: prev?.adaptations,
+          uncertainItems: prev?.uncertainItems,
+          staticColumns: prev?.staticColumns,
+          suggestedActions: prev?.suggestedActions,
+        }));
+      }
+    } catch (err: unknown) {
+      if (handlePlanLimit(err)) return;
+      setError(err instanceof Error ? err.message : "Failed to refine form.");
+    } finally {
+      setRefiningAi(false);
+    }
   }
 
   function resetAiModalState() {
@@ -1099,8 +1159,25 @@ function NewTemplatePageInner() {
     setBuilderMode("ai");
     setShowAiGenerate(false);
     resetAiModalState();
-    setAiCompleteStep("preview");
+    // Prefer extraction report when available; skip stacked preview overlay on the happy path.
+    setAiCompleteStep("success");
     setShowAiCompleteModal(true);
+  }
+
+  function openAiDraftInBuilder() {
+    const showAssist = Boolean(
+      aiExtraction &&
+        (aiExtraction.summary ||
+          aiExtraction.uncertainItems?.length ||
+          aiExtraction.staticColumns?.length ||
+          aiExtraction.adaptations?.length ||
+          aiExtraction.suggestedActions?.length),
+    );
+    openManualBuilderMode(true);
+    setAiAssistOpen(showAssist || builderMode === "ai");
+    setAiBriefingOpen(true);
+    setAiDraftBannerOpen(Boolean(aiExtraction?.staticColumns?.length));
+    setShowAiCompleteModal(false);
   }
 
   function isTransientAiError(message: string) {
@@ -1145,10 +1222,7 @@ function NewTemplatePageInner() {
       setError("Describe your form, attach a PDF/JPG/PNG, or both.");
       return;
     }
-    if (prompt && isLikelyGarbageAiPrompt(prompt)) {
-      setError("Please give a real form description or attach a readable document so the AI can build a usable draft.");
-      return;
-    }
+    // Align with server validation (looksLikeMeaningfulFormRequest) — avoid stricter client keyword gates.
     if (prompt && !looksLikeMeaningfulFormRequest(prompt)) {
       setError("This does not look like a usable form request. Please describe the form more clearly or attach a document.");
       return;
@@ -1165,7 +1239,7 @@ function NewTemplatePageInner() {
         content: displayContent,
         attachmentName: aiSourceFile?.name,
       },
-      { id: "typing", role: "assistant", content: "", isTyping: true },
+      { id: "typing", role: "assistant", content: "", isTyping: true, typingLabel: "Checking…" },
     ]);
 
     setGeneratingAi(true);
@@ -1202,12 +1276,24 @@ function NewTemplatePageInner() {
 
       setAiMessages((prev) => [
         ...prev,
-        { id: `ready-${Date.now()}`, role: "assistant", content: "Building your form draft…" },
+        { id: `ready-${Date.now()}`, role: "assistant", content: "Ready — blueprinting your form draft…" },
+        {
+          id: "typing",
+          role: "assistant",
+          content: "",
+          isTyping: true,
+          blueprint: true,
+          typingLabel: "AI blueprinting",
+        },
       ]);
 
       const generated = await withAiRetry(() => postAiGenerate(buildAiFormData({ phase: "generate" })), "generate");
       applyImportedSchema(generated, "ai-generate");
       setAiExtraction(generated.extraction ?? null);
+      setAiMessages((prev) => [
+        ...prev.filter((m) => !m.isTyping),
+        { id: `done-${Date.now()}`, role: "assistant", content: "Ready — opening your extraction report." },
+      ]);
       finishAiGeneration();
     } catch (err: unknown) {
       if (handlePlanLimit(err)) {
@@ -1249,15 +1335,22 @@ function NewTemplatePageInner() {
       setError("Please provide a real form description or attachment before generating.");
       return;
     }
-    if (aiPrompt.trim() && isLikelyGarbageAiPrompt(aiPrompt.trim())) {
-      setError("Please give a real form description or attach a readable document so the AI can build a usable draft.");
+    if (promptText && !looksLikeMeaningfulFormRequest(promptText)) {
+      setError("This does not look like a usable form request. Please describe the form more clearly or attach a document.");
       return;
     }
 
     setAiMessages((prev) => [
       ...prev,
       { id: `answers-${Date.now()}`, role: "user", content: answerSummary },
-      { id: "typing", role: "assistant", content: "", isTyping: true },
+      {
+        id: "typing",
+        role: "assistant",
+        content: "",
+        isTyping: true,
+        blueprint: true,
+        typingLabel: "AI blueprinting",
+      },
     ]);
 
     setGeneratingAi(true);
@@ -1292,19 +1385,6 @@ function NewTemplatePageInner() {
     }
   }
 
-  function isLikelyGarbageAiPrompt(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return true;
-    if (trimmed.length < 8) return true;
-    const lowSignal = /^(hello|hi|test|demo|asdf|qwerty|random|junk|nothing|sample|placeholder|form)$/i.test(trimmed);
-    if (lowSignal) return true;
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    if (words.length < 2) return true;
-
-    const hasMeaningfulWord = /(checklist|inspection|report|log|safety|temperature|form|table|field|header|date|shift|incident|survey|audit|training|supplier|staff|photo|document|inventory|delivery|visitor|recipe|schedule)/i.test(trimmed);
-    return !hasMeaningfulWord;
-  }
-
   function handleAiExampleSelect(example: ExamplePrompt) {
     setAiPrompt(example.prompt);
   }
@@ -1318,6 +1398,7 @@ function NewTemplatePageInner() {
   async function openAiGenerateModal() {
     setError("");
     setAiExtraction(null);
+    setAiDraftBannerOpen(false);
     if (offline || (typeof navigator !== "undefined" && !navigator.onLine)) {
       setError("AI form creation needs an internet connection. You can still build forms manually offline.");
       return;
@@ -1359,6 +1440,7 @@ function NewTemplatePageInner() {
     }
 
     setAiBuilderDraft(null);
+    setAiDraftBannerOpen(false);
     setSections(blankCanvasForType(formType));
     setBuilderResetKey(`manual-${Date.now()}`);
   }
@@ -1410,15 +1492,66 @@ function NewTemplatePageInner() {
         </div>
       ) : null}
 
+      {!showBuilderModeChooser ? (
+        <>
+          <AiFormBriefing
+            open={aiBriefingOpen}
+            onClose={() => setAiBriefingOpen(false)}
+            title={title}
+            sections={sections}
+            extraction={aiExtraction}
+            auditorMode={auditorMode}
+            onAuditorModeChange={setAuditorMode}
+            onOpenPreview={() => setShowFormPreview(true)}
+          />
+          <AiBuilderAssist
+            open={aiAssistOpen}
+            onClose={() => setAiAssistOpen(false)}
+            extraction={aiExtraction}
+            refining={refiningAi}
+            canUndo={schemaHistory.length > 0}
+            canRedo={schemaFuture.length > 0}
+            onUndo={undoSchemaChange}
+            onRedo={redoSchemaChange}
+            onLocalAction={handleLocalAiAction}
+            onRefine={(instruction) => void refineCurrentForm(instruction)}
+            quotaRemaining={aiQuota?.remaining ?? null}
+            unlimited={aiQuota?.unlimited}
+          />
+        </>
+      ) : null}
+
+      {aiDraftBannerOpen && aiExtraction?.staticColumns?.length && !showBuilderModeChooser ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 sm:px-4">
+          <div className="flex items-start gap-2 text-xs leading-5 text-amber-950">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p className="min-w-0 flex-1">
+              Printed list ready to paste — open a static column and choose{" "}
+              <span className="font-semibold">Edit static items</span>
+              {aiExtraction.staticColumns.length === 1
+                ? ` (“${aiExtraction.staticColumns[0]}”).`
+                : "."}
+            </p>
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-amber-900/70 hover:bg-amber-100"
+              onClick={() => setAiDraftBannerOpen(false)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="overflow-visible">
         <div className="grid grid-cols-1">
           <div className="min-w-0">
             {!showBuilderModeChooser ? (
-              <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/95 px-3 py-2 backdrop-blur sm:px-4">
+              <div className="sticky top-0 z-20 border-b border-foreground/8 bg-background/90 px-3 py-2.5 shadow-[0_10px_30px_-24px_rgba(0,61,51,0.4)] backdrop-blur-md sm:px-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.06] disabled:opacity-50"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 bg-foreground/[0.03] px-3.5 text-xs font-medium text-foreground transition hover:bg-foreground/[0.06] disabled:opacity-50"
                     disabled={saving || loadingEditInfo}
                     onClick={() => setShowFormTypeModal(true)}
                   >
@@ -1426,7 +1559,7 @@ function NewTemplatePageInner() {
                     <ChevronDown className="h-3.5 w-3.5 text-foreground/50" />
                   </button>
 
-                  <label className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.03] px-2 text-xs">
+                  <label className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 bg-foreground/[0.03] px-2.5 text-xs">
                     <span className="pl-1 text-foreground/55">Style</span>
                     <select
                       className="h-6 rounded-md border-0 bg-transparent pr-1 text-xs font-medium text-foreground focus:outline-none"
@@ -1442,21 +1575,69 @@ function NewTemplatePageInner() {
 
                   <div className="flex-1" />
 
-                  {!isEditMode ? (
+                  {aiExtraction || builderMode === "ai" ? (
                     <button
                       type="button"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 text-xs font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
-                      disabled={generatingAi || saving || workspaceLoading}
-                      onClick={() => void openAiGenerateModal()}
+                      className={
+                        "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium disabled:opacity-50 " +
+                        (aiBriefingOpen
+                          ? "border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]"
+                          : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
+                      }
+                      onClick={() => setAiBriefingOpen((open) => !open)}
                     >
-                      {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                      {generatingAi ? "Working…" : "Create with AI"}
+                      Briefing
                     </button>
                   ) : null}
 
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-foreground/15 px-3 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
+                    className={
+                      "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium disabled:opacity-50 " +
+                      (aiAssistOpen
+                        ? "border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]"
+                        : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
+                    }
+                    disabled={saving || loadingEditInfo || refiningAi}
+                    onClick={() => setAiAssistOpen((open) => !open)}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    AI assist
+                  </button>
+
+                  {!isEditMode ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3.5 text-xs font-medium text-[var(--hse-teal)] transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
+                      disabled={generatingAi || saving || workspaceLoading}
+                      onClick={() => void openAiGenerateModal()}
+                    >
+                      {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {generatingAi ? "Blueprinting…" : "Create with AI"}
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={
+                      "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-xs font-medium disabled:opacity-50 " +
+                      (auditorMode
+                        ? "border-[var(--hse-teal)] bg-[var(--hse-teal)] text-white"
+                        : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
+                    }
+                    onClick={() => {
+                      setAuditorMode(true);
+                      setShowFormPreview(true);
+                    }}
+                    disabled={workspaceLoading || builderBlockedSmallScreen}
+                  >
+                    <Hand className="h-3.5 w-3.5" />
+                    Test
+                  </button>
+
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 px-3.5 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
                     onClick={() => setShowFormPreview(true)}
                     disabled={workspaceLoading || builderBlockedSmallScreen}
                   >
@@ -1466,7 +1647,7 @@ function NewTemplatePageInner() {
 
                   <button
                     type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 disabled:opacity-50"
                     onClick={() => setShowSaveConfirm(true)}
                     disabled={disableSave}
                   >
@@ -1484,7 +1665,7 @@ function NewTemplatePageInner() {
               />
             ) : (
               <FormBuilder
-                onChangeSections={setSections}
+                onChangeSections={handleBuilderSectionsChange}
                 initialSections={sections}
                 title={title}
                 onTitleChange={setTitle}
@@ -1526,9 +1707,15 @@ function NewTemplatePageInner() {
 
       <FormStructurePreview
         open={showFormPreview}
-        onClose={() => setShowFormPreview(false)}
+        onClose={() => {
+          setShowFormPreview(false);
+          setAuditorMode(false);
+        }}
         title={title}
         sections={sections}
+        formStyle={formStyle}
+        auditorMode={auditorMode}
+        onAuditorModeChange={setAuditorMode}
       />
 
       {showSaveConfirm ? (
@@ -1745,21 +1932,28 @@ function NewTemplatePageInner() {
           }}
         >
           {aiCompleteStep === "success" ? (
-            <div className="p-5">
-              <div className="flex flex-col items-center text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <div className="relative overflow-hidden p-5">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 top-0 h-28"
+                style={{
+                  background:
+                    "linear-gradient(135deg, color-mix(in srgb, var(--hse-teal) 12%, transparent), color-mix(in srgb, var(--hse-sky) 45%, transparent) 55%, transparent)",
+                }}
+              />
+              <div className="relative flex flex-col items-center text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-sm">
                   <CheckCircle2 className="h-7 w-7" />
                 </div>
-                <div className="mt-3 text-lg font-semibold">Form generated</div>
-                <p className="mt-2 text-sm leading-6 text-foreground/75">
-                  Your draft is ready. Review the extraction notes below, preview the form, then edit anything that needs
-                  changing before saving.
+                <div className="mt-3 text-lg font-semibold tracking-tight">Form drafted</div>
+                <p className="mt-2 max-w-sm text-sm leading-6 text-foreground/70">
+                  Review the briefing, test as an auditor, then open the builder to polish or save.
                 </p>
               </div>
 
               {aiExtraction ? (
-                <div className="mt-4 space-y-3 text-left">
-                  <div className="rounded-md border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-sm leading-6 text-foreground/80">
+                <div className="relative mt-4 space-y-3 text-left">
+                  <div className="rounded-xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-sm leading-6 text-foreground/80">
                     {aiExtraction.summary}
                   </div>
                   <div className="rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3 py-2 text-xs leading-5 text-foreground/75">
@@ -1854,6 +2048,35 @@ function NewTemplatePageInner() {
                       </ul>
                     </div>
                   ) : null}
+                  {aiExtraction.suggestedActions?.length ? (
+                    <div className="rounded-md border border-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] px-3 py-2.5">
+                      <div className="mb-1.5 text-xs font-medium text-foreground/85">Quick polish before you open</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {aiExtraction.suggestedActions.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            className="inline-flex h-7 items-center rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] bg-background px-2.5 text-[11px] font-medium text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)]"
+                            onClick={() => {
+                              handleLocalAiAction(action);
+                              if (action.localAction) {
+                                // keep modal open so user can open builder next
+                              } else if (action.refinePrompt) {
+                                setShowAiCompleteModal(false);
+                                openAiDraftInBuilder();
+                                void refineCurrentForm(action.refinePrompt);
+                              }
+                            }}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-[10px] text-foreground/50">
+                        Instant chips apply immediately · you can keep polishing with AI assist in the builder
+                      </p>
+                    </div>
+                  ) : null}
                   {(() => {
                     const setupTasks = (aiExtraction.prefilledContent || []).filter(
                       (item) =>
@@ -1880,49 +2103,78 @@ function NewTemplatePageInner() {
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => openManualBuilderMode(true)}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-foreground/15 px-3 text-sm"
+                  onClick={() => {
+                    setAuditorMode(true);
+                    setAiCompleteStep("preview");
+                  }}
                 >
-                  {aiExtraction?.staticColumns?.length ? "Edit in builder (add items)" : "Edit in builder"}
+                  <Hand className="h-3.5 w-3.5" />
+                  Test as auditor
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md bg-foreground px-3 text-sm font-medium text-background"
-                  onClick={() => setAiCompleteStep("preview")}
-                >
-                  <Eye className="h-4 w-4" />
-                  Preview form
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div className="flex items-center justify-between gap-3 border-b border-foreground/15 px-4 py-3">
-                <div>
-                  <div className="text-sm font-semibold">Your generated form</div>
-                  <div className="text-xs text-foreground/70">
-                    Does this look right? Edit anything that needs changing, or save when you&apos;re happy.
-                  </div>
-                </div>
-              </div>
-              <FormPreviewBody title={title} sections={sections} maxHeightClass="max-h-[65vh]" />
-              <div className="flex flex-col gap-2 border-t border-foreground/10 px-4 py-3 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                  onClick={() => openManualBuilderMode(true)}
-                >
-                  Edit in builder
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-4 text-sm font-medium text-background"
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-foreground/15 px-3 text-sm"
                   onClick={() => {
                     setShowAiCompleteModal(false);
                     setShowSaveConfirm(true);
                   }}
                 >
                   Save form
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-1 rounded-xl bg-foreground px-3 text-sm font-medium text-background"
+                  onClick={() => openAiDraftInBuilder()}
+                >
+                  {aiExtraction?.staticColumns?.length ? "Open in builder (add items)" : "Open in builder"}
+                </button>
+              </div>
+              <p className="mt-2 text-center text-[11px] text-foreground/50">
+                Try the interactive preview, then polish in the builder with AI assist.
+              </p>
+            </div>
+          ) : (
+            <div className="flex max-h-[min(88dvh,860px)] flex-col overflow-hidden">
+              <div className="flex items-center justify-between gap-3 border-b border-foreground/10 px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold">Test your generated form</div>
+                  <div className="text-xs text-foreground/60">
+                    Tap fields and walk the table — edit anything that feels off in the builder.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-foreground/55 underline hover:text-foreground"
+                  onClick={() => setAiCompleteStep("success")}
+                >
+                  Back to report
+                </button>
+              </div>
+              <FormInteractivePreview
+                title={title}
+                sections={sections}
+                formStyle={formStyle}
+                auditorMode
+                maxHeightClass="min-h-0 flex-1"
+              />
+              <div className="flex flex-col gap-2 border-t border-foreground/10 px-4 py-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-foreground/15 px-3 text-sm"
+                  onClick={() => {
+                    setShowAiCompleteModal(false);
+                    setShowSaveConfirm(true);
+                  }}
+                >
+                  Save form
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center rounded-xl bg-foreground px-4 text-sm font-medium text-background"
+                  onClick={() => openAiDraftInBuilder()}
+                >
+                  Open in builder
                 </button>
               </div>
             </div>

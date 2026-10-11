@@ -1,6 +1,7 @@
 "use client";
 
 import { NAVIGATION_START_EVENT } from "@/lib/client/navigationLoading";
+import { markInteractiveNav } from "@/lib/client/interactionGate";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -96,6 +97,8 @@ export function NavigationProgressBar() {
       // Avoid showing loader for same-url clicks.
       if (href === lastHrefRef.current) return;
       lastHrefRef.current = href;
+      // Pause background sync immediately on any internal link tap (online or offline).
+      markInteractiveNav(3200);
       begin();
     }
 

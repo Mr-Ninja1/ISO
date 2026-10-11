@@ -155,7 +155,7 @@ export function HeaderMenuItem({
       );
     }
     return (
-      <Link href={href} className={base + " " + className} onClick={handleClick}>
+      <Link href={href} prefetch={false} className={base + " " + className} onClick={handleClick}>
         {children}
       </Link>
     );

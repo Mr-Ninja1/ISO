@@ -97,11 +97,11 @@ export function FormBuilderModeChooser({ onChooseAi, onChooseManual }: Props) {
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-1 w-1 rounded-full bg-[var(--hse-teal)]" />
-                  Or type a short prompt
+                  Live blueprinting + form briefing
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-1 w-1 rounded-full bg-[var(--hse-teal)]" />
-                  Edit the draft after generation
+                  Test as auditor before you save
                 </li>
               </ul>
               <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--hse-teal)]">

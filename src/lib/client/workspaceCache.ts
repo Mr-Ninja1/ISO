@@ -45,8 +45,12 @@ type WorkspaceCacheEnvelope = {
 const FORCE_REFETCH_PREFIX = "workspace-force-refetch:v1:";
 const parsedWorkspaceCache = new Map<string, { raw: string; data: WorkspaceData }>();
 
-/** Online trust window — keep short so multi-device creates appear without re-login. */
-export const ONLINE_WORKSPACE_CACHE_TTL_MS = 45_000;
+/**
+ * Online trust window for soft revalidate.
+ * Long enough that tab/form opens stay cache-first; BackgroundSync + changes signature
+ * still pick up multi-device creates without forcing a spinner on every switch.
+ */
+export const ONLINE_WORKSPACE_CACHE_TTL_MS = 120_000;
 /** Offline / category-tab snapshots may stay longer; network revalidate when online. */
 export const OFFLINE_WORKSPACE_CACHE_TTL_MS = 30 * 60_000;
 
