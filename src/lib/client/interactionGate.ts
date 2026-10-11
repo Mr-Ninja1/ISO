@@ -4,11 +4,15 @@
  */
 
 let busyUntilMs = 0;
+export const INTERACTIVE_NAV_EVENT = "iso:interactive-nav";
 
 /** Call at the start of user-driven navigation (open form, leave workspace, etc.). */
 export function markInteractiveNav(durationMs = 2800) {
   const until = Date.now() + Math.max(0, durationMs);
   if (until > busyUntilMs) busyUntilMs = until;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(INTERACTIVE_NAV_EVENT, { detail: { busyUntilMs } }));
+  }
 }
 
 if (typeof window !== "undefined") {

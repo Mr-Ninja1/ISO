@@ -298,6 +298,28 @@ function fitWideTablesForPdf(clone: HTMLElement) {
   });
 }
 
+function fitTableSignaturesForPdf(clone: HTMLElement) {
+  clone.querySelectorAll(".report-cell-signature--table").forEach((node) => {
+    const wrapper = node as HTMLElement;
+    wrapper.style.boxSizing = "border-box";
+    wrapper.style.width = "100%";
+    wrapper.style.maxWidth = "100%";
+    wrapper.style.minWidth = "0";
+    wrapper.style.setProperty("min-height", "0", "important");
+    wrapper.style.setProperty("max-height", "36px", "important");
+    wrapper.style.padding = "1px 2px";
+    wrapper.style.overflow = "hidden";
+
+    const image = wrapper.querySelector("img") as HTMLImageElement | null;
+    if (!image) return;
+    image.style.display = "block";
+    image.style.width = "auto";
+    image.style.setProperty("max-width", "100%", "important");
+    image.style.setProperty("max-height", "32px", "important");
+    image.style.objectFit = "contain";
+  });
+}
+
 /** If cloned report still overflows A4 content width, scale the whole sheet down. */
 function fitCloneToPageWidth(clone: HTMLElement, targetWidthPx: number) {
   // Force layout at target width first.
@@ -496,6 +518,7 @@ async function captureElementIntoPdf(
 
   prepareEvidenceMarkupForPdf(clone, includeEvidencePages);
   fitWideTablesForPdf(clone);
+  fitTableSignaturesForPdf(clone);
 
   host.appendChild(clone);
   document.body.appendChild(host);

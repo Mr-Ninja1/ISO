@@ -43,7 +43,7 @@ import {
   writeAuditTemplateCache,
 } from "@/lib/client/auditTemplateCache";
 import { writeAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
-import { isAppOffline } from "@/lib/client/appOffline";
+import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { dbGetDraft, dbGetTemplate, dbPutTemplate } from "@/lib/client/formsDb";
 import { apiUrl } from "@/lib/client/apiBase";
@@ -55,6 +55,7 @@ import {
   workspaceContentFingerprint,
 } from "@/lib/client/workspaceCache";
 import {
+  INTERACTIVE_NAV_EVENT,
   markInteractiveNav,
   scheduleIdleWork,
   shouldPauseBackgroundWork,
@@ -726,7 +727,7 @@ function WorkspacePageInner() {
   const requestedView = searchParams.get("view");
 
   const accessToken = getWorkspaceAccessToken(session);
-  const cacheUserId = user?.id || null;
+  const cacheUserId = user?.id || session?.user?.id || null;
 
   const [tenantChoices, setTenantChoices] = useState<TenantSummary[]>([]);
   const [tenantChoiceLoading, setTenantChoiceLoading] = useState(false);
@@ -988,7 +989,7 @@ function WorkspacePageInner() {
 
     // Only hard-fallback when the device snapshot is incomplete (online path may still
     // race). After bootstrap, soft nav must win — matching offline feel.
-    if (!prepared) {
+    if (!prepared && !schemaCached) {
       window.setTimeout(() => {
         if (outboundNavEpochRef.current !== navEpoch) return;
         if (!isLiveOnWorkspacePath()) return;
@@ -1140,14 +1141,28 @@ function WorkspacePageInner() {
       url.searchParams.set("tenantSlug", tenantSlug);
       url.searchParams.set("templateId", templateId);
 
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `Template prefetch failed (${res.status})`);
-      // Don't compete with an in-flight form open stringify.
-      if (shouldPauseBackgroundWork()) return;
-      writeAuditTemplateCache(tenantSlug, templateId, data);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 8_000);
+      const interrupt = () => controller.abort();
+      window.addEventListener("offline", interrupt);
+      window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, interrupt);
+      window.addEventListener(INTERACTIVE_NAV_EVENT, interrupt);
+      try {
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Template prefetch failed (${res.status})`);
+        // Don't compete with an in-flight form open stringify.
+        if (controller.signal.aborted || shouldPauseBackgroundWork()) return;
+        writeAuditTemplateCache(tenantSlug, templateId, data);
+      } finally {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("offline", interrupt);
+        window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, interrupt);
+        window.removeEventListener(INTERACTIVE_NAV_EVENT, interrupt);
+      }
     })();
 
     prefetchInFlightRef.current.set(templateId, request);
@@ -1227,7 +1242,7 @@ function WorkspacePageInner() {
 
       for (const cid of targets) {
         const data = isCapacitorNativeApp()
-          ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData)
+          ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid, { userId: cacheUserId })) as WorkspaceData)
           : await (async () => {
               const url = new URL(apiUrl("/api/workspace"));
               url.searchParams.set("tenantSlug", tenantSlug);
@@ -1261,9 +1276,10 @@ function WorkspacePageInner() {
     }
   }
 
-  async function primeOfflineCachesInBackground() {
+  async function primeOfflineCachesInBackground(signal?: AbortSignal) {
     if (!workspace || !accessToken || !tenantSlug) return;
     if (isAppOffline()) return;
+    if (signal?.aborted || shouldPauseBackgroundWork()) return;
     if (offlinePrimeInFlightRef.current) return;
     if (shouldPauseBackgroundWork()) return;
     if (isOfflineBootstrapComplete(cacheUserId, tenantSlug) && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
@@ -1293,32 +1309,38 @@ function WorkspacePageInner() {
       // Same contract as first-login bootstrap: every category snapshot + every form schema.
       const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
       for (const cid of targets) {
+        if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
         if (cid && isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) {
           continue;
         }
         try {
           const data = isCapacitorNativeApp()
-            ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData)
+            ? ((await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid, { signal, userId: cacheUserId })) as WorkspaceData)
             : await (async () => {
                 const url = new URL(apiUrl("/api/workspace"));
                 url.searchParams.set("tenantSlug", tenantSlug);
                 if (cid) url.searchParams.set("categoryId", cid);
                 const res = await fetch(url.toString(), {
                   headers: { Authorization: `Bearer ${accessToken}` },
+                  signal,
                 });
                 if (!res.ok) return null;
                 return (await res.json().catch(() => null)) as WorkspaceData | null;
               })();
           // Silent: warming must not thrash the active tab via workspace-cache-updated.
+          if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
           if (data) writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
         } catch {
+          if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
           // continue other categories
         }
       }
 
+      if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
       if (!isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
-        await cacheAllTenantTemplates(accessToken, tenantSlug);
+        await cacheAllTenantTemplates(accessToken, tenantSlug, signal);
       }
+      if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
 
       // Only mark complete when every category slot is actually on-device — otherwise
       // tab switches still miss cache and fetch over the network.
@@ -2272,7 +2294,7 @@ function WorkspacePageInner() {
 
       try {
         const supabase = createClient();
-        data = (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId)) as WorkspaceData;
+        data = (await fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId, { userId: cacheUserId })) as WorkspaceData;
       } catch {
         /* RLS not deployed yet or transient PostgREST error — use API route */
       }
@@ -2587,7 +2609,41 @@ function WorkspacePageInner() {
       if (!missingCategory) return;
     }
 
-    primeOfflineCachesInBackground();
+    let controller = new AbortController();
+    let cancelIdleWork = () => {};
+    let resumeTimer: number | null = null;
+    const schedulePrime = (delayMs: number) => {
+      cancelIdleWork();
+      const taskController = controller;
+      cancelIdleWork = scheduleIdleWork(() => {
+        if (!taskController.signal.aborted && !isAppOffline() && !shouldPauseBackgroundWork()) {
+          void primeOfflineCachesInBackground(taskController.signal);
+        }
+      }, delayMs);
+    };
+    const interrupt = () => {
+      controller.abort();
+      cancelIdleWork();
+      if (resumeTimer !== null) window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(() => {
+        resumeTimer = null;
+        if (isAppOffline() || document.visibilityState === "hidden") return;
+        controller = new AbortController();
+        schedulePrime(2500);
+      }, 10_000);
+    };
+    window.addEventListener("offline", interrupt);
+    window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, interrupt);
+    window.addEventListener(INTERACTIVE_NAV_EVENT, interrupt);
+    schedulePrime(8000);
+    return () => {
+      cancelIdleWork();
+      if (resumeTimer !== null) window.clearTimeout(resumeTimer);
+      controller.abort();
+      window.removeEventListener("offline", interrupt);
+      window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, interrupt);
+      window.removeEventListener(INTERACTIVE_NAV_EVENT, interrupt);
+    };
     // Depend on category id list, not whole workspace — tab switches rewrite templates
     // and were restarting multi-category fetches (freeze when fighting the bounce).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2602,92 +2658,9 @@ function WorkspacePageInner() {
   ]);
 
   useEffect(() => {
-    if (!workspace || !tenantSlug || !accessToken || offlineFromHook) return;
-    if (
-      isOfflineBootstrapComplete(cacheUserId, tenantSlug) &&
-      isTenantTemplateBulkCached(tenantSlug)
-    ) {
-      return;
-    }
-    const categoryIds = workspace.categories
-      .map((category) => category.id)
-      .filter((id) => id !== (categoryId || workspace.selectedCategoryId));
-    if (!categoryIds.length) return;
-
-    let active = true;
-    const warmCategories = async () => {
-      for (const cid of categoryIds) {
-        // Keep sibling category snapshots warm so tab switches stay local.
-        if (!active || isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) continue;
-        if (shouldPauseBackgroundWork()) break;
-        try {
-          let data: WorkspaceData;
-          if (isCapacitorNativeApp()) {
-            data = (await fetchWorkspaceViaSupabase(createClient(), tenantSlug, cid)) as WorkspaceData;
-          } else {
-            const url = new URL(apiUrl("/api/workspace"));
-            url.searchParams.set("tenantSlug", tenantSlug);
-            url.searchParams.set("categoryId", cid);
-            const res = await fetch(url.toString(), {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (!res.ok) continue;
-            data = (await res.json()) as WorkspaceData;
-          }
-          if (!active || shouldPauseBackgroundWork()) break;
-          writeWorkspaceCache(cacheUserId, tenantSlug, cid, data, { silent: true });
-        } catch {
-          // Best-effort warming; the category switch still fetches on demand.
-        }
-      }
-    };
-
-    const timer = window.setTimeout(() => void warmCategories(), 800);
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    workspace?.tenant.slug,
-    workspaceCategoriesWarmKey,
-    categoryId,
-    tenantSlug,
-    accessToken,
-    cacheUserId,
-    offlineFromHook,
-  ]);
-
-  useEffect(() => {
     if (!tenantSlug) return;
     setRecentTemplateIds(readRecentTemplateIds(tenantSlug));
   }, [tenantSlug]);
-
-  useEffect(() => {
-    if (!isCapacitorNativeApp()) return;
-    if (!workspace || !accessToken || !tenantSlug) return;
-    if (isAppOffline()) return;
-    if (isTenantTemplateBulkCached(tenantSlug)) return;
-
-    let active = true;
-    (async () => {
-      try {
-        await cacheAllTenantTemplates(accessToken, tenantSlug);
-        if (!active) return;
-        const now = new Date().toISOString();
-        localStorage.setItem("offlineModeEnabled", "1");
-        localStorage.setItem("offlinePreparedAt", now);
-        setOfflinePreparedAt(now);
-      } catch {
-        // primeOfflineCachesInBackground also attempts this
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.tenant.slug, workspace?.templates?.length, accessToken, tenantSlug]);
 
   useEffect(() => {
     if (!workspace || offlineFromHook) return;

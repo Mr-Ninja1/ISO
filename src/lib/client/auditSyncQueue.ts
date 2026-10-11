@@ -3,8 +3,17 @@
 import { apiUrl } from "@/lib/client/apiBase";
 import { copyAuditReportSnapshot, writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
-import { dbDeleteOutbox, dbGetTemplate, dbListOutboxAll, dbMarkOutboxFailed } from "@/lib/client/formsDb";
+import {
+  dbCountOutbox,
+  dbDeleteOutbox,
+  dbGetTemplate,
+  dbListOutboxAll,
+  dbMarkOutboxFailed,
+} from "@/lib/client/formsDb";
 import { clearClientSubmissionAttempt, readClientSubmissionId } from "@/lib/submissionMeta";
+import { OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/connectivityEvents";
+import { isAppOffline } from "@/lib/client/appOffline";
+import { INTERACTIVE_NAV_EVENT, shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 
 type QueueMode = "draft" | "submit";
 
@@ -152,8 +161,7 @@ export function getPendingAuditSyncCount() {
 
 async function countOutboxPending(): Promise<number> {
   try {
-    const outbox = await dbListOutboxAll();
-    return outbox.length;
+    return await dbCountOutbox();
   } catch {
     return 0;
   }
@@ -217,24 +225,49 @@ async function postQueuedSubmit(
     mode: QueueMode;
     auditId?: string | null;
     id: string;
-  }
+  },
+  flushSignal?: AbortSignal,
 ) {
   const clientSubmissionId = readClientSubmissionId(item.payload);
-  const res = await fetch(apiUrl("/api/audit/submit"), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      tenantSlug: item.tenantSlug,
-      templateId: item.templateId,
-      payload: item.payload,
-      mode: item.mode,
-      auditId: item.auditId,
-      clientSubmissionId: clientSubmissionId || undefined,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+  const abortIfInterrupted = () => {
+    if (flushSignal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) controller.abort();
+  };
+  const abortFromFlush = () => controller.abort();
+  window.addEventListener("offline", abortFromFlush);
+  window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfInterrupted);
+  window.addEventListener(INTERACTIVE_NAV_EVENT, abortIfInterrupted);
+  document.addEventListener("visibilitychange", abortIfInterrupted);
+  flushSignal?.addEventListener("abort", abortFromFlush, { once: true });
+
+  let res: Response;
+  try {
+    abortIfInterrupted();
+    res = await fetch(apiUrl("/api/audit/submit"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        tenantSlug: item.tenantSlug,
+        templateId: item.templateId,
+        payload: item.payload,
+        mode: item.mode,
+        auditId: item.auditId,
+        clientSubmissionId: clientSubmissionId || undefined,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+    window.removeEventListener("offline", abortFromFlush);
+    window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfInterrupted);
+    window.removeEventListener(INTERACTIVE_NAV_EVENT, abortIfInterrupted);
+    document.removeEventListener("visibilitychange", abortIfInterrupted);
+    flushSignal?.removeEventListener("abort", abortFromFlush);
+  }
 
   if (!res.ok) {
     return { ok: false as const, status: res.status };
@@ -244,7 +277,7 @@ async function postQueuedSubmit(
   return { ok: true as const, auditId: typeof json.auditId === "string" ? json.auditId : "" };
 }
 
-async function flushAuditSyncQueueInternal(accessToken: string) {
+async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSignal) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 
   let processed = 0;
@@ -254,6 +287,7 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
   try {
     const outbox = await dbListOutboxAll();
     for (const item of outbox) {
+      if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) break;
       const submissionId = readClientSubmissionId(item.payload);
       if (submissionId) {
         outboxSubmissionIds.add(submissionId);
@@ -265,7 +299,7 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
       }
 
       try {
-        const result = await postQueuedSubmit(accessToken, item);
+        const result = await postQueuedSubmit(accessToken, item, signal);
         if (!result.ok) {
           await dbMarkOutboxFailed(item.id, `HTTP ${result.status}`);
           continue;
@@ -279,6 +313,7 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
         processed += 1;
         notifyAuditOutboxChanged();
       } catch (e: unknown) {
+        if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) break;
         await dbMarkOutboxFailed(item.id, String((e as { message?: string })?.message || "sync failed"));
       }
     }
@@ -293,7 +328,12 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
 
   const remaining: AuditSyncItem[] = [];
 
-  for (const item of queue) {
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index]!;
+    if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) {
+      remaining.push(...queue.slice(index));
+      break;
+    }
     const submissionId = readClientSubmissionId(item.payload);
     if (submissionId && outboxSubmissionIds.has(submissionId)) {
       processed += 1;
@@ -301,7 +341,7 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
     }
 
     try {
-      const result = await postQueuedSubmit(accessToken, item);
+      const result = await postQueuedSubmit(accessToken, item, signal);
       if (!result.ok) {
         remaining.push(item);
         continue;
@@ -314,6 +354,10 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
       processed += 1;
     } catch {
       remaining.push(item);
+      if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) {
+        remaining.push(...queue.slice(index + 1));
+        break;
+      }
     }
   }
 
@@ -322,12 +366,12 @@ async function flushAuditSyncQueueInternal(accessToken: string) {
   return { processed, remaining: remaining.length + outboxRemaining };
 }
 
-export async function flushAuditSyncQueue(accessToken: string) {
+export async function flushAuditSyncQueue(accessToken: string, signal?: AbortSignal) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 
   if (flushInFlight) return flushInFlight;
 
-  flushInFlight = flushAuditSyncQueueInternal(accessToken).finally(() => {
+  flushInFlight = flushAuditSyncQueueInternal(accessToken, signal).finally(() => {
     flushInFlight = null;
   });
 

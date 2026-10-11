@@ -209,6 +209,12 @@ export async function dbListOutboxAll(): Promise<DbOutboxRow[]> {
   return await db.outbox.orderBy("createdAt").toArray();
 }
 
+export async function dbCountOutbox(): Promise<number> {
+  const db = getDb();
+  if (!db) return 0;
+  return await db.outbox.count();
+}
+
 export async function dbMarkOutboxFailed(id: string, message: string): Promise<void> {
   const db = getDb();
   if (!db) return;

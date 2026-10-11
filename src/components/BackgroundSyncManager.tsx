@@ -26,12 +26,16 @@ import {
   type WorkspaceData,
 } from "@/lib/client/workspaceCache";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
-import { shouldPauseBackgroundWork, waitForInteractiveNavClear } from "@/lib/client/interactionGate";
+import {
+  INTERACTIVE_NAV_EVENT,
+  shouldPauseBackgroundWork,
+  waitForInteractiveNavClear,
+} from "@/lib/client/interactionGate";
 import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
 
 const REMOTE_CHANGE_CHECK_INTERVAL_MS = 5 * 60_000;
-const RECONNECT_SETTLE_DELAY_MS = 3_000;
+const RECONNECT_SETTLE_DELAY_MS = 8_000;
 
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
@@ -112,6 +116,7 @@ export function BackgroundSyncManager() {
     let active = true;
     let pullRunning = false;
     const pullController = new AbortController();
+    let flushController: AbortController | null = null;
     let lastRemoteCheckAt = 0;
     let reconnectTimer: number | null = null;
 
@@ -266,15 +271,27 @@ export function BackgroundSyncManager() {
         await waitForInteractiveNavClear(2500);
         if (!active || shouldPauseBackgroundWork()) return;
       }
+      if (!active || isAppOffline() || shouldPauseBackgroundWork()) return;
+      const queuedCount = await readPendingCountAsync();
+      if (!active || isAppOffline() || shouldPauseBackgroundWork()) return;
+      if (queuedCount === 0) {
+        setPendingCount(0);
+        return;
+      }
+      setPendingCount(queuedCount);
+
+      const controller = new AbortController();
+      flushController = controller;
       setSyncing(true);
       try {
         // Always flush audit outbox when online — do not gate on localStorage-only counts.
-        await flushAuditSyncQueue(accessToken);
-        if (!active) return;
-        await flushTemplateSyncQueue(accessToken);
-        if (!active) return;
-        await flushBackgroundMutationQueue(accessToken);
+        await flushAuditSyncQueue(accessToken, controller.signal);
+        if (!active || controller.signal.aborted) return;
+        await flushTemplateSyncQueue(accessToken, controller.signal);
+        if (!active || controller.signal.aborted) return;
+        await flushBackgroundMutationQueue(accessToken, controller.signal);
       } finally {
+        if (flushController === controller) flushController = null;
         if (!active) return;
         setSyncing(false);
         const count = await readPendingCountAsync();
@@ -329,25 +346,40 @@ export function BackgroundSyncManager() {
         // ignore explicit refresh failures
       });
     };
+    const onInterrupt = () => {
+      flushController?.abort();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") onInterrupt();
+    };
     const interval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       if (shouldPauseBackgroundWork()) return;
       maybeFlush();
     }, 60_000);
     window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onInterrupt);
+    window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, onInterrupt);
+    window.addEventListener(INTERACTIVE_NAV_EVENT, onInterrupt);
     document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
     window.addEventListener("workspace-sync-requested", onExplicitSync);
 
     return () => {
       active = false;
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onInterrupt);
+      window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, onInterrupt);
+      window.removeEventListener(INTERACTIVE_NAV_EVENT, onInterrupt);
       document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("workspace-sync-requested", onExplicitSync);
       window.clearInterval(interval);
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       pullController.abort();
+      flushController?.abort();
     };
   }, [accessToken, online, pathname, tenantSlug, user?.id]);
 

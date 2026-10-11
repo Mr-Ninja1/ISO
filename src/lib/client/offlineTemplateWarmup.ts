@@ -71,13 +71,16 @@ async function writeTemplatesChunked(
     title: string;
     schema: AuditTemplatePayload["template"]["schema"];
     updatedAt: string;
-  }>
+  }>,
+  signal?: AbortSignal,
 ) {
   for (let i = 0; i < templates.length; i += 1) {
+    if (signal?.aborted) throw new DOMException("Background cache warmup interrupted", "AbortError");
     if (i > 0 && i % WRITE_YIELD_EVERY === 0) {
       if (shouldPauseBackgroundWork()) {
         await waitForInteractiveNavClear();
       }
+      if (signal?.aborted) throw new DOMException("Background cache warmup interrupted", "AbortError");
       await yieldToMain();
     }
     const t = templates[i]!;
@@ -94,29 +97,38 @@ async function writeTemplatesChunked(
 }
 
 /** Downloads every form schema for a brand — required for instant offline opens. */
-export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenantSlug: string) {
+export async function cacheAllTenantTemplatesFromApi(
+  accessToken: string,
+  tenantSlug: string,
+  signal?: AbortSignal,
+) {
   const templatesUrl = new URL(apiUrl("/api/audit/templates-cache"));
   templatesUrl.searchParams.set("tenantSlug", tenantSlug);
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), TEMPLATE_CACHE_REQUEST_TIMEOUT_MS);
-  let res: Response;
+  const abortFromSignal = () => controller.abort();
+  signal?.addEventListener("abort", abortFromSignal, { once: true });
+  if (signal?.aborted) controller.abort();
+  let json: TemplatesCacheResponse & { error?: string };
   try {
-    res = await fetch(templatesUrl.toString(), {
+    const res = await fetch(templatesUrl.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: controller.signal,
     });
+    json = (await res.json().catch(() => ({}))) as TemplatesCacheResponse & { error?: string };
+    if (!res.ok) {
+      throw new Error(json?.error || `Template cache failed (${res.status})`);
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
+      if (signal?.aborted) throw error;
       throw new Error("Form schema download timed out. Check your connection and try again.");
     }
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
-  }
-  const json = (await res.json().catch(() => ({}))) as TemplatesCacheResponse & { error?: string };
-  if (!res.ok) {
-    throw new Error(json?.error || `Template cache failed (${res.status})`);
+    signal?.removeEventListener("abort", abortFromSignal);
   }
 
   if (!json.tenant || !Array.isArray(json.templates)) {
@@ -124,7 +136,7 @@ export async function cacheAllTenantTemplatesFromApi(accessToken: string, tenant
     return 0;
   }
 
-  await writeTemplatesChunked(tenantSlug, json.tenant, json.templates);
+  await writeTemplatesChunked(tenantSlug, json.tenant, json.templates, signal);
 
   markTenantTemplateBulkCached(tenantSlug);
   return json.templates.length;
@@ -138,9 +150,10 @@ async function cacheTemplatesFromRows(
     title: string;
     schema: AuditTemplatePayload["template"]["schema"];
     updatedAt: string;
-  }>
+  }>,
+  signal?: AbortSignal,
 ) {
-  await writeTemplatesChunked(tenantSlug, tenant, templates);
+  await writeTemplatesChunked(tenantSlug, tenant, templates, signal);
 
   markTenantTemplateBulkCached(tenantSlug);
   return templates.length;
@@ -149,13 +162,15 @@ async function cacheTemplatesFromRows(
 /** Native app: download form schemas directly from Supabase. */
 export async function cacheAllTenantTemplatesFromSupabase(
   supabase: SupabaseClient,
-  tenantSlug: string
+  tenantSlug: string,
+  signal?: AbortSignal,
 ) {
-  const { data: tenant, error: tenantErr } = await supabase
+  let tenantQuery = supabase
     .from("tenants")
     .select("id, slug, name, logo_url")
-    .eq("slug", tenantSlug)
-    .maybeSingle();
+    .eq("slug", tenantSlug);
+  if (signal) tenantQuery = tenantQuery.abortSignal(signal);
+  const { data: tenant, error: tenantErr } = await tenantQuery.maybeSingle();
 
   if (tenantErr || !tenant) {
     throw new Error("Tenant not found");
@@ -170,22 +185,25 @@ export async function cacheAllTenantTemplatesFromSupabase(
     throw new Error("Unauthorized");
   }
 
-  const { data: membership, error: membershipErr } = await supabase
+  let membershipQuery = supabase
     .from("tenant_members")
     .select("id")
     .eq("tenant_id", tenant.id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+    .eq("user_id", user.id);
+  if (signal) membershipQuery = membershipQuery.abortSignal(signal);
+  const { data: membership, error: membershipErr } = await membershipQuery.maybeSingle();
 
   if (membershipErr || !membership) {
     throw new Error("Forbidden");
   }
 
-  const { data: allTemplates, error: templateErr } = await supabase
+  let templatesQuery = supabase
     .from("form_templates")
     .select("id, title, schema, updated_at")
     .eq("tenant_id", tenant.id)
     .order("updated_at", { ascending: false });
+  if (signal) templatesQuery = templatesQuery.abortSignal(signal);
+  const { data: allTemplates, error: templateErr } = await templatesQuery;
 
   if (templateErr) {
     throw new Error(templateErr.message);
@@ -212,21 +230,26 @@ export async function cacheAllTenantTemplatesFromSupabase(
       name: tenant.name as string,
       logoUrl: (tenant.logo_url as string | null) ?? null,
     },
-    templates
+    templates,
+    signal,
   );
 }
 
 /** Downloads every form schema for a brand — API on web, Supabase on native. */
-export async function cacheAllTenantTemplates(accessToken: string, tenantSlug: string) {
+export async function cacheAllTenantTemplates(
+  accessToken: string,
+  tenantSlug: string,
+  signal?: AbortSignal,
+) {
   const existing = inFlightBulkCaches.get(tenantSlug);
   if (existing) return existing;
 
   const request = (async () => {
     if (isCapacitorNativeApp()) {
       const { createClient } = await import("@/lib/auth");
-      return cacheAllTenantTemplatesFromSupabase(createClient(), tenantSlug);
+      return cacheAllTenantTemplatesFromSupabase(createClient(), tenantSlug, signal);
     }
-    return cacheAllTenantTemplatesFromApi(accessToken, tenantSlug);
+    return cacheAllTenantTemplatesFromApi(accessToken, tenantSlug, signal);
   })();
 
   inFlightBulkCaches.set(tenantSlug, request);

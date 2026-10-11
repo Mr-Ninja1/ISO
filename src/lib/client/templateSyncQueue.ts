@@ -162,7 +162,7 @@ export function enqueueTemplateSync(item: Omit<TemplateSyncItem, "id" | "queuedA
   return next;
 }
 
-export async function flushTemplateSyncQueue(accessToken: string) {
+export async function flushTemplateSyncQueue(accessToken: string, signal?: AbortSignal) {
   if (!accessToken) return { processed: 0, remaining: getPendingTemplateSyncCount() };
 
   const queue = compactQueue(readQueue());
@@ -173,7 +173,12 @@ export async function flushTemplateSyncQueue(accessToken: string) {
   const remaining: TemplateSyncItem[] = [];
   const localIdToServerId = new Map<string, string>();
 
-  for (const item of queue) {
+  for (let index = 0; index < queue.length; index += 1) {
+    if (signal?.aborted) {
+      remaining.push(...queue.slice(index));
+      break;
+    }
+    const item = queue[index]!;
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), QUEUE_REQUEST_TIMEOUT_MS);
     try {
@@ -205,6 +210,8 @@ export async function flushTemplateSyncQueue(accessToken: string) {
             : "/api/templates/create"
       );
 
+      // Let the current write finish when navigation starts. Aborting a create after
+      // the server commits but before its response arrives could create a duplicate.
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -254,6 +261,10 @@ export async function flushTemplateSyncQueue(accessToken: string) {
       processed += 1;
     } catch {
       remaining.push(item);
+      if (signal?.aborted) {
+        remaining.push(...queue.slice(index + 1));
+        break;
+      }
     } finally {
       window.clearTimeout(timeoutId);
     }

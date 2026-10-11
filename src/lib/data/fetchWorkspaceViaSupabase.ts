@@ -17,24 +17,32 @@ import {
 export async function fetchWorkspaceViaSupabase(
   supabase: SupabaseClient,
   tenantSlug: string,
-  requestedCategoryId: string | null | undefined
+  requestedCategoryId: string | null | undefined,
+  options: { signal?: AbortSignal; userId?: string | null } = {},
 ): Promise<BuiltWorkspacePayload> {
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
+  // Client routes can reuse the already-restored session identity instead of
+  // making an extra auth.getUser network request before the RLS-protected reads.
+  let userId = options.userId || null;
+  if (!userId) {
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
 
-  if (userErr || !user) {
-    const err = new Error("Unauthorized") as Error & { status?: number };
-    err.status = 401;
-    throw err;
+    if (userErr || !user) {
+      const err = new Error("Unauthorized") as Error & { status?: number };
+      err.status = 401;
+      throw err;
+    }
+    userId = user.id;
   }
 
-  const { data: tenantRow, error: tenantErr } = await supabase
+  let tenantQuery = supabase
     .from("tenants")
     .select("id,name,slug,logo_url,is_active,deactivation_reason")
-    .eq("slug", tenantSlug)
-    .maybeSingle();
+    .eq("slug", tenantSlug);
+  if (options.signal) tenantQuery = tenantQuery.abortSignal(options.signal);
+  const { data: tenantRow, error: tenantErr } = await tenantQuery.maybeSingle();
 
   if (tenantErr) {
     const err = new Error(tenantErr.message) as Error & { status?: number };
@@ -67,12 +75,13 @@ export async function fetchWorkspaceViaSupabase(
     logoUrl: (tenantRow.logo_url as string | null) ?? null,
   };
 
-  const { data: membership, error: memErr } = await supabase
+  let membershipQuery = supabase
     .from("tenant_members")
     .select("id,role")
     .eq("tenant_id", tenantPayload.id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+    .eq("user_id", userId);
+  if (options.signal) membershipQuery = membershipQuery.abortSignal(options.signal);
+  const { data: membership, error: memErr } = await membershipQuery.maybeSingle();
 
   if (memErr || !membership) {
     const err = new Error("Forbidden") as Error & { status?: number };
@@ -80,12 +89,14 @@ export async function fetchWorkspaceViaSupabase(
     throw err;
   }
 
-  const { data: categoryRows, error: catErr } = await supabase
+  let categoryQuery = supabase
     .from("categories")
     .select("id,name,sort_order")
     .eq("tenant_id", tenantPayload.id)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
+  if (options.signal) categoryQuery = categoryQuery.abortSignal(options.signal);
+  const { data: categoryRows, error: catErr } = await categoryQuery;
 
   if (catErr) {
     const err = new Error(catErr.message) as Error & { status?: number };
@@ -103,12 +114,14 @@ export async function fetchWorkspaceViaSupabase(
 
   let templateRowsForSelectedCategory: TemplateRowInput[] = [];
   if (selectedCategoryId) {
-    const { data: tpls, error: tplErr } = await supabase
+    let templatesQuery = supabase
       .from("form_templates")
       .select("id,title,updated_at,category_id,schema")
       .eq("tenant_id", tenantPayload.id)
       .eq("category_id", selectedCategoryId)
       .order("updated_at", { ascending: false });
+    if (options.signal) templatesQuery = templatesQuery.abortSignal(options.signal);
+    const { data: tpls, error: tplErr } = await templatesQuery;
 
     if (tplErr) {
       const err = new Error(tplErr.message) as Error & { status?: number };

@@ -711,6 +711,69 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return true;
     }
 
+    const queuedOutboxItem = await dbEnqueueOutbox({
+      tenantSlug,
+      templateId,
+      mode,
+      auditId: draftAuditId ?? undefined,
+      payload: payloadWithMeta as Record<string, unknown>,
+    });
+
+    if (!queuedOutboxItem) {
+      if (!silent) {
+        setNotification({
+          title: "Submission failed",
+          message: "Could not save this submission on the device. Please try again.",
+          tone: "error",
+        });
+      }
+      return false;
+    }
+
+    notifyAuditOutboxChanged();
+    const pendingId = `pending:${queuedOutboxItem.id}`;
+    writeAuditReportSnapshot(tenantSlug, pendingId, {
+      title: effectiveSchema.title || "Form",
+      status: "SUBMITTED",
+      tenantName: tenantName || tenantSlug,
+      templateId,
+      payload: payloadWithMeta as Record<string, unknown>,
+      schema: effectiveSchema,
+    });
+    addOfflineSubmittedForm({
+      queueId: queuedOutboxItem.id,
+      tenantSlug,
+      templateId,
+      templateTitle: effectiveSchema.title || "Form",
+      payload: payloadWithMeta,
+    });
+    const queuedAt = new Date().toISOString();
+    upsertCachedAuditRow(currentUserId, tenantSlug, {
+      id: pendingId,
+      status: "SUBMITTED",
+      templateId,
+      createdAt: queuedAt,
+      updatedAt: queuedAt,
+      submittedAt: queuedAt,
+      template: { title: effectiveSchema.title || "Form" },
+      devicePending: true,
+    });
+    clearLocalDraft(currentUserId, tenantSlug, templateId);
+    setDraftAuditId(null);
+    writeQueuedNotice(tenantSlug, "Submission saved on this device and will sync automatically.");
+    if (!silent) {
+      setNotification({
+        title: "Submission saved",
+        message: "Saved on this device. It will sync automatically.",
+        tone: "success",
+      });
+    }
+    pushTenantRoute(router, tenantSlug, "audits", {
+      status: "SUBMITTED",
+      notice: "queued-submit",
+    });
+    return true;
+
     try {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 10_000);
@@ -751,8 +814,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       // Drop any outbox row queued from a prior timeout of this same attempt.
       try {
         const stale = await dbFindOutboxByClientSubmissionId(clientSubmissionId);
-        if (stale) {
-          await dbDeleteOutbox(stale.id);
+        const staleId = stale?.id;
+        if (staleId) {
+          await dbDeleteOutbox(staleId!);
           notifyAuditOutboxChanged();
         }
       } catch {
@@ -819,6 +883,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         }
         return false;
       }
+      const stableQueuedId = outboxItem?.id || "";
+      if (!stableQueuedId) return false;
 
       notifyAuditOutboxChanged();
 
@@ -833,7 +899,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       }
 
       {
-        const pendingId = `pending:${outboxItem.id}`;
+        const pendingId = `pending:${stableQueuedId}`;
         writeAuditReportSnapshot(tenantSlug, pendingId, {
           title: effectiveSchema.title || "Form",
           status: "SUBMITTED",
@@ -843,7 +909,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
           schema: effectiveSchema,
         });
         addOfflineSubmittedForm({
-          queueId: outboxItem.id,
+          queueId: stableQueuedId,
           tenantSlug,
           templateId,
           templateTitle: effectiveSchema.title || "Form",
@@ -851,7 +917,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         });
         const queuedAt = new Date().toISOString();
         upsertCachedAuditRow(currentUserId, tenantSlug, {
-          id: `pending:${outboxItem.id}`,
+          id: `pending:${stableQueuedId}`,
           status: "SUBMITTED",
           templateId,
           createdAt: queuedAt,
@@ -1374,7 +1440,6 @@ function SignatureFieldInput({
   useEffect(() => {
     const canvas = sigRef.current;
     if (!canvas || !savedDataUrl) return;
-    if (hydratedValueRef.current === savedDataUrl) return;
 
     const id = window.requestAnimationFrame(() => {
       try {
@@ -1404,10 +1469,20 @@ function SignatureFieldInput({
               <SignatureCanvasInput
                 ref={(ref: SignatureCanvas | null) => {
                   sigRef.current = ref;
+                  if (!ref || !savedDataUrl) return;
+                  window.requestAnimationFrame(() => {
+                    try {
+                      if (typeof ref.isEmpty === "function" && !ref.isEmpty()) return;
+                      ref.fromDataURL(savedDataUrl);
+                      hydratedValueRef.current = savedDataUrl;
+                    } catch {
+                      // Ignore malformed data URLs and keep canvas editable.
+                    }
+                  });
                 }}
                 {...SIGNATURE_CANVAS_PEN}
                 canvasProps={{
-                  className: "signature-pad-canvas h-16 w-full max-w-[14rem]",
+                  className: "signature-pad-canvas h-12 w-full max-w-[10rem]",
                   style: { touchAction: "none" },
                 }}
                 onBeginStroke={() => {
@@ -1422,7 +1497,7 @@ function SignatureFieldInput({
                 }}
               />
             ) : (
-              <div className="h-16 w-full max-w-[14rem] animate-pulse rounded bg-foreground/5" />
+              <div className="h-12 w-full max-w-[10rem] animate-pulse rounded bg-foreground/5" />
             )}
             <div className="mt-1 flex gap-1.5">
               <button
@@ -1481,7 +1556,10 @@ function DynamicTableInput({
           <thead className="bg-foreground/5">
             <tr>
               {field.columns.map((c) => (
-                <th key={c.id} className="px-3 py-2 text-left font-medium">
+                <th
+                  key={c.id}
+                  className="whitespace-normal break-words px-3 py-2 text-left font-medium leading-tight [overflow-wrap:anywhere]"
+                >
                   {c.label}
                 </th>
               ))}

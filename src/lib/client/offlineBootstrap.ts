@@ -88,7 +88,7 @@ async function fetchWorkspace(accessToken: string, tenantSlug: string, categoryI
   if (isCapacitorNativeApp()) {
     const supabase = createClient();
     return (await withBootstrapTimeout(
-      fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId),
+      fetchWorkspaceViaSupabase(supabase, tenantSlug, categoryId, { userId }),
       "Workspace download"
     )) as WorkspaceData;
   }
@@ -182,7 +182,7 @@ export async function runOfflineBootstrap({
 
   report("permissions", "Finishing setup…", 88);
   try {
-    await fetchNavCapabilities(accessToken, tenantSlug);
+    await fetchNavCapabilities(accessToken, tenantSlug, userId);
   } catch {
     // non-blocking
   }

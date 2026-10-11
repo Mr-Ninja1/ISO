@@ -1752,7 +1752,7 @@ function GridBuilder({
                 <th
                   key={col.id}
                   className={
-                    "relative border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold text-foreground/70 " +
+                    "relative whitespace-normal break-words border border-foreground/35 bg-background px-3 py-2 text-left text-xs font-semibold leading-tight text-foreground/70 [overflow-wrap:anywhere] " +
                     (col.type === "checkbox" ? "text-center" : "") +
                     (isStaticColumn(col) ? " bg-amber-50/60" : "")
                   }
@@ -1791,7 +1791,7 @@ function GridBuilder({
                   <button
                     type="button"
                     className={
-                      "w-full rounded-md px-2 py-1 hover:bg-foreground/5 " +
+                      "w-full whitespace-normal break-words rounded-md px-2 py-1 leading-tight [overflow-wrap:anywhere] hover:bg-foreground/5 " +
                       (col.type === "checkbox" ? "text-center" : "text-left ") +
                       (activeColId === col.id ? "bg-foreground/5" : "")
                     }

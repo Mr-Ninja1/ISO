@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   fetchNavCapabilities,
+  readWorkspaceNavCapabilities,
   readCachedNavCapabilities,
   type NavCapabilities,
 } from "@/lib/client/navCapabilities";
@@ -12,10 +13,15 @@ const DEFAULT_CAPS: NavCapabilities = { canSeeAdminRoutes: false, canCreateForms
 
 /** Shared nav capabilities — memory/storage cache + single in-flight fetch per tenant. */
 export function useNavCapabilities(tenantSlug: string) {
-  const { session } = useAuth();
+  const { session, user } = useAuth();
+  const userId = user?.id || session?.user?.id || null;
   const [caps, setCaps] = useState<NavCapabilities>(() => {
     if (!tenantSlug) return DEFAULT_CAPS;
-    return readCachedNavCapabilities(tenantSlug) || DEFAULT_CAPS;
+    return (
+      readWorkspaceNavCapabilities(userId, tenantSlug) ||
+      readCachedNavCapabilities(tenantSlug) ||
+      DEFAULT_CAPS
+    );
   });
 
   useEffect(() => {
@@ -26,7 +32,7 @@ export function useNavCapabilities(tenantSlug: string) {
     const cached = readCachedNavCapabilities(tenantSlug);
     if (cached) setCaps(cached);
 
-    fetchNavCapabilities(token, tenantSlug)
+    fetchNavCapabilities(token, tenantSlug, userId)
       .then((nextCaps) => {
         if (!cancelled) setCaps(nextCaps);
       })
@@ -37,7 +43,7 @@ export function useNavCapabilities(tenantSlug: string) {
     return () => {
       cancelled = true;
     };
-  }, [session?.access_token, tenantSlug]);
+  }, [session?.access_token, tenantSlug, userId]);
 
   return caps;
 }

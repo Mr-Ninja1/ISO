@@ -1,4 +1,5 @@
 import { markInteractiveNav } from "@/lib/client/interactionGate";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 export const NAVIGATION_START_EVENT = "iso:navigation-start";
 
@@ -44,6 +45,12 @@ function runRouterNav(
   method: "push" | "replace",
 ) {
   const go = () => router[method](href);
+  // Capturing and animating the full page can stutter inside a WebView, especially
+  // when leaving a large form. Let Capacitor's router commit directly.
+  if (isCapacitorNativeApp()) {
+    go();
+    return;
+  }
   // View Transitions give a native cross-fade when the browser supports them.
   const doc = typeof document !== "undefined" ? document : null;
   if (doc && "startViewTransition" in doc) {

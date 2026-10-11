@@ -1555,6 +1555,13 @@ body {
     vertical-align: top;
 }
 
+.report-data-table th {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.15;
+}
+
 .print-page-break-avoid {
     break-inside: avoid;
     page-break-inside: avoid;

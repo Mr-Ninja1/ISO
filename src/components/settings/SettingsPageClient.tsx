@@ -94,7 +94,7 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
 
     /** Workspace payload is category-scoped — form management needs every live template. */
     const loadTenantAndCategories = isCapacitorNativeApp()
-      ? fetchWorkspaceViaSupabase(createClient(), tenantSlug, null).then((data) => ({
+      ? fetchWorkspaceViaSupabase(createClient(), tenantSlug, null, { userId }).then((data) => ({
           tenant: data.tenant as TenantMeta | undefined,
           categories: (data.categories || []) as Array<{ id: string; name: string }>,
         }))

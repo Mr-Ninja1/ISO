@@ -410,7 +410,7 @@ export function GridField({
                 <th
                   key={col.id}
                   className={
-                    `sticky top-0 z-10 border-b border-r border-foreground/20 px-3 py-2 text-left text-xs font-semibold text-foreground/70 ${tableHeaderClass} ` +
+                    `sticky top-0 z-10 whitespace-normal break-words [overflow-wrap:anywhere] border-b border-r border-foreground/20 px-3 py-2 text-left text-xs font-semibold leading-tight text-foreground/70 ${tableHeaderClass} ` +
                     (col.type === "checkbox" ? "text-center" : "")
                   }
                   style={
