@@ -12,3 +12,7 @@ export const PLATFORM_API_BASE_URL = `https://${PLATFORM_API_HOST}`;
 
 export const PLATFORM_SITE_ORIGIN = `https://${PLATFORM_API_HOST}`;
 
+/** Public website origin used for links shared from the bundled native app. */
+export const PLATFORM_PUBLIC_SITE_ORIGIN =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://isopro.me";
+

@@ -22,6 +22,7 @@ import { adminFetch } from "@/lib/client/adminFetch";
 import { useAuth } from "@/components/AuthProvider";
 import { Share } from "@capacitor/share";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { PLATFORM_PUBLIC_SITE_ORIGIN } from "@/lib/platform";
 
 type Props = {
   tenantSlug: string;
@@ -131,7 +132,13 @@ export function StoredFormsShareMenu({
       if (!resultRes.data?.share?.href) {
         throw new Error("Could not create share link");
       }
-      const url = `${window.location.origin}${resultRes.data.share.href}`;
+      const shareOrigin = isCapacitorNativeApp()
+        ? PLATFORM_PUBLIC_SITE_ORIGIN
+        : window.location.origin;
+      const url = new URL(
+        resultRes.data.share.href,
+        `${shareOrigin}/`,
+      ).toString();
       setShareUrl(url);
       const result = await shareOrCopy(url, title);
       setMessage(
