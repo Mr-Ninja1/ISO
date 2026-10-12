@@ -26,12 +26,10 @@ async function readDeployedOtaManifest(): Promise<DeployedOtaManifest | null> {
     const bundleId = typeof manifest.bundleId === "string" ? manifest.bundleId.trim() : "";
     const bundleUrl = typeof manifest.bundleUrl === "string" ? manifest.bundleUrl.trim() : "";
     if (!bundleId || !/^https:\/\//i.test(bundleUrl)) return null;
-    const publicApiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || PLATFORM_API_BASE_URL;
-
     return {
       bundleId,
       channel: typeof manifest.channel === "string" && manifest.channel.trim() ? manifest.channel.trim() : null,
-      manifestUrl: new URL("/api/platform/ota-manifest", publicApiBase).toString(),
+      manifestUrl: new URL("/api/platform/ota-manifest", PLATFORM_API_BASE_URL).toString(),
       publishedAt: typeof manifest.publishedAt === "string" ? manifest.publishedAt : null,
     };
   } catch {
