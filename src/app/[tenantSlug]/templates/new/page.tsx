@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Hand, Laptop, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Hand, Loader2, Sparkles } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
 import { useAuth } from "@/components/AuthProvider";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
@@ -31,7 +30,6 @@ import {
 import { OfflineRouteBlock } from "@/components/OfflineRouteBlock";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { dbGetTemplate } from "@/lib/client/formsDb";
 import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import type { FormSchemaV1, FormSection, FormStyle, FormType } from "@/types/forms";
@@ -88,7 +86,7 @@ type EditInfoResponse = {
     id: string;
     title: string;
     categoryId: string | null;
-    schema: { sections?: FormSection[]; fields?: any[]; title?: string; meta?: { templateVersion?: number; formType?: FormType; formStyle?: FormStyle; cardIcon?: string; cardColor?: string } };
+    schema: { sections?: FormSection[]; fields?: unknown[]; title?: string; meta?: { templateVersion?: number; formType?: FormType; formStyle?: FormStyle; cardIcon?: string; cardColor?: string } };
     version: number;
   };
   lock: {
@@ -105,7 +103,7 @@ type FlatItem = {
   location: "field" | "column";
 };
 
-function schemaToSections(schema: { sections?: FormSection[]; fields?: any[] }): FormSection[] {
+function schemaToSections(schema: { sections?: FormSection[]; fields?: unknown[] }): FormSection[] {
   const normalized = normalizeFormSchema(schema as unknown);
   if (Array.isArray(normalized.sections) && normalized.sections.length) return normalized.sections;
   return [{ type: "fields", title: "Fields", fields: normalized.fields ?? [] }];
@@ -141,16 +139,6 @@ function flattenSections(sections: FormSection[]): FlatItem[] {
 
 function buildLocalTemplateId() {
   return `local_tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
-
-function buildId(prefix: string) {
-  try {
-    const cryptoAny = crypto as unknown as { randomUUID?: () => string };
-    if (cryptoAny?.randomUUID) return `${prefix}_${cryptoAny.randomUUID()}`;
-  } catch {
-    // ignore
-  }
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
 function writeWorkspaceNotice(message: string, tone: "default" | "success" | "warning" | "error" = "default") {
@@ -344,7 +332,6 @@ function NewTemplatePageInner() {
   const [schemaHistory, setSchemaHistory] = useState<FormSection[][]>([]);
   const [schemaFuture, setSchemaFuture] = useState<FormSection[][]>([]);
   const [online, setOnline] = useState(true);
-  const [builderBlockedSmallScreen, setBuilderBlockedSmallScreen] = useState(false);
 
   const [baseSections, setBaseSections] = useState<FormSection[]>([]);
   const [baseVersion, setBaseVersion] = useState(1);
@@ -365,17 +352,8 @@ function NewTemplatePageInner() {
     ? readWorkspaceCacheResolved(userId, tenantSlug, null)
     : null;
   const canBuildFromCache = Boolean(cachedWorkspaceForGate?.categories?.length);
+  const offlineBlocked = offline && !canBuildFromCache && !isEditMode;
   // AI still needs internet; builder itself can run from cached workspace / template schema.
-  if (offline && !canBuildFromCache && !isEditMode) {
-    return (
-      <OfflineRouteBlock
-        title="Create form needs a cached brand"
-        message="Connect once so this brand downloads to the device. After that you can build forms offline (AI still needs internet)."
-        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
-        backLabel="Back to workspace"
-      />
-    );
-  }
 
   const categoryOptions = useMemo(
     () => categories.map((c) => ({ value: c.id, label: c.name })),
@@ -412,25 +390,7 @@ function NewTemplatePageInner() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    // Native phones must be able to build forms — do not lock the builder.
-    if (isCapacitorNativeApp()) {
-      setBuilderBlockedSmallScreen(false);
-      return;
-    }
-    const mediaQuery = window.matchMedia("(max-width: 960px)");
-    const update = () => setBuilderBlockedSmallScreen(mediaQuery.matches);
-    update();
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", update);
-      return () => mediaQuery.removeEventListener("change", update);
-    }
-    mediaQuery.addListener(update);
-    return () => mediaQuery.removeListener(update);
-  }, []);
-
-  useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || offline) return;
 
     const flush = async () => {
       const result = await flushTemplateSyncQueue(accessToken).catch(() => ({ processed: 0, remaining: getPendingTemplateSyncCount() }));
@@ -440,11 +400,12 @@ function NewTemplatePageInner() {
     flush();
     window.addEventListener("online", flush);
     return () => window.removeEventListener("online", flush);
-  }, [accessToken]);
+  }, [accessToken, offline]);
 
   useEffect(() => {
+    if (offlineBlocked) return;
     if (!authLoading && !user) router.push("/login");
-  }, [authLoading, user, router]);
+  }, [authLoading, user, router, offlineBlocked]);
 
   const builderDraftKey = useMemo(() => {
     if (!tenantSlug) return null;
@@ -452,7 +413,7 @@ function NewTemplatePageInner() {
   }, [tenantSlug, userId, isEditMode, editTemplateId]);
 
   useEffect(() => {
-    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || builderDraftHydrated) return;
+    if (offlineBlocked || authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || builderDraftHydrated) return;
 
     // A fresh form-creation visit should always show the mode chooser in the native app.
     // Restoring previous local draft state makes the builder skip the chooser after the first visit.
@@ -468,10 +429,10 @@ function NewTemplatePageInner() {
     } catch {
       // Ignore storage failures while preserving the chooser flow.
     }
-  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated]);
+  }, [offlineBlocked, authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated]);
 
   useEffect(() => {
-    if (authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || !builderDraftHydrated) return;
+    if (offlineBlocked || authLoading || !user || !tenantSlug || isEditMode || !builderDraftKey || !builderDraftHydrated) return;
     const payload = {
       title,
       sections,
@@ -500,10 +461,10 @@ function NewTemplatePageInner() {
       }
       window.removeEventListener("pagehide", persistDraft);
     };
-  }, [authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated, title, sections, formType, formStyle, builderMode]);
+  }, [offlineBlocked, authLoading, user, tenantSlug, isEditMode, builderDraftKey, builderDraftHydrated, title, sections, formType, formStyle, builderMode]);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    if (offlineBlocked || authLoading || !user) return;
     if (!tenantSlug) {
       setCategories([]);
       setSelectedCategoryId(null);
@@ -521,7 +482,7 @@ function NewTemplatePageInner() {
       if (!online) return;
     }
 
-    if (!online) {
+    if (offline || !online) {
       if (!cached) {
         setCategories([]);
         setSelectedCategoryId(null);
@@ -558,7 +519,7 @@ function NewTemplatePageInner() {
         }
       })
       .finally(() => setWorkspaceLoading(false));
-  }, [authLoading, user, userId, accessToken, tenantSlug, requestedCategoryId, online]);
+  }, [offlineBlocked, offline, authLoading, user, userId, accessToken, tenantSlug, requestedCategoryId, online]);
 
   useEffect(() => {
     if (!isEditMode) return;
@@ -626,7 +587,7 @@ function NewTemplatePageInner() {
       return false;
     };
 
-    if (!online || !accessToken) {
+    if (offline || !online || !accessToken) {
       setLoadingEditInfo(true);
       void loadFromDeviceCache()
         .then((ok) => {
@@ -679,7 +640,7 @@ function NewTemplatePageInner() {
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, authLoading, user, accessToken, tenantSlug, editTemplateId, online]);
+  }, [isEditMode, authLoading, user, accessToken, tenantSlug, editTemplateId, online, offline]);
 
   async function handleSave(): Promise<boolean> {
     if (!tenantSlug) return false;
@@ -795,8 +756,9 @@ function NewTemplatePageInner() {
         })
       );
       return true;
-    } catch (err: any) {
-      const msg = String(err?.message || "");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err ?? "");
+      const msg = message;
       const isNetwork = /Failed to fetch|NetworkError|network/i.test(msg) || !navigator.onLine;
       if (isNetwork) {
         const localTemplateId = isEditMode
@@ -852,7 +814,7 @@ function NewTemplatePageInner() {
         );
         return true;
       }
-      setError(err?.message || "Failed to save template");
+      setError(message || "Failed to save template");
       return false;
     } finally {
       setSaving(false);
@@ -1459,6 +1421,17 @@ function NewTemplatePageInner() {
     setBuilderResetKey(`type-${next}-${Date.now()}`);
   }
 
+  if (offlineBlocked) {
+    return (
+      <OfflineRouteBlock
+        title="Create form needs a cached brand"
+        message="Connect once so this brand downloads to the device. After that you can build forms offline (AI still needs internet)."
+        backHref={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
+        backLabel="Back to workspace"
+      />
+    );
+  }
+
   return (
     <div className="relative min-h-dvh">
       {error ? (
@@ -1599,7 +1572,7 @@ function NewTemplatePageInner() {
                         setAuditorMode(true);
                         setShowFormPreview(true);
                       }}
-                      disabled={workspaceLoading || builderBlockedSmallScreen}
+                      disabled={workspaceLoading}
                     >
                       <Hand className="h-3.5 w-3.5" />
                       Test
@@ -1608,7 +1581,7 @@ function NewTemplatePageInner() {
                       type="button"
                       className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-foreground/65 hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-50"
                       onClick={() => setShowFormPreview(true)}
-                      disabled={workspaceLoading || builderBlockedSmallScreen}
+                      disabled={workspaceLoading}
                     >
                       <Eye className="h-3.5 w-3.5" />
                       Preview
@@ -1645,31 +1618,6 @@ function NewTemplatePageInner() {
                 resetKey={builderResetKey}
               />
             )}
-            {builderBlockedSmallScreen ? (
-              <CenteredOverlay open maxWidthClass="max-w-md" zIndexClass="z-[85]" onClose={() => {}}>
-                <div className="p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-lg border border-foreground/20 bg-foreground/[0.03]">
-                      <Laptop className="h-5 w-5 text-foreground/70" />
-                    </div>
-                    <div>
-                      <div className="text-base font-semibold">Builder needs a bigger screen</div>
-                      <div className="mt-1 text-sm text-foreground/70">
-                        For accurate table/header editing, use a tablet or laptop. This keeps the builder simple and reliable for non-technical users.
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-end gap-2">
-                    <Link
-                      href={`/workspace/forms?tenantSlug=${encodeURIComponent(tenantSlug)}`}
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/20 px-3 text-sm"
-                    >
-                      Back to forms
-                    </Link>
-                  </div>
-                </div>
-              </CenteredOverlay>
-            ) : null}
           </div>
         </div>
       </div>
