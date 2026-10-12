@@ -1438,23 +1438,38 @@ function SignatureFieldInput({
   }, []);
 
   useEffect(() => {
-    const canvas = sigRef.current;
-    if (!canvas || !savedDataUrl) return;
-
-    const id = window.requestAnimationFrame(() => {
-      try {
-        if (typeof canvas.isEmpty === "function" && !canvas.isEmpty()) {
+    if (!savedDataUrl) return;
+    let frame = 0;
+    const restoreSavedSignature = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const canvas = sigRef.current;
+        if (!canvas) return;
+        try {
+          if (typeof canvas.isEmpty === "function" && !canvas.isEmpty()) {
+            hydratedValueRef.current = savedDataUrl;
+            return;
+          }
+          canvas.fromDataURL(savedDataUrl);
           hydratedValueRef.current = savedDataUrl;
-          return;
+        } catch {
+          // Ignore malformed data URLs and keep canvas editable.
         }
-        canvas.fromDataURL(savedDataUrl);
-        hydratedValueRef.current = savedDataUrl;
-      } catch {
-        // Ignore malformed data URLs and keep canvas editable.
-      }
-    });
+      });
+    };
 
-    return () => window.cancelAnimationFrame(id);
+    restoreSavedSignature();
+    // SignaturePad clears its bitmap when the browser resizes the canvas. On
+    // mobile, opening the keyboard while focusing another field can trigger it.
+    window.addEventListener("resize", restoreSavedSignature);
+    window.visualViewport?.addEventListener("resize", restoreSavedSignature);
+
+    return () => {
+      window.removeEventListener("resize", restoreSavedSignature);
+      window.visualViewport?.removeEventListener("resize", restoreSavedSignature);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [savedDataUrl, SignatureCanvasInput]);
 
   return (

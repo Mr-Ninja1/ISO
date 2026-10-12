@@ -33,6 +33,15 @@ export type TemplateSyncItem = {
 const KEY = "template-sync-queue:v1";
 const QUEUE_REQUEST_TIMEOUT_MS = 30_000;
 
+function mergeSeedRowPatches(
+  earlier: TemplateSeedRowPatch[] = [],
+  later: TemplateSeedRowPatch[] = [],
+): TemplateSeedRowPatch[] {
+  const bySection = new Map<string, TemplateSeedRowPatch>();
+  for (const patch of [...earlier, ...later]) bySection.set(patch.sectionId, patch);
+  return [...bySection.values()];
+}
+
 function isRetryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -60,7 +69,21 @@ function compactQueue(items: TemplateSyncItem[]) {
     }
 
     if (item.mode === "update-seed-rows" && templateId && !isLocalTemplateId(templateId)) {
-      byTemplateUpdate.set(`${item.payload.tenantSlug}:${templateId}:seed-rows`, item);
+      const key = `${item.payload.tenantSlug}:${templateId}:seed-rows`;
+      const previous = byTemplateUpdate.get(key);
+      byTemplateUpdate.set(
+        key,
+        previous
+          ? {
+              ...item,
+              queuedAt: previous.queuedAt,
+              payload: {
+                ...item.payload,
+                sections: mergeSeedRowPatches(previous.payload.sections, item.payload.sections),
+              },
+            }
+          : item,
+      );
       continue;
     }
 
@@ -138,15 +161,24 @@ export function enqueueTemplateSync(item: Omit<TemplateSyncItem, "id" | "queuedA
   }
 
   if (item.mode === "update-seed-rows" && templateId && !isLocalTemplateId(templateId)) {
-    const filtered = queue.filter(
+    const idx = queue.findIndex(
       (q) =>
-        !(
-          q.mode === "update-seed-rows" &&
-          q.payload.tenantSlug === item.payload.tenantSlug &&
-          q.payload.templateId === templateId
-        )
+        q.mode === "update-seed-rows" &&
+        q.payload.tenantSlug === item.payload.tenantSlug &&
+        q.payload.templateId === templateId
     );
-    writeQueue(filtered);
+    if (idx >= 0) {
+      const existing = queue[idx];
+      queue[idx] = {
+        ...existing,
+        payload: {
+          ...item.payload,
+          sections: mergeSeedRowPatches(existing.payload.sections, item.payload.sections),
+        },
+      };
+      writeQueue(queue);
+      return queue[idx];
+    }
   }
 
   const id = `tmpl_${Math.random().toString(16).slice(2)}_${Date.now()}`;
@@ -168,6 +200,7 @@ export async function flushTemplateSyncQueue(accessToken: string, signal?: Abort
   const queue = compactQueue(readQueue());
   writeQueue(queue);
   if (!queue.length) return { processed: 0, remaining: 0 };
+  const queuedAtStart = new Map(queue.map((item) => [item.id, item]));
 
   let processed = 0;
   const remaining: TemplateSyncItem[] = [];
@@ -270,6 +303,20 @@ export async function flushTemplateSyncQueue(accessToken: string, signal?: Abort
     }
   }
 
-  writeQueue(remaining);
-  return { processed, remaining: remaining.length };
+  // Enqueues can happen while a request is in flight. Reconcile by item ID so
+  // this flush cannot overwrite a newer patch or a newly queued template edit.
+  const latestById = new Map(readQueue().map((item) => [item.id, item]));
+  const keepById = new Map<string, TemplateSyncItem>();
+  for (const item of remaining) {
+    keepById.set(item.id, latestById.get(item.id) || item);
+  }
+  for (const [id, latest] of latestById) {
+    const started = queuedAtStart.get(id);
+    if (!started || JSON.stringify(started) !== JSON.stringify(latest)) {
+      keepById.set(id, latest);
+    }
+  }
+  const reconciled = [...keepById.values()].sort((a, b) => a.queuedAt - b.queuedAt);
+  writeQueue(reconciled);
+  return { processed, remaining: reconciled.length };
 }
