@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { PLATFORM_API_BASE_URL } from "@/lib/platform";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 
 const NO_STORE_HEADERS = {
@@ -18,18 +19,19 @@ type DeployedOtaManifest = {
   publishedAt: string | null;
 };
 
-async function readDeployedOtaManifest(requestUrl: string): Promise<DeployedOtaManifest | null> {
+async function readDeployedOtaManifest(): Promise<DeployedOtaManifest | null> {
   try {
     const manifestPath = path.join(process.cwd(), "public", "ota", "production", "manifest.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
     const bundleId = typeof manifest.bundleId === "string" ? manifest.bundleId.trim() : "";
     const bundleUrl = typeof manifest.bundleUrl === "string" ? manifest.bundleUrl.trim() : "";
     if (!bundleId || !/^https:\/\//i.test(bundleUrl)) return null;
+    const publicApiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || PLATFORM_API_BASE_URL;
 
     return {
       bundleId,
       channel: typeof manifest.channel === "string" && manifest.channel.trim() ? manifest.channel.trim() : null,
-      manifestUrl: new URL("/api/platform/ota-manifest", requestUrl).toString(),
+      manifestUrl: new URL("/api/platform/ota-manifest", publicApiBase).toString(),
       publishedAt: typeof manifest.publishedAt === "string" ? manifest.publishedAt : null,
     };
   } catch {
@@ -67,8 +69,8 @@ function deployedFeedFields(deployed: DeployedOtaManifest | null) {
  * Public read for native shell update checks (no auth).
  * Values are non-sensitive; min_native_build gates sideload reinstall prompts.
  */
-export async function GET(request: Request) {
-  const deployedOta = await readDeployedOtaManifest(request.url);
+export async function GET() {
+  const deployedOta = await readDeployedOtaManifest();
   try {
     const svc = createServiceRoleSupabase();
     if (!svc) {
