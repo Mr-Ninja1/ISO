@@ -82,8 +82,13 @@ jobs:
           rm -rf deploy-bundle
           mkdir -p deploy-bundle/.next
           cp -R .next/standalone/. deploy-bundle/
-          cp -R .next/static deploy-bundle/.next/static
-          cp -R public deploy-bundle/public
+          mkdir -p deploy-bundle/.next/static deploy-bundle/public
+          cp -R .next/static/. deploy-bundle/.next/static/
+          cp -R public/. deploy-bundle/public/
+
+          bundle_name="$(node -e 'console.log(require("./public/ota/production/manifest.json").bundleUrl.split("/").pop())')"
+          test -n "$bundle_name"
+          test -f "deploy-bundle/public/ota/production/$bundle_name"
 
           if [ ! -f deploy-bundle/server.js ]; then
             echo "standalone server.js missing in deploy-bundle"
@@ -96,6 +101,7 @@ jobs:
 
           echo "OTA files included in deploy:"
           ls -la deploy-bundle/public/ota/production/ || true
+          echo "Verified OTA archive in deployment package: $bundle_name"
 
           # Azure App Service runs npm start — point it at the standalone server.
           node -e "const fs=require('fs'); const p='deploy-bundle/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.scripts={...(j.scripts||{}),start:'node server.js'}; fs.writeFileSync(p, JSON.stringify(j,null,2));"
