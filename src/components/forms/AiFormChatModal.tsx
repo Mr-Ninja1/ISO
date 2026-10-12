@@ -4,12 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   FileText,
   ImageIcon,
-  Lightbulb,
   Loader2,
   Paperclip,
+  Plus,
   Send,
   Sparkles,
-  Upload,
   X,
 } from "lucide-react";
 import { CenteredOverlay } from "@/components/ui/CenteredOverlay";
@@ -17,12 +16,10 @@ import type { AiClarificationQuestion } from "@/lib/ai/types";
 import { DC_AI_SHORT } from "@/lib/ai/deepControl";
 import {
   AI_EXAMPLE_PROMPTS,
-  AI_FORM_BUILDER_GUIDE,
-  getSuggestionForPartialPrompt,
   type ExamplePrompt,
 } from "@/lib/ai/examplePrompts";
 import { getFormBuilderConfig } from "@/lib/formBuilderConfig";
-import { SOURCE_DOCUMENT_ACCEPT, validateSourceDocument } from "@/lib/ai/sourceDocument";
+import { validateSourceDocument } from "@/lib/ai/sourceDocument";
 import { AiBlueprintingLoader } from "@/components/forms/AiBlueprintingLoader";
 
 export type AiChatMessage = {
@@ -138,18 +135,14 @@ function ExampleChip({
       type="button"
       disabled={disabled}
       onClick={onSelect}
-      className="group flex w-full items-start gap-2 rounded-xl border border-foreground/10 bg-background px-3 py-2.5 text-left transition-colors hover:border-[color-mix(in_srgb,var(--hse-teal)_28%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)] disabled:opacity-50"
+      title={example.prompt}
+      className="group inline-flex h-9 max-w-[13rem] shrink-0 items-center gap-1.5 rounded-full border border-foreground/10 bg-background/90 px-3 text-left transition-colors hover:border-[color-mix(in_srgb,var(--hse-teal)_28%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)] disabled:opacity-50"
     >
-      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--hse-teal)] opacity-70 group-hover:opacity-100" />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-foreground">{example.label}</span>
-          <span className="rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10px] text-foreground/50">
-            {config.label}
-          </span>
-        </div>
-        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-foreground/55">{example.prompt}</p>
-      </div>
+      <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--hse-teal)] opacity-70 group-hover:opacity-100" />
+      <span className="min-w-0 truncate text-[11px] font-medium text-foreground">{example.label}</span>
+      <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[9px] text-foreground/50">
+        {config.label}
+      </span>
     </button>
   );
 }
@@ -176,13 +169,13 @@ export function AiFormChatModal({
   onExampleSelect,
   aiQuota,
 }: Props) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [inputMode, setInputMode] = useState<"prompt" | "attach">("attach");
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
 
   const canSend = (prompt.trim().length > 0 || sourceFile) && !generating;
   const hasConversation = messages.length > 1 || step === "clarify";
@@ -194,11 +187,29 @@ export function AiFormChatModal({
   useEffect(() => {
     if (!open) {
       setDragOver(false);
-      setInputMode("prompt");
+      setAttachmentMenuOpen(false);
     } else {
       window.setTimeout(() => textareaRef.current?.focus(), 180);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) setAttachmentMenuOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setAttachmentMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [attachmentMenuOpen]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -218,7 +229,6 @@ export function AiFormChatModal({
     if (!file) {
       onSourceFileChange(null);
       onSourceFileError?.(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
       if (pdfInputRef.current) pdfInputRef.current.value = "";
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
@@ -227,14 +237,12 @@ export function AiFormChatModal({
     if (!validated.ok) {
       onSourceFileChange(null);
       onSourceFileError?.(validated.error);
-      if (fileInputRef.current) fileInputRef.current.value = "";
       if (pdfInputRef.current) pdfInputRef.current.value = "";
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
     }
     onSourceFileError?.(null);
     onSourceFileChange(file);
-    if (fileInputRef.current) fileInputRef.current.value = "";
     if (pdfInputRef.current) pdfInputRef.current.value = "";
     if (imageInputRef.current) imageInputRef.current.value = "";
   }
@@ -256,7 +264,20 @@ export function AiFormChatModal({
       panelClassName="!p-0"
       onClose={onClose}
     >
-      <div className="relative flex h-[min(100dvh,920px)] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--hse-cream)_25%,white)] sm:h-[min(92dvh,860px)] sm:max-h-[min(92dvh,860px)]">
+      <div
+        className={
+          "relative flex h-[min(100dvh,920px)] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--hse-cream)_25%,white)] transition-shadow sm:h-[min(92dvh,860px)] sm:max-h-[min(92dvh,860px)] " +
+          (dragOver ? "ring-2 ring-inset ring-[var(--hse-teal)]" : "")
+        }
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!generating) setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+        }}
+        onDrop={onDropFiles}
+      >
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-40"
@@ -285,30 +306,16 @@ export function AiFormChatModal({
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-semibold tracking-tight text-foreground">
-                  {DC_AI_SHORT} Form Engine
+                  {DC_AI_SHORT} Form Builder
                 </div>
                 <div className="truncate text-[11px] text-foreground/55">
                   {step === "clarify"
                     ? "Almost done — answer a few details"
-                    : "Attach a form, describe it, or both"}
+                    : "Describe a form or attach an existing one"}
                 </div>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {aiQuota && !aiQuota.unlimited ? (
-                <span
-                  className={
-                    "hidden rounded-md px-2 py-1 text-[10px] font-medium sm:inline " +
-                    (aiQuota.remaining <= 0
-                      ? "bg-red-100 text-red-800"
-                      : aiQuota.remaining <= 1
-                        ? "bg-amber-100 text-amber-900"
-                        : "bg-foreground/[0.06] text-foreground/60")
-                  }
-                >
-                  {aiQuota.remaining} credit{aiQuota.remaining === 1 ? "" : "s"} left
-                </span>
-              ) : null}
               <button
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-xl text-foreground/50 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
@@ -322,137 +329,53 @@ export function AiFormChatModal({
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+        <div
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5"
+        >
           {step === "input" && !hasConversation ? (
-            <div className="mb-5 space-y-4">
-              {generating ? (
-                <AiBlueprintingLoader active compact title="Reading your request" className="mb-2" />
-              ) : null}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setInputMode("prompt")}
-                  className={
-                    "rounded-2xl border p-4 text-left transition-all " +
-                    (inputMode === "prompt"
-                      ? "border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] shadow-sm"
-                      : "border-foreground/10 bg-background/90 hover:border-foreground/20")
-                  }
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white">
-                    <Lightbulb className="h-4 w-4" />
-                  </div>
-                  <div className="mt-3 text-sm font-semibold text-foreground">Type a prompt</div>
-                  <p className="mt-1 text-xs leading-relaxed text-foreground/60">Describe the form, fields, sections, or workflow you need.</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setInputMode("attach")}
-                  className={
-                    "rounded-2xl border p-4 text-left transition-all " +
-                    (inputMode === "attach"
-                      ? "border-[color-mix(in_srgb,var(--hse-teal)_30%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] shadow-sm"
-                      : "border-foreground/10 bg-background/90 hover:border-foreground/20")
-                  }
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white">
-                    <Paperclip className="h-4 w-4" />
-                  </div>
-                  <div className="mt-3 text-sm font-semibold text-foreground">Attach PDF or photo</div>
-                  <p className="mt-1 text-xs leading-relaxed text-foreground/60">Upload a scan or image and let AI rebuild the structure.</p>
-                </button>
+            <div className="mx-auto max-w-2xl py-2 sm:py-6">
+              {generating ? <AiBlueprintingLoader active compact title="Reading your request" className="mb-4" /> : null}
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="max-w-xl rounded-2xl rounded-tl-md border border-foreground/10 bg-background px-4 py-3 shadow-sm">
+                  <div className="text-sm font-semibold text-foreground">What form can I help you create?</div>
+                  <p className="mt-1 text-xs leading-relaxed text-foreground/60">
+                    Describe the form you need, or attach a PDF or photo of an existing one. You can review and edit the draft before saving.
+                  </p>
+                </div>
               </div>
 
-              {inputMode === "attach" ? (
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    if (!generating) setDragOver(true);
-                  }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={onDropFiles}
-                  className={
-                    "relative overflow-hidden rounded-2xl border-2 border-dashed p-5 transition-all duration-200 sm:p-6 " +
-                    (dragOver
-                      ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)]"
-                      : "border-[color-mix(in_srgb,var(--hse-teal)_28%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)]")
-                  }
-                >
-                  <div className="flex flex-col items-center text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--hse-teal)] text-white shadow-sm">
-                      <Upload className="h-6 w-6" />
-                    </div>
-                    <h3 className="mt-3 text-base font-semibold text-foreground">Drop a form here</h3>
-                    <p className="mt-1 max-w-sm text-xs leading-relaxed text-foreground/60">
-                      PDF scan, photo of a paper form, or screenshot. AI rebuilds the structure so you can collect the same information digitally.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        disabled={generating}
-                        onClick={() => pdfInputRef.current?.click()}
-                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--hse-teal)] px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
-                      >
-                        <FileText className="h-4 w-4" />
-                        Attach PDF
-                      </button>
-                      <button
-                        type="button"
-                        disabled={generating}
-                        onClick={() => imageInputRef.current?.click()}
-                        className="inline-flex h-10 items-center gap-2 rounded-xl border border-foreground/15 bg-background px-4 text-sm font-semibold text-foreground hover:bg-foreground/[0.03] disabled:opacity-50"
-                      >
-                        <ImageIcon className="h-4 w-4" />
-                        Attach photo
-                      </button>
-                    </div>
-                    <p className="mt-3 text-[10px] text-foreground/45">JPG · PNG · PDF · clear photos work best</p>
-                  </div>
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/45">Try a starting point</span>
+                  <span className="text-[10px] text-foreground/40">Choose one to edit</span>
                 </div>
-              ) : null}
-
-              {inputMode === "prompt" ? (
-                <div className="rounded-2xl border border-foreground/12 bg-background/90 p-3 shadow-sm">
-                  <textarea
-                    ref={textareaRef}
-                    rows={4}
-                    className="max-h-28 min-h-[84px] w-full resize-none rounded-xl border border-foreground/15 bg-foreground/[0.02] px-3.5 py-2.5 text-sm leading-snug placeholder:text-foreground/40 focus:border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]"
-                    placeholder="Quick form description…"
-                    value={prompt}
-                    disabled={generating}
-                    onChange={(e) => onPromptChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-              ) : null}
-
-              <div className="rounded-2xl border border-foreground/10 bg-background/80 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-foreground/55">
-                  Try an example
-                </div>
-                <p className="mt-1 text-[11px] leading-relaxed text-foreground/50">
-                  Tap a chip to fill the prompt — you can edit it before sending.
-                </p>
-                <div className="mt-3 space-y-2">
+                <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
                   {AI_EXAMPLE_PROMPTS.slice(0, 6).map((example) => (
                     <ExampleChip
                       key={example.id}
                       example={example}
                       disabled={generating}
                       onSelect={() => {
-                        setInputMode("prompt");
                         onExampleSelect(example);
+                        window.setTimeout(() => textareaRef.current?.focus(), 0);
                       }}
                     />
                   ))}
                 </div>
               </div>
+              {dragOver ? (
+                <div className="pointer-events-none mt-4 rounded-xl border border-dashed border-[var(--hse-teal)] bg-background/90 px-4 py-3 text-center text-xs font-medium text-[var(--hse-teal)]">
+                  Drop the PDF or image to attach it
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           <div className="space-y-3">
-            {messages.map((msg) => (
+            {messages.filter((msg) => msg.content.trim() || msg.isTyping || msg.attachmentName).map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
           </div>
@@ -540,12 +463,6 @@ export function AiFormChatModal({
 
         {step === "input" ? (
           <div className="shrink-0 border-t border-foreground/10 bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
-            {aiQuota && !aiQuota.unlimited ? (
-              <div className="mb-2 text-center text-[10px] text-foreground/50 sm:hidden">
-                {aiQuota.remaining} AI credit{aiQuota.remaining === 1 ? "" : "s"} left this month
-              </div>
-            ) : null}
-
             {sourceFileError ? (
               <div className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {sourceFileError}
@@ -578,14 +495,6 @@ export function AiFormChatModal({
 
             <div className="flex items-end gap-2">
               <input
-                ref={fileInputRef}
-                type="file"
-                accept={SOURCE_DOCUMENT_ACCEPT}
-                className="hidden"
-                disabled={generating}
-                onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
-              />
-              <input
                 ref={pdfInputRef}
                 type="file"
                 accept="application/pdf,.pdf"
@@ -602,49 +511,98 @@ export function AiFormChatModal({
                 onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
               />
 
-              {inputMode === "prompt" ? (
-                <div className="relative min-w-0 flex-1">
-                  <textarea
-                    ref={textareaRef}
-                    rows={1}
-                    className="max-h-24 min-h-[40px] w-full resize-none rounded-2xl border border-foreground/15 bg-foreground/[0.03] px-3.5 py-2.5 text-sm leading-snug placeholder:text-foreground/40 focus:border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--hse-teal)_25%,transparent)]"
-                    placeholder="Add a quick description…"
-                    value={prompt}
+              <div className="flex items-end gap-2 rounded-2xl border border-foreground/15 bg-background p-2 shadow-sm transition focus-within:border-[color-mix(in_srgb,var(--hse-teal)_42%,transparent)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--hse-teal)_12%,transparent)]">
+                <div ref={attachmentMenuRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    className="flex h-10 w-10 items-center justify-center rounded-xl text-foreground/55 transition hover:bg-foreground/5 hover:text-[var(--hse-teal)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hse-teal)] disabled:opacity-40"
                     disabled={generating}
-                    onChange={(e) => onPromptChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                  />
+                    onClick={() => setAttachmentMenuOpen((current) => !current)}
+                    aria-label="Add a file"
+                    aria-expanded={attachmentMenuOpen}
+                    aria-controls="ai-form-attachment-options"
+                    title="Add a file"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+
+                  {attachmentMenuOpen ? (
+                    <div
+                      id="ai-form-attachment-options"
+                      role="group"
+                      aria-label="Choose an attachment type"
+                      className="absolute bottom-full left-0 z-30 mb-2 w-56 overflow-hidden rounded-2xl border border-foreground/10 bg-background p-1.5 shadow-xl shadow-foreground/10"
+                    >
+                      <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/40">
+                        Add a reference
+                      </div>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hse-teal)]"
+                        onClick={() => {
+                          setAttachmentMenuOpen(false);
+                          pdfInputRef.current?.click();
+                        }}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--hse-teal)_9%,white)] text-[var(--hse-teal)]">
+                          <FileText className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-foreground">PDF document</span>
+                          <span className="block text-[10px] text-foreground/50">Use an existing form or guide</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hse-teal)]"
+                        onClick={() => {
+                          setAttachmentMenuOpen(false);
+                          imageInputRef.current?.click();
+                        }}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--hse-teal)_9%,white)] text-[var(--hse-teal)]">
+                          <ImageIcon className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-foreground">Photo or image</span>
+                          <span className="block text-[10px] text-foreground/50">Choose a JPG or PNG</span>
+                        </span>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-
-              <button
-                type="button"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-foreground/15 text-foreground/55 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
-                disabled={generating}
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Attach PDF, JPG, or PNG"
-                title="Attach PDF, JPG, or PNG"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-
-              <button
-                type="button"
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[var(--hse-teal)] px-4 text-xs font-semibold text-white transition-transform hover:-translate-y-0.5 hover:opacity-95 disabled:translate-y-0 disabled:opacity-40"
-                disabled={!canSend}
-                onClick={onSend}
-                aria-label={sourceFile && !prompt.trim() ? "Build form from attachment" : "Send form request"}
-              >
-                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                <span className="hidden sm:inline">
-                  {generating ? "Working" : sourceFile && !prompt.trim() ? "Build" : "Send"}
-                </span>
-              </button>
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  className="max-h-28 min-h-10 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm leading-snug placeholder:text-foreground/40 focus:outline-none disabled:opacity-60"
+                  placeholder="Describe the form you need…"
+                  value={prompt}
+                  disabled={generating}
+                  onChange={(e) => onPromptChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  aria-label="Describe the form you need"
+                />
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm transition hover:opacity-90 disabled:opacity-40"
+                  disabled={!canSend}
+                  onClick={onSend}
+                  aria-label={sourceFile && !prompt.trim() ? "Build form from attachment" : "Send form request"}
+                  title={sourceFile && !prompt.trim() ? "Build form" : "Send"}
+                >
+                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
-            <p className="mt-2 text-center text-[10px] text-foreground/40">
-              Results may not match paper layout exactly — they keep the same important fields · Shift+Enter for new line
-            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-1 px-1">
+              <p className="text-[10px] text-foreground/40">Attach a PDF, JPG, or PNG · Shift+Enter for a new line</p>
+              {aiQuota && !aiQuota.unlimited ? (
+                <p className={"text-[10px] " + (aiQuota.remaining <= 1 ? "text-amber-700" : "text-foreground/40")}>
+                  {aiQuota.remaining} AI credit{aiQuota.remaining === 1 ? "" : "s"} left
+                </p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

@@ -339,7 +339,6 @@ function NewTemplatePageInner() {
   const [showFormTypeModal, setShowFormTypeModal] = useState(false);
   const [showAiCompleteModal, setShowAiCompleteModal] = useState(false);
   const [aiCompleteStep, setAiCompleteStep] = useState<"success" | "preview">("success");
-  const [aiDraftBannerOpen, setAiDraftBannerOpen] = useState(false);
   const [aiAssistOpen, setAiAssistOpen] = useState(false);
   const [refiningAi, setRefiningAi] = useState(false);
   const [schemaHistory, setSchemaHistory] = useState<FormSection[][]>([]);
@@ -993,8 +992,7 @@ function NewTemplatePageInner() {
   function handleLocalAiAction(action: AiSuggestedAction) {
     if (action.id === "paste_static_items") {
       setAiAssistOpen(true);
-      setAiDraftBannerOpen(true);
-      setError("Use Edit static items on the printed-item column to paste the list.");
+      setError("Open Printed items on the table to paste the list.");
       return;
     }
     if (!action.localAction) return;
@@ -1176,7 +1174,6 @@ function NewTemplatePageInner() {
     openManualBuilderMode(true);
     setAiAssistOpen(showAssist || builderMode === "ai");
     setAiBriefingOpen(true);
-    setAiDraftBannerOpen(Boolean(aiExtraction?.staticColumns?.length));
     setShowAiCompleteModal(false);
   }
 
@@ -1398,7 +1395,6 @@ function NewTemplatePageInner() {
   async function openAiGenerateModal() {
     setError("");
     setAiExtraction(null);
-    setAiDraftBannerOpen(false);
     if (offline || (typeof navigator !== "undefined" && !navigator.onLine)) {
       setError("AI form creation needs an internet connection. You can still build forms manually offline.");
       return;
@@ -1440,7 +1436,6 @@ function NewTemplatePageInner() {
     }
 
     setAiBuilderDraft(null);
-    setAiDraftBannerOpen(false);
     setSections(blankCanvasForType(formType));
     setBuilderResetKey(`manual-${Date.now()}`);
   }
@@ -1500,9 +1495,6 @@ function NewTemplatePageInner() {
             title={title}
             sections={sections}
             extraction={aiExtraction}
-            auditorMode={auditorMode}
-            onAuditorModeChange={setAuditorMode}
-            onOpenPreview={() => setShowFormPreview(true)}
           />
           <AiBuilderAssist
             open={aiAssistOpen}
@@ -1521,139 +1513,116 @@ function NewTemplatePageInner() {
         </>
       ) : null}
 
-      {aiDraftBannerOpen && aiExtraction?.staticColumns?.length && !showBuilderModeChooser ? (
-        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 sm:px-4">
-          <div className="flex items-start gap-2 text-xs leading-5 text-amber-950">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p className="min-w-0 flex-1">
-              Printed list ready to paste — open a static column and choose{" "}
-              <span className="font-semibold">Edit static items</span>
-              {aiExtraction.staticColumns.length === 1
-                ? ` (“${aiExtraction.staticColumns[0]}”).`
-                : "."}
-            </p>
-            <button
-              type="button"
-              className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-amber-900/70 hover:bg-amber-100"
-              onClick={() => setAiDraftBannerOpen(false)}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       <div className="overflow-visible">
         <div className="grid grid-cols-1">
           <div className="min-w-0">
             {!showBuilderModeChooser ? (
               <div className="sticky top-0 z-20 border-b border-foreground/8 bg-background/90 px-3 py-2.5 shadow-[0_10px_30px_-24px_rgba(0,61,51,0.4)] backdrop-blur-md sm:px-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 bg-foreground/[0.03] px-3.5 text-xs font-medium text-foreground transition hover:bg-foreground/[0.06] disabled:opacity-50"
-                    disabled={saving || loadingEditInfo}
-                    onClick={() => setShowFormTypeModal(true)}
-                  >
-                    {getFormBuilderConfig(formType).label}
-                    <ChevronDown className="h-3.5 w-3.5 text-foreground/50" />
-                  </button>
-
-                  <label className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 bg-foreground/[0.03] px-2.5 text-xs">
-                    <span className="pl-1 text-foreground/55">Style</span>
-                    <select
-                      className="h-6 rounded-md border-0 bg-transparent pr-1 text-xs font-medium text-foreground focus:outline-none"
-                      value={formStyle}
-                      onChange={(e) => setFormStyle(e.target.value as FormStyle)}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-foreground/10 bg-background px-2 py-1.5">
+                    <span className="px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-foreground/40">Form</span>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-foreground/12 bg-foreground/[0.02] px-2.5 text-xs font-medium text-foreground hover:bg-foreground/[0.05] disabled:opacity-50"
                       disabled={saving || loadingEditInfo}
+                      onClick={() => setShowFormTypeModal(true)}
                     >
-                      <option value="default">Default</option>
-                      <option value="compact">Compact</option>
-                      <option value="report">Report</option>
-                    </select>
-                  </label>
+                      {getFormBuilderConfig(formType).label}
+                      <ChevronDown className="h-3.5 w-3.5 text-foreground/45" />
+                    </button>
+                    <label className="inline-flex h-8 items-center gap-1 rounded-lg border border-foreground/12 bg-foreground/[0.02] px-2 text-xs">
+                      <span className="text-foreground/50">Style</span>
+                      <select
+                        className="h-6 rounded-md border-0 bg-transparent pr-0.5 text-xs font-medium text-foreground focus:outline-none"
+                        value={formStyle}
+                        onChange={(e) => setFormStyle(e.target.value as FormStyle)}
+                        disabled={saving || loadingEditInfo}
+                      >
+                        <option value="default">Default</option>
+                        <option value="compact">Compact</option>
+                        <option value="report">Report</option>
+                      </select>
+                    </label>
+                  </div>
 
-                  <div className="flex-1" />
-
-                  {aiExtraction || builderMode === "ai" ? (
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_16%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_3%,white)] px-2 py-1.5">
+                    <span className="px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--hse-teal)]/70">AI</span>
+                    {aiExtraction || builderMode === "ai" ? (
+                      <button
+                        type="button"
+                        className={
+                          "inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium disabled:opacity-50 " +
+                          (aiBriefingOpen ? "bg-background text-[var(--hse-teal)] shadow-sm" : "text-foreground/65 hover:bg-background/70 hover:text-foreground")
+                        }
+                        onClick={() => setAiBriefingOpen((open) => !open)}
+                        aria-expanded={aiBriefingOpen}
+                      >
+                        Draft overview
+                        <ChevronDown className={"h-3 w-3 transition-transform " + (aiBriefingOpen ? "rotate-180" : "")} />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={
-                        "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium disabled:opacity-50 " +
-                        (aiBriefingOpen
-                          ? "border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]"
-                          : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
+                        "inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium disabled:opacity-50 " +
+                        (aiAssistOpen ? "bg-background text-[var(--hse-teal)] shadow-sm" : "text-foreground/65 hover:bg-background/70 hover:text-foreground")
                       }
-                      onClick={() => setAiBriefingOpen((open) => !open)}
+                      disabled={saving || loadingEditInfo || refiningAi}
+                      onClick={() => setAiAssistOpen((open) => !open)}
+                      aria-expanded={aiAssistOpen}
                     >
-                      Briefing
+                      <Sparkles className="h-3.5 w-3.5" />
+                      AI copilot
                     </button>
-                  ) : null}
+                    {!isEditMode ? (
+                      <button
+                        type="button"
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-background px-2.5 text-xs font-semibold text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] disabled:opacity-50"
+                        disabled={generatingAi || saving || workspaceLoading}
+                        onClick={() => void openAiGenerateModal()}
+                      >
+                        {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                        {generatingAi ? "Building…" : "Create with AI"}
+                      </button>
+                    ) : null}
+                  </div>
 
-                  <button
-                    type="button"
-                    className={
-                      "inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium disabled:opacity-50 " +
-                      (aiAssistOpen
-                        ? "border-[color-mix(in_srgb,var(--hse-teal)_40%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_12%,white)] text-[var(--hse-teal)]"
-                        : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
-                    }
-                    disabled={saving || loadingEditInfo || refiningAi}
-                    onClick={() => setAiAssistOpen((open) => !open)}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    AI assist
-                  </button>
-
-                  {!isEditMode ? (
+                  <div className="ml-auto flex flex-wrap items-center gap-1.5 rounded-xl border border-foreground/10 bg-background px-2 py-1.5">
+                    <span className="px-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-foreground/40">Review</span>
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)] px-3.5 text-xs font-medium text-[var(--hse-teal)] transition hover:bg-[color-mix(in_srgb,var(--hse-teal)_14%,white)] disabled:opacity-50"
-                      disabled={generatingAi || saving || workspaceLoading}
-                      onClick={() => void openAiGenerateModal()}
+                      className={
+                        "inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium disabled:opacity-50 " +
+                        (auditorMode ? "bg-[var(--hse-teal)] text-white" : "text-foreground/65 hover:bg-foreground/[0.05] hover:text-foreground")
+                      }
+                      onClick={() => {
+                        setAuditorMode(true);
+                        setShowFormPreview(true);
+                      }}
+                      disabled={workspaceLoading || builderBlockedSmallScreen}
                     >
-                      {generatingAi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                      {generatingAi ? "Blueprinting…" : "Create with AI"}
+                      <Hand className="h-3.5 w-3.5" />
+                      Test
                     </button>
-                  ) : null}
-
-                  <button
-                    type="button"
-                    className={
-                      "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-xs font-medium disabled:opacity-50 " +
-                      (auditorMode
-                        ? "border-[var(--hse-teal)] bg-[var(--hse-teal)] text-white"
-                        : "border-foreground/12 text-foreground hover:bg-foreground/[0.04]")
-                    }
-                    onClick={() => {
-                      setAuditorMode(true);
-                      setShowFormPreview(true);
-                    }}
-                    disabled={workspaceLoading || builderBlockedSmallScreen}
-                  >
-                    <Hand className="h-3.5 w-3.5" />
-                    Test
-                  </button>
-
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/12 px-3.5 text-xs font-medium text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"
-                    onClick={() => setShowFormPreview(true)}
-                    disabled={workspaceLoading || builderBlockedSmallScreen}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    Preview
-                  </button>
-
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground px-4 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 disabled:opacity-50"
-                    onClick={() => setShowSaveConfirm(true)}
-                    disabled={disableSave}
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    {saving ? "Saving…" : isEditMode ? "Save changes" : "Save form"}
-                  </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-foreground/65 hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-50"
+                      onClick={() => setShowFormPreview(true)}
+                      disabled={workspaceLoading || builderBlockedSmallScreen}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 items-center gap-1 rounded-lg bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition hover:opacity-90 disabled:opacity-50"
+                      onClick={() => setShowSaveConfirm(true)}
+                      disabled={disableSave}
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {saving ? "Saving…" : isEditMode ? "Save changes" : "Save form"}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -2030,7 +1999,7 @@ function NewTemplatePageInner() {
                       </p>
                       <p className="mt-1.5">
                         I only built the table structure so long lists stay easy to manage. Add those items in the
-                        builder with <span className="font-semibold">Edit static items</span>, or type them into the
+                        builder with <span className="font-semibold">Printed items</span>, or type them into the
                         static column after you save — they stay on the form template and sync to every device.
                       </p>
                     </div>

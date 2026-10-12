@@ -21,9 +21,6 @@ type Props = {
   title: string;
   sections: FormSection[];
   extraction?: AiExtractionSummary | null;
-  auditorMode: boolean;
-  onAuditorModeChange: (enabled: boolean) => void;
-  onOpenPreview: () => void;
   className?: string;
 };
 
@@ -77,12 +74,9 @@ export function AiFormBriefing({
   title,
   sections,
   extraction,
-  auditorMode,
-  onAuditorModeChange,
-  onOpenPreview,
   className = "",
 }: Props) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const stats = useMemo(() => countStructure(sections), [sections]);
 
   const decisions = useMemo(() => {
@@ -121,7 +115,7 @@ export function AiFormBriefing({
         : `${stats.staticCols} static column${stats.staticCols === 1 ? "" : "s"}`;
       items.push({
         icon: <CheckCircle2 className="h-3.5 w-3.5" />,
-        text: `Printed item lists retained as static columns (${labels}) — paste items in the builder.`,
+        text: `Printed item lists retained as static columns (${labels}) — edit them with Printed items on the table.`,
       });
     }
 
@@ -148,53 +142,40 @@ export function AiFormBriefing({
   return (
     <div
       className={
-        "border-b border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] " +
-        "bg-gradient-to-r from-[color-mix(in_srgb,var(--hse-teal)_8%,white)] via-background to-[color-mix(in_srgb,var(--hse-sky)_35%,white)] " +
+        "mx-3 mt-3 overflow-hidden rounded-xl border border-foreground/10 " +
+        "bg-[color-mix(in_srgb,var(--hse-sky)_12%,white)] shadow-sm " +
         className
       }
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm">
-          <Sparkles className="h-4 w-4" />
+      <div className="flex items-center gap-2 px-3 py-2 sm:px-4">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-background text-[var(--hse-teal)] shadow-sm">
+          <ClipboardList className="h-3.5 w-3.5" />
         </div>
         <button
           type="button"
           className="min-w-0 flex-1 text-left"
           onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
         >
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-foreground">AI form briefing</span>
+            <span className="text-xs font-semibold text-foreground">AI draft overview</span>
             <ChevronDown
               className={"h-3.5 w-3.5 text-foreground/45 transition-transform " + (expanded ? "rotate-180" : "")}
             />
           </div>
           <p className="truncate text-[11px] text-foreground/55">
-            Why the draft looks this way · test before you save
+            {stats.fields} field{stats.fields === 1 ? "" : "s"}
+            {stats.grids ? ` · ${stats.grids} table${stats.grids === 1 ? "" : "s"}` : ""}
+            {(extraction?.staticColumns?.length || stats.staticCols)
+              ? ` · ${extraction?.staticColumns?.length || stats.staticCols} printed list${(extraction?.staticColumns?.length || stats.staticCols) === 1 ? "" : "s"}`
+              : ""}
+            {extraction?.summary ? ` · ${extraction.summary}` : " · Review what AI included"}
           </p>
         </button>
 
         <button
           type="button"
-          className={
-            "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold transition-colors " +
-            (auditorMode
-              ? "border-[var(--hse-teal)] bg-[var(--hse-teal)] text-white"
-              : "border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] bg-background text-[var(--hse-teal)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)]")
-          }
-          onClick={() => {
-            const next = !auditorMode;
-            onAuditorModeChange(next);
-            if (next) onOpenPreview();
-          }}
-          title="Fill the form like an auditor would"
-        >
-          <Hand className="h-3.5 w-3.5" />
-          {auditorMode ? "Testing…" : "Test as auditor"}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 hover:bg-foreground/5 hover:text-foreground"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-foreground/45 hover:bg-background/80 hover:text-foreground"
           onClick={onClose}
           aria-label="Dismiss briefing"
         >
@@ -203,7 +184,7 @@ export function AiFormBriefing({
       </div>
 
       {expanded ? (
-        <div className="space-y-2.5 px-3 pb-3 sm:px-4">
+        <div className="space-y-2.5 border-t border-foreground/8 bg-background/65 px-3 py-3 sm:px-4">
           <ul className="space-y-1.5">
             {decisions.map((item, i) => (
               <li
@@ -231,8 +212,8 @@ export function AiFormBriefing({
           ) : null}
 
           <p className="text-[10px] text-foreground/45">
-            Tip: use <span className="font-medium text-foreground/60">Test as auditor</span> to click through the live
-            preview — then tweak anything in the canvas.
+            Tip: use <span className="font-medium text-foreground/60">Test</span> in the toolbar to try the form, then
+            adjust anything in the canvas.
           </p>
         </div>
       ) : null}

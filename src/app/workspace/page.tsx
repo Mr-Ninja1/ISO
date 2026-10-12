@@ -3433,6 +3433,24 @@ function WorkspacePageInner() {
                 </div>
               </button>
 
+              {canCreateForms ? (
+                <button
+                  type="button"
+                  onClick={() => handleCreateCustomForm(workspace?.selectedCategoryId ?? null)}
+                  className="ws-action-card nav-pressable group p-4 text-left"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="ws-icon-emerald inline-flex h-11 w-11 items-center justify-center rounded-2xl">
+                      <Plus className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">Create form</span>
+                      <span className="mt-1 block text-xs text-foreground/65">Build a new checklist template</span>
+                    </span>
+                  </div>
+                </button>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => handleOpenActivity(tenant.slug)}

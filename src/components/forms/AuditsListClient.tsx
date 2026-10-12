@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, MoreVertical, Loader2, CheckSquare, Trash2 } from "lucide-react";
+import { FileText, MoreVertical, Loader2, CheckSquare, Trash2, Search, CalendarDays } from "lucide-react";
 import { FloatingActionMenu } from "@/components/workspace/FloatingActionMenu";
 import { NotificationModal } from "@/components/NotificationModal";
 
@@ -574,13 +574,16 @@ export function AuditsListClient({
 
   return (
     <>
-      <div className="bg-white shadow-md rounded-lg p-6 mb-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="text-lg font-semibold text-gray-800">
+      <div className="mb-5 overflow-hidden rounded-2xl border border-foreground/10 bg-background shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-foreground/10 bg-gradient-to-r from-foreground/[0.035] to-transparent p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground/[0.06] text-foreground/75"><FileText className="h-5 w-5" /></div>
+            <div>
+            <div className="flex flex-wrap items-center gap-2 text-lg font-semibold tracking-tight">
               Submitted Forms
+              <span className="rounded-full border border-foreground/10 bg-foreground/[0.035] px-2.5 py-0.5 text-xs font-medium text-foreground/65">{submittedRows.length} {submittedRows.length === 1 ? "form" : "forms"}</span>
             </div>
-            <div className="text-sm text-gray-600 mt-1">
+            <div className="mt-1 text-sm text-foreground/60">
               {offline
                 ? deviceReady
                   ? "Offline mode — showing forms saved on this device."
@@ -592,8 +595,9 @@ export function AuditsListClient({
                     : "Browse and share submitted forms."}
             </div>
           </div>
+          </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <button
               type="button"
               onClick={() => {
@@ -605,10 +609,10 @@ export function AuditsListClient({
                 }
               }}
               className={
-                "inline-flex h-10 items-center gap-2 rounded-md border text-sm font-medium px-4 transition-colors duration-200 " +
+                "inline-flex h-10 items-center gap-2 rounded-lg border px-3.5 text-sm font-medium transition-colors " +
                 (selectionMode
-                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-50")
+                  ? "border-foreground/25 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12]"
+                  : "border-foreground/15 bg-background text-foreground/80 hover:bg-foreground/[0.04]")
               }
             >
               <CheckSquare className="h-4 w-4" />
@@ -630,7 +634,7 @@ export function AuditsListClient({
                 <button
                   type="button"
                   onClick={toggleSelectAllVisible}
-                  className="inline-flex h-10 items-center gap-2 rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors duration-200"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-foreground/15 bg-background px-3.5 text-sm font-medium text-foreground/80 hover:bg-foreground/[0.04]"
                 >
                   <CheckSquare className="h-4 w-4" />
                   {submittedRows.length > 0 &&
@@ -638,7 +642,7 @@ export function AuditsListClient({
                     ? "Clear visible"
                     : "Select visible"}
                 </button>
-                <div className="inline-flex h-10 items-center rounded-md bg-green-50 px-4 text-sm font-medium text-green-800 border border-green-300">
+                <div className="inline-flex h-10 items-center rounded-lg border border-foreground/10 bg-foreground/[0.04] px-3.5 text-sm font-medium text-foreground/75">
                   {selectedIds.length} selected
                 </div>
                 {canDeleteAudits && !offline && selectedIds.length > 0 ? (
@@ -651,7 +655,7 @@ export function AuditsListClient({
                         `${deletableSelectedIds(selectedIds).length} selected form(s)`,
                       )
                     }
-                    className="inline-flex h-10 items-center gap-2 rounded-md border border-red-300 bg-red-50 px-4 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60 transition-colors duration-200"
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-300/70 bg-red-50 px-3.5 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
                   >
                     {deleting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -668,7 +672,7 @@ export function AuditsListClient({
                 type="button"
                 disabled={loadingMore || syncing}
                 onClick={() => void loadMoreFromServer()}
-                className="inline-flex h-10 items-center justify-center rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors duration-200"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/15 bg-background px-3.5 text-sm font-medium text-foreground/80 hover:bg-foreground/[0.04] disabled:opacity-60"
               >
                 {loadingMore ? "Loading more…" : "Load more"}
               </button>
@@ -678,20 +682,20 @@ export function AuditsListClient({
       </div>
 
       {syncError ? (
-        <div className="bg-red-50 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
+        <div role="alert" className="mb-4 rounded-xl border border-red-300/70 bg-red-50 px-4 py-3 text-sm text-red-800">
           {syncError}
         </div>
       ) : null}
 
       {deleteFeedback ? (
-        <div className="bg-green-50 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm">
+        <div role="status" className="mb-4 rounded-xl border border-green-300/70 bg-green-50 px-4 py-3 text-sm text-green-800">
           {deleteFeedback}
         </div>
       ) : null}
 
       {selectionMode ? (
-        <div className="flex flex-wrap gap-3 overflow-x-auto pb-4">
-          <div className="inline-flex items-center rounded-md bg-blue-50 border border-blue-300 px-4 py-2 text-sm text-blue-800">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-foreground/[0.035] px-4 py-3">
+          <div className="text-sm text-foreground/70">
             Tick forms to share or delete
             {canDeleteAudits ? " — managers/admins can bulk-delete to free storage" : ""}.
           </div>
@@ -701,59 +705,66 @@ export function AuditsListClient({
               setSelectionMode(false);
               setSelectedIds([]);
             }}
-            className="shrink-0 rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200"
+            className="shrink-0 rounded-lg border border-foreground/15 px-3 py-2 text-sm font-medium text-foreground/75 hover:bg-foreground/[0.04]"
           >
             Cancel selection
           </button>
         </div>
       ) : null}
 
-      <div className="bg-white shadow-md rounded-lg p-4 mb-6">
+      <div className="mb-5 rounded-2xl border border-foreground/10 bg-background p-3 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by template title"
-            className="h-10 flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
-          />
-          <button
-            type="button"
-            onClick={() => setQuery("")}
-            className="h-10 rounded-md border border-gray-300 px-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200"
-          >
-            Clear
-          </button>
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/45" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search submitted forms"
+              aria-label="Search submitted forms by template title"
+              className="h-10 w-full rounded-lg border border-foreground/15 bg-background pl-9 pr-3 text-sm outline-none transition focus:border-foreground/35 focus:ring-2 focus:ring-foreground/10"
+            />
+          </div>
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="h-10 rounded-lg border border-foreground/15 px-4 text-sm font-medium text-foreground/70 hover:bg-foreground/[0.04]"
+            >
+              Clear search
+            </button>
+          ) : null}
         </div>
       </div>
 
       {submittedRows.length === 0 ? (
-        <div className="bg-white shadow-md rounded-lg p-6 text-sm text-gray-600 text-center">
-          {query.trim()
-            ? "No forms match your search."
+        <div className="rounded-2xl border border-dashed border-foreground/20 bg-background px-6 py-12 text-center text-sm text-foreground/65">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-foreground/[0.05] text-foreground/50">
+            {syncing ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileText className="h-5 w-5" />}
+          </div>
+          <h3 className="mt-4 font-semibold text-foreground">{query.trim() ? "No matching forms" : "No submitted forms yet"}</h3>
+          <p className="mx-auto mt-1 max-w-md">
+            {query.trim()
+            ? "Try another search term or clear your search."
             : offline
               ? "No forms on this device yet. Connect once to pull submitted forms."
               : syncing
                 ? "Loading forms…"
                 : "No submitted forms yet."}
+          </p>
+          {query.trim() ? <button type="button" onClick={() => setQuery("")} className="mt-4 text-sm font-medium underline underline-offset-4">Clear search</button> : null}
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between gap-3 px-2">
-            <h3 className="text-xl font-bold text-gray-800">
-              Submitted forms ({submittedRows.length})
-            </h3>
-            {!offline && serverHasMore ? null : null}
-          </div>
-          <div className="space-y-8">
+        <div className="space-y-7">
             {groupedRows.map((group) => (
-              <section key={group.dateKey} className="space-y-4">
-                <div className="sticky top-[4.5rem] z-[1] flex items-center justify-between gap-2 bg-gray-100 rounded-lg px-4 py-3 shadow-sm border border-gray-200">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800">{group.label}</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {group.rows.length} form{group.rows.length === 1 ? "" : "s"}
-                    </p>
+              <section key={group.dateKey} className="space-y-3">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/[0.055] text-foreground/55"><CalendarDays className="h-4 w-4" /></div>
+                    <div>
+                      <h3 className="text-sm font-semibold">{group.label}</h3>
+                      <p className="text-xs text-foreground/55">{group.rows.length} {group.rows.length === 1 ? "submission" : "submissions"}</p>
+                    </div>
                   </div>
                   {selectionMode ? (
                     <button
@@ -767,7 +778,7 @@ export function AuditsListClient({
                             : Array.from(new Set([...current, ...ids])),
                         );
                       }}
-                      className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                      className="rounded-md px-2 py-1 text-xs font-medium text-foreground/65 hover:bg-foreground/[0.05] hover:text-foreground"
                     >
                       {group.rows.every((row) => selectedIds.includes(row.id))
                         ? "Clear group"
@@ -775,26 +786,28 @@ export function AuditsListClient({
                     </button>
                   ) : null}
                 </div>
+                <div className="grid gap-2.5">
                 {group.rows.map((row) => (
               <div
                 key={row.id}
-                className="bg-white shadow-md rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+                className="group flex flex-col gap-3 rounded-xl border border-foreground/10 bg-background p-3.5 shadow-sm transition hover:border-foreground/20 hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-4"
               >
-                <div className="flex items-start gap-4">
+                <div className="flex min-w-0 items-start gap-3">
                     {selectionMode ? (
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(row.id)}
                         onChange={() => toggleSelected(row.id)}
-                        className="mt-1 h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-foreground/30 accent-foreground"
                         aria-label={`Select ${row.template.title}`}
                       />
                     ) : null}
-                    <div>
-                      <div className="line-clamp-2 font-semibold text-gray-800">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.045] text-foreground/55"><FileText className="h-4 w-4" /></div>
+                    <div className="min-w-0">
+                      <div className="line-clamp-2 font-semibold leading-snug">
                         {row.template.title}
                       </div>
-                      <div className="mt-1 text-xs text-gray-500 break-words flex items-center">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground/55">
                         Submitted{" "}
                         {new Date(
                           row.submittedAt || row.updatedAt,
@@ -803,14 +816,15 @@ export function AuditsListClient({
                           minute: "2-digit",
                         })}
                         {row.devicePending || isDevicePendingAuditId(row.id) ? (
-                          <span className="ml-3 rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                             Pending sync
                           </span>
                         ) : null}
                       </div>
                     </div>
                   </div>
-                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
                     <SavedFormRowActions
                       tenantSlug={activeTenantSlug}
                       auditId={row.id}
@@ -829,9 +843,9 @@ export function AuditsListClient({
                   </div>
                 </div>
                 ))}
+                </div>
               </section>
             ))}
-          </div>
         </div>
       )}
 

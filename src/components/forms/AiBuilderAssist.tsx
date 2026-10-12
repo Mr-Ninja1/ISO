@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles, Undo2, Redo2, Wand2, X } from "lucide-react";
+import { ArrowUp, Loader2, Sparkles, Undo2, Redo2, Wand2, X } from "lucide-react";
 import type { AiExtractionSummary, AiSuggestedAction } from "@/lib/ai/types";
 import { AI_REFINE_PRESETS } from "@/lib/ai/smartLayout";
 
@@ -36,9 +36,13 @@ export function AiBuilderAssist({
 }: Props) {
   const [instruction, setInstruction] = useState("");
   const [expanded, setExpanded] = useState(true);
+  const [showAllActions, setShowAllActions] = useState(false);
 
   useEffect(() => {
-    if (!open) setInstruction("");
+    if (!open) {
+      setInstruction("");
+      setShowAllActions(false);
+    }
   }, [open]);
 
   const chips = useMemo((): AiSuggestedAction[] => {
@@ -52,24 +56,26 @@ export function AiBuilderAssist({
     }));
   }, [extraction]);
 
+  const visibleChips = showAllActions ? chips : chips.slice(0, 4);
+  const fallbackPresets = AI_REFINE_PRESETS.filter((preset) => !chips.some((chip) => chip.id === preset.id)).slice(0, 2);
+
   if (!open) return null;
 
   return (
-    <div className="border-b border-[color-mix(in_srgb,var(--hse-teal)_22%,transparent)] bg-gradient-to-r from-[color-mix(in_srgb,var(--hse-teal)_8%,white)] to-[color-mix(in_srgb,var(--hse-sky)_28%,white)]">
-      <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm">
+    <section className="mx-3 mt-3 overflow-hidden rounded-2xl border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-gradient-to-br from-[color-mix(in_srgb,var(--hse-teal)_5%,white)] via-background to-[color-mix(in_srgb,var(--hse-sky)_14%,white)] shadow-sm sm:mx-4">
+      <div className="flex items-center gap-2.5 px-3 py-2.5 sm:px-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--hse-teal)] text-white shadow-sm">
           <Sparkles className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <button
             type="button"
-            className="flex w-full items-center gap-2 text-left"
+            className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-left"
             onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
           >
-            <span className="text-xs font-semibold text-foreground">AI assist</span>
-            <span className="truncate text-[11px] text-foreground/55">
-              Instant polish · refine in plain language
-            </span>
+            <span className="text-sm font-semibold tracking-tight text-foreground">AI form copilot</span>
+            <span className="truncate text-[11px] text-foreground/55">Describe a change in plain language</span>
           </button>
         </div>
         <div className="flex items-center gap-1">
@@ -103,13 +109,17 @@ export function AiBuilderAssist({
       </div>
 
       {expanded ? (
-        <div className="space-y-2 px-3 pb-3 sm:px-4">
-          {extraction?.summary ? (
-            <p className="line-clamp-2 text-[11px] leading-relaxed text-foreground/65">{extraction.summary}</p>
-          ) : null}
+        <div className="border-t border-foreground/8 px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
+          <div className="flex items-start gap-2 rounded-xl border border-foreground/8 bg-background/80 px-3 py-2.5">
+            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--hse-teal)]" />
+            <p className="line-clamp-2 text-xs leading-relaxed text-foreground/70">
+              {extraction?.summary || "I can add or adjust fields, reorganize sections, and polish the layout. What would you like to change?"}
+            </p>
+          </div>
 
-          <div className="flex flex-wrap gap-1.5">
-            {chips.map((action) => (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">Try</span>
+            {visibleChips.map((action) => (
               <button
                 key={action.id}
                 type="button"
@@ -136,30 +146,39 @@ export function AiBuilderAssist({
                 {action.label}
               </button>
             ))}
-            {AI_REFINE_PRESETS.filter((preset) => !chips.some((c) => c.id === preset.id))
-              .slice(0, 2)
-              .map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  disabled={refining}
-                  onClick={() => onRefine(preset.prompt)}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-foreground/15 bg-background px-2.5 text-[11px] font-medium text-foreground/70 hover:bg-foreground/5 disabled:opacity-50"
-                >
-                  {preset.label}
-                </button>
-              ))}
+            {fallbackPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                disabled={refining}
+                onClick={() => onRefine(preset.prompt)}
+                className="inline-flex h-8 items-center gap-1 rounded-full border border-foreground/12 bg-background px-3 text-[11px] font-medium text-foreground/65 hover:bg-foreground/5 disabled:opacity-50"
+              >
+                {preset.label}
+              </button>
+            ))}
+            {chips.length > 4 ? (
+              <button
+                type="button"
+                className="inline-flex h-7 items-center rounded-full px-2 text-[11px] font-medium text-foreground/55 hover:bg-foreground/5 hover:text-foreground"
+                onClick={() => setShowAllActions((value) => !value)}
+                aria-expanded={showAllActions}
+              >
+                {showAllActions ? "Fewer ideas" : `More ideas (${chips.length - 4})`}
+              </button>
+            ) : null}
           </div>
 
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1">
+          <div className="mt-3 flex items-end gap-1.5 rounded-xl border border-foreground/15 bg-background p-1.5 shadow-sm focus-within:border-[color-mix(in_srgb,var(--hse-teal)_42%,transparent)] focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--hse-teal)_12%,transparent)]">
+            <div className="min-w-0 flex-1 px-1">
               <textarea
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
                 disabled={refining}
                 rows={1}
-                placeholder="e.g. Make corrective action full width and add a photo column"
-                className="max-h-24 min-h-[36px] w-full resize-y rounded-lg border border-foreground/15 bg-background px-3 py-2 text-xs leading-5 focus:border-[var(--hse-teal)] focus:outline-none"
+                placeholder="Ask AI to change this form…"
+                aria-label="Describe a form change"
+                className="max-h-24 min-h-[38px] w-full resize-y border-0 bg-transparent px-2 py-2 text-sm leading-5 placeholder:text-foreground/40 focus:outline-none disabled:opacity-60"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -172,22 +191,26 @@ export function AiBuilderAssist({
               type="button"
               disabled={refining || !instruction.trim()}
               onClick={() => onRefine(instruction.trim())}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--hse-teal)] px-3 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--hse-teal)] text-white shadow-sm hover:opacity-90 disabled:opacity-40"
+              aria-label="Refine form with AI"
+              title="Refine form"
             >
-              {refining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Refine
+              {refining ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
             </button>
           </div>
 
-          {!unlimited && typeof quotaRemaining === "number" ? (
-            <p className="text-[10px] text-foreground/45">
-              {quotaRemaining} AI generation{quotaRemaining === 1 ? "" : "s"} left this month · instant chips are free
-            </p>
-          ) : (
-            <p className="text-[10px] text-foreground/45">Instant chips are free · Refine uses one AI credit</p>
-          )}
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-1">
+            <p className="text-[10px] text-foreground/45">Enter to send · Shift+Enter for a new line</p>
+            {!unlimited && typeof quotaRemaining === "number" ? (
+              <p className="text-[10px] text-foreground/45">
+                {quotaRemaining} AI generation{quotaRemaining === 1 ? "" : "s"} left · quick actions are free
+              </p>
+            ) : (
+              <p className="text-[10px] text-foreground/45">Quick actions are free · refinements use one AI credit</p>
+            )}
+          </div>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }

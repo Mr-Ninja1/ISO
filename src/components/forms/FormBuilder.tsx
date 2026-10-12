@@ -21,7 +21,6 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
-  ChevronRight,
   Ellipsis,
   FileText,
   Hash,
@@ -338,8 +337,8 @@ function DraggablePaletteItem({
       type="button"
       onClick={onClick}
       className={
-        "group inline-flex items-center gap-2 rounded-xl border border-foreground/12 bg-background/95 px-3 py-2 text-sm whitespace-nowrap shadow-sm " +
-        "transition-all hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] " +
+        "group inline-flex items-center gap-1.5 rounded-lg border border-foreground/12 bg-background/95 px-2.5 py-1.5 text-xs whitespace-nowrap " +
+        "transition-colors hover:border-[color-mix(in_srgb,var(--hse-teal)_35%,transparent)] hover:bg-[color-mix(in_srgb,var(--hse-teal)_6%,white)] " +
         (isDragging ? "opacity-50" : "")
       }
       {...listeners}
@@ -858,7 +857,6 @@ function StaticItemListEditor({
   expandSignal?: number;
   focusColumnId?: string | null;
 }) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const defaultColumnId =
     (focusColumnId && grid.columns.some((c) => c.id === focusColumnId) ? focusColumnId : "") ||
     grid.columns.find((col) => col.type === "static")?.id ||
@@ -874,7 +872,7 @@ function StaticItemListEditor({
   });
   const hasStatic = grid.columns.some((col) => isStaticColumn(col));
   const needsItems = hasStatic && !(grid.seedRows?.length);
-  const [expanded, setExpanded] = useState(hasStatic || Boolean(grid.seedRows?.length));
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const nextDefault =
@@ -900,12 +898,9 @@ function StaticItemListEditor({
     if (focusColumnId && grid.columns.some((c) => c.id === focusColumnId)) {
       setStaticColumnId(focusColumnId);
     }
-    requestAnimationFrame(() => {
-      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
   }, [expandSignal, focusColumnId, grid.columns]);
 
-  if (!grid.columns.length) return null;
+  if (!grid.columns.length || (!hasStatic && !grid.seedRows?.length)) return null;
 
   function applyStaticList() {
     const colId = staticColumnId || grid.columns[0]?.id;
@@ -934,6 +929,7 @@ function StaticItemListEditor({
       ),
       seedRows,
     });
+    setExpanded(false);
   }
 
   function clearStaticList() {
@@ -945,94 +941,84 @@ function StaticItemListEditor({
         col.id === staticColumnId ? ({ ...col, type: "text", readOnly: undefined } as SimpleFieldDef) : col,
       ),
     });
+    setExpanded(false);
   }
 
   const staticLabels = grid.columns.filter((col) => isStaticColumn(col)).map((col) => col.label || col.id);
 
   return (
-    <div
-      ref={panelRef}
-      className={
-        "mt-3 rounded-md border px-3 py-2 " +
-        (needsItems
-          ? "border-amber-300 bg-amber-50/80"
-          : hasStatic
-            ? "border-amber-200/80 bg-amber-50/40"
-            : "border-foreground/15 bg-foreground/[0.02]")
-      }
+    <CenteredOverlay
+      open={expanded}
+      maxWidthClass="max-w-lg"
+      panelClassName="overflow-hidden"
+      onClose={() => setExpanded(false)}
     >
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-2 text-left"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div>
-          <div className="text-xs font-semibold text-foreground/85">
-            {needsItems ? "Add printed items" : "Edit static items"}
-          </div>
-          <div className="text-[11px] text-foreground/60">
-            {needsItems
-              ? staticLabels.length
-                ? `Paste the printed values for ${staticLabels.map((l) => `"${l}"`).join(", ")} (one per line). They stay on the template.`
-                : "Paste printed checklist / prep items (one per line). They stay on the template."
-              : grid.seedRows?.length
-                ? `${grid.seedRows.length} item${grid.seedRows.length === 1 ? "" : "s"} on this template — edit anytime, even after saving.`
-                : "Paste printed items (one per line). They stay on the template and never clear when the form is filled."}
-          </div>
+      <div className="flex items-start justify-between gap-3 border-b border-foreground/10 bg-[color-mix(in_srgb,var(--hse-teal)_5%,white)] px-4 py-3 sm:px-5">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-foreground">Printed items</div>
+          <p className="mt-0.5 text-xs leading-relaxed text-foreground/60">
+            These values stay on the template when someone fills out the form.
+            {needsItems ? " Add one item per line." : " Edit one item per line."}
+          </p>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-foreground/20 bg-background px-2 py-1 text-[11px] font-medium text-foreground/80">
-          {expanded ? "Hide" : "Open"}
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-        </span>
-      </button>
-
-      {expanded ? (
-        <div className="mt-3 grid gap-2">
-          <div className="grid gap-1">
-            <div className="text-[11px] font-medium text-foreground/65">Which column?</div>
+        <button
+          type="button"
+          className="shrink-0 rounded-md border border-foreground/15 bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-foreground/5"
+          onClick={() => setExpanded(false)}
+        >
+          Close
+        </button>
+      </div>
+      <div className="grid gap-3 p-4 sm:p-5">
+        {grid.columns.length > 1 ? (
+          <label className="grid gap-1 text-xs font-medium text-foreground/70">
+            <span>Column</span>
             <select
-              className="h-8 rounded-md border border-foreground/20 bg-background px-2 text-xs"
+              className="h-9 rounded-md border border-foreground/20 bg-background px-2 text-sm font-normal"
               value={staticColumnId}
               onChange={(e) => setStaticColumnId(e.target.value)}
             >
               {grid.columns.map((col) => (
                 <option key={col.id} value={col.id}>
-                  {col.label || col.id}
-                  {isStaticColumn(col) ? " (static)" : ""}
+                  {col.label || col.id}{isStaticColumn(col) ? " · printed list" : ""}
                 </option>
               ))}
             </select>
-          </div>
+          </label>
+        ) : null}
+        <label className="grid gap-1 text-xs font-medium text-foreground/70">
+          <span>{needsItems ? "Add each printed item on a new line" : "Items"}</span>
           <textarea
-            className="min-h-[110px] w-full rounded-md border border-foreground/20 bg-background px-2 py-1.5 text-xs leading-5"
-            placeholder={"Beetroot - Fresh, Cut\nSpinach - Fresh\nGelato-vanilla/strawberry/chocolate"}
+            autoFocus
+            className="min-h-48 w-full resize-y rounded-lg border border-foreground/15 bg-background px-3 py-2 text-sm leading-6 focus:border-[var(--hse-teal)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--hse-teal)_15%,transparent)]"
+            placeholder={"Beetroot - Fresh, Cut\nSpinach - Fresh\nGelato - vanilla / strawberry / chocolate"}
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
           />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background"
-              onClick={applyStaticList}
-            >
-              Save items to template
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 px-3 text-xs hover:bg-foreground/5"
-              onClick={clearStaticList}
-              disabled={!grid.seedRows?.length && !draftText.trim()}
-            >
-              Clear
-            </button>
-          </div>
+        </label>
+        <p className="text-[11px] leading-relaxed text-foreground/50">
+          {staticLabels.length ? `Saved in ${staticLabels.map((label) => `“${label}”`).join(", ")}. ` : ""}
+          Up to 200 lines can be saved.
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-foreground/10 pt-3">
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center rounded-md px-3 text-xs font-medium text-foreground/65 hover:bg-foreground/5 disabled:opacity-40"
+            onClick={clearStaticList}
+            disabled={!grid.seedRows?.length && !draftText.trim()}
+          >
+            Clear list
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center rounded-md bg-[var(--hse-teal)] px-4 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+            onClick={applyStaticList}
+          >
+            Save printed items
+          </button>
         </div>
-      ) : null}
-    </div>
+      </div>
+    </CenteredOverlay>
   );
 }
 
@@ -1130,7 +1116,7 @@ function ColumnEditorModal({
             />
             {activeCol.type === "static" || activeCol.readOnly ? (
               <div className="text-[11px] leading-4 text-foreground/55">
-                Static text stays on the saved template and syncs across devices. Edit here or in the form.
+                Static text stays on the saved template and syncs across devices. Use Printed items to edit the list.
               </div>
             ) : null}
             {(activeCol.type === "static" || activeCol.readOnly) && onEditStaticItems ? (
@@ -1142,7 +1128,7 @@ function ColumnEditorModal({
                   onClose();
                 }}
               >
-                Edit static items
+                Printed items
               </button>
             ) : null}
           </div>
@@ -1623,7 +1609,7 @@ function GridBuilder({
   const hasStaticColumns = grid.columns.some((col) => isStaticColumn(col));
 
   function openStaticItemsEditor(columnId?: string) {
-    if (columnId) setStaticFocusColumnId(columnId);
+    setStaticFocusColumnId(columnId || null);
     setStaticExpandSignal((n) => n + 1);
   }
 
@@ -1642,7 +1628,7 @@ function GridBuilder({
           />
           <div className="text-xs text-foreground/70 mt-0.5">
             Click headers to edit columns · {grid.columns.length} columns
-            {hasStaticColumns ? " · static columns editable below" : ""}
+            {hasStaticColumns ? " · printed items stay on the template" : ""}
           </div>
           <div className={"text-[11px] text-foreground/55 mt-1 " + (compact ? "hidden sm:block" : "")}>
             Wide tables scroll horizontally and PDF export fits every column automatically.
@@ -1694,14 +1680,14 @@ function GridBuilder({
             >
               + Row
             </button>
-            {hasStaticColumns ? (
+            {hasStaticColumns || grid.seedRows?.length ? (
               <button
                 type="button"
                 className="inline-flex h-8 items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-2 text-xs font-semibold text-amber-950 hover:bg-amber-100"
                 onClick={() => openStaticItemsEditor()}
                 title="Paste or edit printed items for static columns"
               >
-                Edit static items
+                Printed items
               </button>
             ) : null}
           </div>
@@ -2408,78 +2394,60 @@ export function FormBuilder({
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex flex-col">
-        {/* Ribbon */}
-        <div className="sticky top-0 z-20 border-b border-foreground/10 bg-background/90 px-3 py-3 shadow-[0_8px_24px_-18px_rgba(0,61,51,0.35)] backdrop-blur-md sm:px-6">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
-            <div className="min-w-0 flex-1 rounded-2xl border border-foreground/10 bg-gradient-to-br from-foreground/[0.02] to-[color-mix(in_srgb,var(--hse-sky)_22%,transparent)] p-2.5">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground/55">
-                  Quick add · {builderConfig.label}
-                </div>
-                <span className="inline-flex items-center rounded-full border border-[var(--hse-teal)]/30 bg-[color-mix(in_srgb,var(--hse-teal)_10%,white)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--hse-teal)]">
-                  Adding to: {placementLabel}
+        {/* Field tools */}
+        <div className="relative z-10 border-b border-foreground/10 bg-background px-3 py-2.5 sm:px-6">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/50">Add field</span>
+                <span className="inline-flex items-center rounded-full bg-[color-mix(in_srgb,var(--hse-teal)_7%,white)] px-2 py-1 text-[10px] font-medium text-[var(--hse-teal)]">
+                  To: {placementLabel}
                 </span>
-              </div>
-              <div className="relative flex flex-wrap items-center gap-2">
-                {quickPaletteItems.map((item) => (
-                  <DraggablePaletteItem
-                    key={item.id}
-                    item={item}
-                    onClick={() => addItem(item.fieldType, insertTarget)}
-                  />
-                ))}
-                {morePaletteItems.length > 0 ? (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className={
-                        "inline-flex items-center gap-1.5 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm whitespace-nowrap hover:bg-foreground/5 " +
-                        (moreToolsOpen ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]" : "")
-                      }
-                      aria-expanded={moreToolsOpen}
-                      aria-haspopup="menu"
-                      onClick={() => setMoreToolsOpen((open) => !open)}
-                    >
-                      <Ellipsis className="h-4 w-4 text-foreground/55" />
-                      <span className="font-medium">More tools</span>
-                      <ChevronDown
-                        className={
-                          "h-4 w-4 text-foreground/45 transition-transform " +
-                          (moreToolsOpen ? "rotate-180" : "")
-                        }
-                      />
-                    </button>
-                    <PaletteMoreToolsMenu
-                      items={morePaletteItems}
-                      open={moreToolsOpen}
-                      onClose={() => setMoreToolsOpen(false)}
-                      onPick={(fieldType) => addItem(fieldType, insertTarget)}
+                <div className="relative flex flex-wrap items-center gap-1.5">
+                  {quickPaletteItems.map((item) => (
+                    <DraggablePaletteItem
+                      key={item.id}
+                      item={item}
+                      onClick={() => addItem(item.fieldType, insertTarget)}
                     />
-                  </div>
-                ) : null}
+                  ))}
+                  {morePaletteItems.length > 0 ? (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className={
+                          "inline-flex h-8 items-center gap-1 rounded-lg border border-foreground/15 bg-background px-2.5 text-xs whitespace-nowrap hover:bg-foreground/5 " +
+                          (moreToolsOpen ? "border-[var(--hse-teal)] bg-[color-mix(in_srgb,var(--hse-teal)_8%,white)]" : "")
+                        }
+                        aria-expanded={moreToolsOpen}
+                        aria-haspopup="menu"
+                        onClick={() => setMoreToolsOpen((open) => !open)}
+                      >
+                        <Ellipsis className="h-3.5 w-3.5 text-foreground/55" />
+                        <span className="font-medium">More</span>
+                        <ChevronDown className={"h-3.5 w-3.5 text-foreground/45 transition-transform " + (moreToolsOpen ? "rotate-180" : "")} />
+                      </button>
+                      <PaletteMoreToolsMenu
+                        items={morePaletteItems}
+                        open={moreToolsOpen}
+                        onClose={() => setMoreToolsOpen(false)}
+                        onPick={(fieldType) => addItem(fieldType, insertTarget)}
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              {builderConfig.starterGrid ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex h-7 items-center justify-center rounded-md border border-dashed border-foreground/25 px-2 text-[11px] text-foreground/70 hover:bg-foreground/5"
-                  onClick={applyStarterLayout}
-                >
-                  Load starter layout
-                </button>
-              ) : null}
+              <p className={"mt-1 text-[11px] text-foreground/50 " + (compactBuilder ? "hidden sm:block" : "")}>
+                {builderConfig.description}
+              </p>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-stretch gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               {showPlacementToggle ? (
-              <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">Placement</div>
-                <div className="inline-flex items-center rounded-md border border-foreground/20 bg-background p-0.5 text-xs">
+                <div className="inline-flex items-center rounded-lg border border-foreground/12 bg-foreground/[0.02] p-0.5 text-[11px]">
                   <button
                     type="button"
-                    className={
-                      "rounded px-2 py-1 " +
-                      (insertTarget === "top" ? "bg-foreground text-background" : "hover:bg-foreground/5")
-                    }
+                    className={"rounded-md px-2.5 py-1.5 " + (insertTarget === "top" ? "bg-background text-foreground shadow-sm" : "text-foreground/60 hover:text-foreground")}
                     onClick={() => setInsertTarget("top")}
                   >
                     {builderConfig.sectionLabels.header}
@@ -2487,33 +2455,22 @@ export function FormBuilder({
                   {supportsFooter ? (
                     <button
                       type="button"
-                      className={
-                        "rounded px-2 py-1 " +
-                        (insertTarget === "bottom" ? "bg-foreground text-background" : "hover:bg-foreground/5")
-                      }
+                      className={"rounded-md px-2.5 py-1.5 " + (insertTarget === "bottom" ? "bg-background text-foreground shadow-sm" : "text-foreground/60 hover:text-foreground")}
                       onClick={() => setInsertTarget("bottom")}
                     >
                       After table
                     </button>
                   ) : null}
                 </div>
-              </div>
               ) : null}
-
-              <div className="rounded-md border border-foreground/15 bg-foreground/[0.02] p-2">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground/60">View</div>
-                <button
-                  type="button"
-                  className="inline-flex h-7 items-center justify-center rounded-md border border-foreground/20 px-2 text-xs hover:bg-foreground/5"
-                  onClick={() => setCompactBuilder((v) => !v)}
-                >
-                  {compactBuilder ? "Expanded layout" : "Compact layout"}
-                </button>
-              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center rounded-lg border border-foreground/12 px-2.5 text-[11px] text-foreground/65 hover:bg-foreground/5 hover:text-foreground"
+                onClick={() => setCompactBuilder((v) => !v)}
+              >
+                {compactBuilder ? "Roomy view" : "Compact view"}
+              </button>
             </div>
-          </div>
-          <div className={"mt-2 rounded-md border border-foreground/15 bg-foreground/[0.03] px-3 py-2 text-xs text-foreground/70 " + (compactBuilder ? "hidden sm:block" : "")}>
-            <span className="font-semibold">{builderConfig.label}:</span> {builderConfig.description}
           </div>
         </div>
 
