@@ -396,7 +396,7 @@ export function AuditsListClient({
     };
   }, [activeTenantSlug, user?.id]);
 
-  /** First page of server history (recent across statuses) + merge with device cache. */
+  /** First page of submitted server history + merge with device cache. */
   useEffect(() => {
     if (!accessToken || !activeTenantSlug || offline) return;
 
@@ -415,7 +415,7 @@ export function AuditsListClient({
             accessToken,
             user?.id || null,
             activeTenantSlug,
-            { limit: 50, offset: 0, merge: true },
+            { limit: 50, offset: 0, status: "SUBMITTED", merge: true },
           ),
           new Promise<never>((_, reject) =>
             window.setTimeout(() => reject(new Error("The server is taking longer than expected. Showing saved forms from this device.")), 12_000),
@@ -468,6 +468,7 @@ export function AuditsListClient({
         {
           limit: 100,
           offset: nextServerOffset,
+          status: "SUBMITTED",
           merge: true,
         },
       );

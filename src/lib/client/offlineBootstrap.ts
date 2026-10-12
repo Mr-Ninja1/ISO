@@ -84,7 +84,12 @@ export function clearOfflineBootstrapComplete(userId: string | null, tenantSlug:
   }
 }
 
-async function fetchWorkspace(accessToken: string, tenantSlug: string, categoryId: string | null) {
+async function fetchWorkspace(
+  accessToken: string,
+  tenantSlug: string,
+  categoryId: string | null,
+  userId: string | null,
+) {
   if (isCapacitorNativeApp()) {
     const supabase = createClient();
     return (await withBootstrapTimeout(
@@ -142,7 +147,7 @@ export async function runOfflineBootstrap({
 
   report("workspace", "Downloading workspace…", 8);
 
-  const workspace = await fetchWorkspace(accessToken, tenantSlug, null);
+  const workspace = await fetchWorkspace(accessToken, tenantSlug, null, userId);
   writeWorkspaceCache(userId, tenantSlug, null, workspace);
   if (workspace.selectedCategoryId) {
     writeWorkspaceCache(userId, tenantSlug, workspace.selectedCategoryId, workspace);
@@ -157,7 +162,7 @@ export async function runOfflineBootstrap({
     const failedCategories: string[] = [];
     for (const category of categories) {
       try {
-        const scoped = await fetchWorkspace(accessToken, tenantSlug, category.id);
+        const scoped = await fetchWorkspace(accessToken, tenantSlug, category.id, userId);
         writeWorkspaceCache(userId, tenantSlug, category.id, scoped);
       } catch {
         failedCategories.push(category.name);
