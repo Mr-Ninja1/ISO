@@ -142,6 +142,29 @@ if (!patch.ok) {
   process.exit(1);
 }
 
+let updatedRows;
+try {
+  updatedRows = JSON.parse(patchBody);
+} catch {
+  console.error("[upload-ota-supabase] platform_settings update returned invalid JSON:", patchBody);
+  process.exit(1);
+}
+const updatedDefault = Array.isArray(updatedRows)
+  ? updatedRows.find((row) => row?.id === "default")
+  : null;
+if (
+  !updatedDefault ||
+  updatedDefault.live_update_bundle_url !== manifestUrl ||
+  updatedDefault.live_update_channel !== channel ||
+  updatedDefault.ota_latest_bundle_id !== manifest.bundleId
+) {
+  console.error(
+    "[upload-ota-supabase] platform_settings did not confirm the published OTA feed:",
+    patchBody
+  );
+  process.exit(1);
+}
+
 console.log("");
 console.log("[upload-ota-supabase] Published:");
 console.log("  Manifest:", manifestUrl);

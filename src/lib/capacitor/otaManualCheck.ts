@@ -1,11 +1,16 @@
 "use client";
 
-import { ensureLiveUpdateReady } from "@/lib/capacitor/liveUpdateReady";
+import {
+  ensureLiveUpdateReady,
+  getLiveUpdateReadyResult,
+} from "@/lib/capacitor/liveUpdateReady";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { consumeOtaReloadSessionBundleId } from "@/lib/capacitor/otaBoot";
 import {
+  clearActivatedBundleId,
   clearPendingOtaBundle,
   evaluateOtaManifest,
+  isRolledBackOtaBundle,
   isEmbeddedBundleNewerThanManifest,
   OTA_CHANNEL_ENV,
   parseNativeBuild,
@@ -13,13 +18,14 @@ import {
   readActivatedBundleId,
   readEmbeddedWebBundleId,
   readPendingOtaBundle,
-  resolveActiveBundleId,
+  recordRolledBackOtaBundle,
   writeActivatedBundleId,
   writePendingOtaBundle,
   type OtaPendingBundle,
 } from "@/lib/capacitor/liveUpdateClient";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isAppOffline } from "@/lib/client/appOffline";
+import { fetchOta } from "@/lib/capacitor/otaFetch";
 
 type ClientConfig = {
   minNativeBuild?: number | null;
@@ -135,26 +141,39 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
   if (!ready) return readPendingOtaBundle();
 
   const reloadedBundleId = consumeOtaReloadSessionBundleId();
-  if (reloadedBundleId) {
-    writeActivatedBundleId(reloadedBundleId);
-    clearPendingOtaBundle();
-  }
+  const readyResult = getLiveUpdateReadyResult();
 
   try {
     const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-    const current = (await LiveUpdate.getCurrentBundle().catch(() => ({ bundleId: null }))).bundleId;
+    const current = readyResult
+      ? readyResult.currentBundleId
+      : (await LiveUpdate.getCurrentBundle().catch(() => ({ bundleId: null }))).bundleId;
     const next = (await LiveUpdate.getNextBundle().catch(() => ({ bundleId: null }))).bundleId;
+    const embedded = readEmbeddedWebBundleId();
+    const activeBundleId = current || embedded;
 
-    if (current) {
-      writeActivatedBundleId(current);
+    if (activeBundleId) {
+      writeActivatedBundleId(activeBundleId);
       if (current === next) clearPendingOtaBundle();
-    } else if (!readActivatedBundleId()) {
-      const embedded = resolveActiveBundleId(null, current);
-      if (embedded) writeActivatedBundleId(embedded);
+    } else {
+      clearActivatedBundleId();
+    }
+
+    if (reloadedBundleId && reloadedBundleId === activeBundleId) {
+      clearPendingOtaBundle();
+    }
+
+    if (readyResult?.rollback) {
+      const rolledBackBundleId = readyResult.previousBundleId || reloadedBundleId;
+      if (rolledBackBundleId) {
+        recordRolledBackOtaBundle(rolledBackBundleId);
+        await discardStaleDownloadedBundle(rolledBackBundleId);
+      }
+      clearPendingOtaBundle();
     }
 
     const storedPending = readPendingOtaBundle();
-    if (next && next !== current) {
+    if (next && next !== current && !isRolledBackOtaBundle(next)) {
       if (isRunningEmbeddedApkBundle()) {
         await clearOrphanedOtaDownloads(current);
         return null;
@@ -175,7 +194,9 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
     // Download finished but setNextBundle was never called (e.g. manual check hit "bundle already exists").
     try {
       const { bundleIds } = await LiveUpdate.getDownloadedBundles();
-      const pendingId = (bundleIds || []).find((id) => id && id !== current);
+      const pendingId = (bundleIds || []).find(
+        (id) => id && id !== current && !isRolledBackOtaBundle(id)
+      );
       if (pendingId) {
         if (isRunningEmbeddedApkBundle()) {
           await clearOrphanedOtaDownloads(current);
@@ -218,7 +239,7 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
     try {
       let configRes: Response;
       try {
-        configRes = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+        configRes = await fetchOta(apiUrl("/api/platform/client-config"), { cache: "no-store" });
       } catch (error) {
         return { status: "error", message: formatOtaError(error) };
       }
@@ -247,7 +268,7 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
 
       let manifestRes: Response;
       try {
-        manifestRes = await fetch(manifestUrl, { cache: "no-store" });
+        manifestRes = await fetchOta(manifestUrl, { cache: "no-store" });
       } catch (error) {
         return { status: "error", message: formatOtaError(error) };
       }
@@ -270,6 +291,13 @@ export async function checkForOtaUpdate(options?: { skipDownload?: boolean }): P
       }
 
       await syncOtaStateFromPlugin();
+
+      if (isRolledBackOtaBundle(manifest.bundleId)) {
+        return {
+          status: "error",
+          message: "This update was rolled back after it failed to start. Ask an admin to publish it again as a new update.",
+        };
+      }
 
       const decision = evaluateOtaManifest({
         manifest,

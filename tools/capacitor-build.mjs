@@ -126,6 +126,7 @@ function writeCapacitorWebConfig() {
       },
       LiveUpdate: {
         readyTimeout: 30000,
+        autoBlockRolledBackBundles: true,
       },
     },
     server: {

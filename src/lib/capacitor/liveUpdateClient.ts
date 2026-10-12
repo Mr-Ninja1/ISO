@@ -15,6 +15,7 @@ export type OtaManifest = {
 export const OTA_BUNDLE_STORAGE_KEY = "iso-ota-bundle-applied:v1";
 export const OTA_ACTIVATED_BUNDLE_KEY = "iso-ota-bundle-activated:v1";
 export const OTA_PENDING_BUNDLE_KEY = "iso-ota-bundle-pending:v1";
+const OTA_ROLLED_BACK_BUNDLES_KEY = "iso-ota-bundles-rolled-back:v1";
 export const OTA_CHANNEL_ENV = process.env.NEXT_PUBLIC_OTA_CHANNEL?.trim() || "production";
 
 /** Baked into the APK at build time (see tools/capacitor-build.mjs). */
@@ -93,6 +94,41 @@ export function writeActivatedBundleId(bundleId: string) {
   try {
     localStorage.setItem(OTA_ACTIVATED_BUNDLE_KEY, bundleId);
     localStorage.removeItem(OTA_BUNDLE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function clearActivatedBundleId() {
+  try {
+    localStorage.removeItem(OTA_ACTIVATED_BUNDLE_KEY);
+    localStorage.removeItem(OTA_BUNDLE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function readRolledBackOtaBundleIds(): string[] {
+  try {
+    const raw = localStorage.getItem(OTA_ROLLED_BACK_BUNDLES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isRolledBackOtaBundle(bundleId: string): boolean {
+  return readRolledBackOtaBundleIds().includes(bundleId);
+}
+
+export function recordRolledBackOtaBundle(bundleId: string) {
+  if (!bundleId) return;
+  try {
+    const ids = readRolledBackOtaBundleIds().filter((id) => id !== bundleId);
+    localStorage.setItem(OTA_ROLLED_BACK_BUNDLES_KEY, JSON.stringify([...ids, bundleId].slice(-100)));
   } catch {
     // ignore
   }

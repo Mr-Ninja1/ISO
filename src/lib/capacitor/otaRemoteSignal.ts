@@ -7,6 +7,7 @@ import {
 } from "@/lib/capacitor/liveUpdateClient";
 import { OTA_PUSH_EVENT } from "@/lib/capacitor/otaRealtime";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { fetchOta } from "@/lib/capacitor/otaFetch";
 
 type ClientConfig = {
   otaLatestBundleId?: string | null;
@@ -20,7 +21,7 @@ export async function remoteOtaBundleDiffersFromActive(): Promise<boolean> {
   if (!isCapacitorNativeApp()) return false;
 
   try {
-    const res = await fetch(apiUrl("/api/platform/client-config"), { cache: "no-store" });
+    const res = await fetchOta(apiUrl("/api/platform/client-config"), { cache: "no-store" });
     if (!res.ok) return false;
     const config = (await res.json().catch(() => ({}))) as ClientConfig;
     const remote = (config.otaLatestBundleId || "").trim();

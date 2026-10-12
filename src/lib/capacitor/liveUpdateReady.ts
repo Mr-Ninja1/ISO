@@ -15,6 +15,11 @@ const WEB_BUNDLE_ID_KEY = "iso-web-bundle-id:v1";
 const WEB_BUNDLE_ID_ENV = (process.env.NEXT_PUBLIC_WEB_BUNDLE_ID || "").trim();
 
 let readyPromise: Promise<boolean> | null = null;
+let liveUpdateReadyResult: {
+  currentBundleId: string | null;
+  previousBundleId: string | null;
+  rollback: boolean;
+} | null = null;
 
 async function clearStaleOtaState(): Promise<void> {
   try {
@@ -86,7 +91,12 @@ export async function ensureLiveUpdateReady(): Promise<boolean> {
       try {
         await resetOtaIfNativeBuildChanged();
         const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
-        await LiveUpdate.ready();
+        const result = await LiveUpdate.ready();
+        liveUpdateReadyResult = {
+          currentBundleId: result.currentBundleId,
+          previousBundleId: result.previousBundleId,
+          rollback: result.rollback,
+        };
         return true;
       } catch {
         readyPromise = null;
@@ -98,6 +108,11 @@ export async function ensureLiveUpdateReady(): Promise<boolean> {
   return readyPromise;
 }
 
+export function getLiveUpdateReadyResult() {
+  return liveUpdateReadyResult;
+}
+
 export function resetLiveUpdateReadyForTests() {
   readyPromise = null;
+  liveUpdateReadyResult = null;
 }
