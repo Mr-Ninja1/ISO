@@ -57,6 +57,7 @@ import {
   withUpdatedStaticSeedRows,
 } from "@/lib/staticSeedRows";
 import { writeAuditTemplateCache } from "@/lib/client/auditTemplateCache";
+import { compressPhotoEvidence } from "@/lib/photoEvidenceImage";
 import {
   markInteractiveNav,
   scheduleIdleWork,
@@ -75,6 +76,35 @@ type Props = {
 type FormValues = Record<string, unknown>;
 
 const DEFAULT_EVIDENCE_FIELD_ID = "__default_photo_evidence";
+const LOCAL_DRAFT_SYNC_IMAGE_LIMIT = 64 * 1024;
+const LOCAL_DRAFT_SYNC_READ_LIMIT = 256 * 1024;
+const localDraftWriteGeneration = new Map<string, number>();
+
+function hasLargeInlineImage(value: unknown, limit: number) {
+  const pending: unknown[] = [value];
+  const seen = new WeakSet<object>();
+  let imageCharacters = 0;
+
+  while (pending.length) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      if (current.startsWith("data:image/")) {
+        imageCharacters += current.length;
+        if (imageCharacters > limit) return true;
+      }
+      continue;
+    }
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+    if (Array.isArray(current)) {
+      for (const item of current) pending.push(item);
+    } else {
+      for (const item of Object.values(current as Record<string, unknown>)) pending.push(item);
+    }
+  }
+
+  return false;
+}
 
 function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
   const sections: FormSection[] =
@@ -188,10 +218,37 @@ function writeLocalDraft(
   options?: { durable?: boolean; schema?: FormSchemaV1 }
 ) {
   const payload = values as Record<string, unknown>;
+  const key = draftCacheKey(userId, tenantSlug, templateId);
+  const generation = (localDraftWriteGeneration.get(key) || 0) + 1;
+  localDraftWriteGeneration.set(key, generation);
+  const indexedDbRow = {
+    tenantSlug,
+    templateId,
+    auditId: auditId || null,
+    payload,
+  };
+
+  // Large images belong in IndexedDB. Avoid serializing and synchronously writing them
+  // to localStorage on every autosave; clear any older duplicate after the durable write.
+  if (options?.durable !== false && hasLargeInlineImage(payload, LOCAL_DRAFT_SYNC_IMAGE_LIMIT)) {
+    void dbPutDraft(indexedDbRow)
+      .then(() => {
+        if (localDraftWriteGeneration.get(key) !== generation) return;
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // ignore storage failures
+        }
+      })
+      .catch(() => {
+        // Keep any previous local copy if the durable write fails.
+      });
+    return;
+  }
 
   try {
     localStorage.setItem(
-      draftCacheKey(userId, tenantSlug, templateId),
+      key,
       JSON.stringify({ ts: Date.now(), values: payload, auditId: auditId || null })
     );
   } catch {
@@ -200,18 +257,15 @@ function writeLocalDraft(
 
   if (options?.durable !== false) {
     // Durable write (IndexedDB) – does not block UI.
-    void dbPutDraft({
-      tenantSlug,
-      templateId,
-      auditId: auditId || null,
-      payload,
-    });
+    void dbPutDraft(indexedDbRow).catch(() => {});
   }
 }
 
 function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string) {
+  const key = draftCacheKey(userId, tenantSlug, templateId);
+  localDraftWriteGeneration.set(key, (localDraftWriteGeneration.get(key) || 0) + 1);
   try {
-    localStorage.removeItem(draftCacheKey(userId, tenantSlug, templateId));
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }
@@ -225,7 +279,7 @@ function readLocalDraft(
 ): { ts: number; values: FormValues; auditId: string | null } | null {
   try {
     const raw = localStorage.getItem(draftCacheKey(userId, tenantSlug, templateId));
-    if (!raw) return null;
+    if (!raw || raw.length > LOCAL_DRAFT_SYNC_READ_LIMIT) return null;
     const parsed = JSON.parse(raw) as { ts?: number; values?: FormValues; auditId?: string | null };
     if (!parsed || typeof parsed !== "object") return null;
     if (typeof parsed.ts !== "number" || !Number.isFinite(parsed.ts)) return null;
@@ -1642,6 +1696,8 @@ function PhotoFieldInput({
   const value = useWatch({ control, name: field.id as never }) as unknown;
   const photos = normalizePhotoValue(value);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [compressingPhoto, setCompressingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
 
   useEffect(() => {
     if (!previewSrc) return;
@@ -1668,21 +1724,27 @@ function PhotoFieldInput({
               type="file"
               accept="image/*"
               capture="environment"
+              disabled={compressingPhoto}
               className="h-12 rounded-md border border-foreground/20 bg-background px-3 py-2"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 e.currentTarget.value = "";
                 if (!file) return;
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const next = typeof reader.result === "string" ? reader.result : "";
-                  if (!next) return;
+                setCompressingPhoto(true);
+                setPhotoError("");
+                try {
+                  const next = await compressPhotoEvidence(file);
                   const current = normalizePhotoValue(rhfField.value);
                   rhfField.onChange([...current, next]);
-                };
-                reader.readAsDataURL(file);
+                } catch (error) {
+                  setPhotoError(error instanceof Error ? error.message : "This photo could not be prepared.");
+                } finally {
+                  setCompressingPhoto(false);
+                }
               }}
             />
+            {compressingPhoto ? <p className="text-xs text-foreground/60">Preparing photo…</p> : null}
+            {photoError ? <p className="text-xs text-red-700" role="status">{photoError}</p> : null}
             {photos.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {photos.map((photo, index) => (
@@ -1702,6 +1764,7 @@ function PhotoFieldInput({
             <div className="mt-1 flex items-center gap-2">
               <button
                 type="button"
+                disabled={compressingPhoto}
                 className="h-8 rounded-md border border-foreground/20 px-2 text-xs"
                 onClick={() => rhfField.onChange([])}
               >

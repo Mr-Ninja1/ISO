@@ -100,15 +100,6 @@
     opacity: 0.92;
 }
 
-/* Soft route transitions (supported browsers) — keeps online nav feeling native. */
-@supports (view-transition-name: none) {
-    ::view-transition-old(root),
-    ::view-transition-new(root) {
-        animation-duration: 140ms;
-        animation-timing-function: ease-out;
-    }
-}
-
 :root,
 :root[data-theme="default"],
 :root[data-theme="hse-pro"] {
@@ -1334,7 +1325,6 @@ body {
 
 .tenant-shell {
     min-height: 100dvh;
-    view-transition-name: tenant-shell;
     background: linear-gradient(
         180deg,
         var(--hse-cream) 0%,

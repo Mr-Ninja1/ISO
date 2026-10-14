@@ -67,7 +67,14 @@ export function isDraftPayloadDirty(
           if (Boolean(current) !== Boolean(baseline)) return true;
           continue;
         }
-        if (field.type === "photo" || field.type === "dynamic-table") {
+        if (field.type === "photo") {
+          const hasPhoto =
+            (typeof current === "string" && current.length > 0) ||
+            (Array.isArray(current) && current.some((item) => typeof item === "string" && item.length > 0));
+          if (hasPhoto) return true;
+          continue;
+        }
+        if (field.type === "dynamic-table") {
           if (isMeaningfulValue(current) && JSON.stringify(current) !== JSON.stringify(baseline ?? [])) {
             return true;
           }

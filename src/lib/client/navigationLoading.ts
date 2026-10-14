@@ -1,5 +1,4 @@
 import { markInteractiveNav } from "@/lib/client/interactionGate";
-import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 
 export const NAVIGATION_START_EVENT = "iso:navigation-start";
 
@@ -44,24 +43,9 @@ function runRouterNav(
   href: string,
   method: "push" | "replace",
 ) {
-  const go = () => router[method](href);
-  // Capturing and animating the full page can stutter inside a WebView, especially
-  // when leaving a large form. Let Capacitor's router commit directly.
-  if (isCapacitorNativeApp()) {
-    go();
-    return;
-  }
-  // View Transitions give a native cross-fade when the browser supports them.
-  const doc = typeof document !== "undefined" ? document : null;
-  if (doc && "startViewTransition" in doc) {
-    try {
-      (doc as Document & { startViewTransition: (cb: () => void) => void }).startViewTransition(go);
-      return;
-    } catch {
-      // Fall through to plain navigation.
-    }
-  }
-  go();
+  // Avoid full-page snapshots on web navigation. Large workspace pages can contain
+  // many cards and images, and overlapping View Transitions make rapid navigation janky.
+  router[method](href);
 }
 
 /** Navigate with immediate global loading feedback (top progress bar). */
