@@ -41,6 +41,7 @@ export async function POST(req: Request) {
       ? body.tenantIds.filter((id: unknown) => typeof id === "string")
       : [];
     const approvalMode: SyncApprovalMode = body?.approvalMode === "auto" ? "auto" : "manual";
+    const liveSyncEnabled = body?.liveSyncEnabled === true;
     const runInitialMerge = body?.runInitialMerge !== false;
 
     if (!name) {
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
       name,
       tenantIds,
       approvalMode,
+      liveSyncEnabled,
       createdBy: user.id,
       runInitialMerge,
     });

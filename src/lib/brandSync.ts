@@ -37,6 +37,7 @@ type SyncGroupRow = {
   id: string;
   name: string;
   approval_mode: SyncApprovalMode;
+  live_sync_enabled: boolean;
 };
 
 type SyncMemberRow = {
@@ -58,7 +59,7 @@ export async function getSyncGroupForTenant(tenantId: string) {
   const svc = requireSvc();
   const { data: member, error } = await svc
     .from("tenant_sync_members")
-    .select("sync_group_id, tenant_id, tenant_sync_groups(id,name,approval_mode)")
+    .select("sync_group_id, tenant_id, tenant_sync_groups(id,name,approval_mode,live_sync_enabled)")
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
@@ -90,6 +91,7 @@ export async function getSyncGroupForTenant(tenantId: string) {
     groupId: group.id,
     name: group.name,
     approvalMode: group.approval_mode,
+    liveSyncEnabled: group.live_sync_enabled,
     members,
     peerTenantIds: members.filter((m) => m.tenantId !== tenantId).map((m) => m.tenantId),
   };
@@ -99,7 +101,7 @@ export async function listSyncGroups() {
   const svc = requireSvc();
   const { data: groups, error } = await svc
     .from("tenant_sync_groups")
-    .select("id,name,approval_mode,created_at,updated_at")
+    .select("id,name,approval_mode,live_sync_enabled,created_at,updated_at")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -132,6 +134,7 @@ export async function listSyncGroups() {
     id: group.id as string,
     name: group.name as string,
     approvalMode: group.approval_mode as SyncApprovalMode,
+    liveSyncEnabled: group.live_sync_enabled as boolean,
     createdAt: group.created_at as string,
     updatedAt: group.updated_at as string,
     members: membersByGroup.get(group.id as string) || [],
@@ -142,6 +145,7 @@ export async function createSyncGroup(input: {
   name: string;
   tenantIds: string[];
   approvalMode: SyncApprovalMode;
+  liveSyncEnabled?: boolean;
   createdBy?: string | null;
   runInitialMerge?: boolean;
 }) {
@@ -166,9 +170,10 @@ export async function createSyncGroup(input: {
     .insert({
       name: input.name.trim(),
       approval_mode: input.approvalMode,
+      live_sync_enabled: input.liveSyncEnabled === true,
       created_by: input.createdBy ?? null,
     })
-    .select("id,name,approval_mode")
+    .select("id,name,approval_mode,live_sync_enabled")
     .single();
 
   if (groupErr || !group) throw new Error(groupErr?.message || "Failed to create sync group");
@@ -190,30 +195,46 @@ export async function createSyncGroup(input: {
     groupId: group.id as string,
     name: group.name as string,
     approvalMode: group.approval_mode as SyncApprovalMode,
+    liveSyncEnabled: group.live_sync_enabled as boolean,
     memberCount: uniqueTenantIds.length,
     mergeSummary,
   };
 }
 
-export async function updateSyncGroup(groupId: string, patch: { name?: string; approvalMode?: SyncApprovalMode }) {
+export async function updateSyncGroup(
+  groupId: string,
+  patch: { name?: string; approvalMode?: SyncApprovalMode; liveSyncEnabled?: boolean }
+) {
   const svc = requireSvc();
   const update: Record<string, unknown> = {};
   if (typeof patch.name === "string" && patch.name.trim()) update.name = patch.name.trim();
   if (patch.approvalMode) update.approval_mode = patch.approvalMode;
+  if (typeof patch.liveSyncEnabled === "boolean") update.live_sync_enabled = patch.liveSyncEnabled;
   if (Object.keys(update).length === 0) throw new Error("Nothing to update");
 
   const { data, error } = await svc
     .from("tenant_sync_groups")
     .update(update)
     .eq("id", groupId)
-    .select("id,name,approval_mode")
+    .select("id,name,approval_mode,live_sync_enabled")
     .single();
 
   if (error || !data) throw new Error(error?.message || "Update failed");
+
+  if (patch.liveSyncEnabled === false) {
+    const { error: pendingErr } = await svc
+      .from("tenant_sync_pending_changes")
+      .update({ status: "rejected", resolved_at: new Date().toISOString() })
+      .eq("sync_group_id", groupId)
+      .eq("status", "pending");
+    if (pendingErr) throw new Error(pendingErr.message);
+  }
+
   return {
     id: data.id as string,
     name: data.name as string,
     approvalMode: data.approval_mode as SyncApprovalMode,
+    liveSyncEnabled: data.live_sync_enabled as boolean,
   };
 }
 
@@ -815,6 +836,14 @@ export async function applySyncChange(input: {
   sourceUpdatedAt: string;
 }) {
   const svc = requireSvc();
+  const { data: group, error } = await svc
+    .from("tenant_sync_groups")
+    .select("live_sync_enabled")
+    .eq("id", input.syncGroupId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!group?.live_sync_enabled) throw new Error("Ongoing brand sync is disabled");
 
   if (input.entityType === "category") {
     return applyCategoryChange(svc, input);
@@ -873,7 +902,7 @@ export async function notifyBrandSyncChange(input: {
   try {
     const svc = requireSvc();
     const context = await getSyncGroupForTenant(input.sourceTenantId);
-    if (!context || context.peerTenantIds.length === 0) return { notified: 0 };
+    if (!context || !context.liveSyncEnabled || context.peerTenantIds.length === 0) return { notified: 0 };
 
     const { data: group, error: groupErr } = await svc
       .from("tenant_sync_groups")
@@ -1023,6 +1052,9 @@ export async function notifyBrandSyncChange(input: {
 
 export async function listPendingChanges(targetTenantId: string) {
   const svc = requireSvc();
+  const context = await getSyncGroupForTenant(targetTenantId);
+  if (!context?.liveSyncEnabled) return [];
+
   const { data, error } = await svc
     .from("tenant_sync_pending_changes")
     .select(
@@ -1089,6 +1121,25 @@ export async function resolvePendingChange(input: {
       .eq("id", input.changeId);
 
     if (rejectErr) throw new Error(rejectErr.message);
+    return { status: "rejected" as const };
+  }
+
+  const { data: group, error: groupErr } = await svc
+    .from("tenant_sync_groups")
+    .select("live_sync_enabled")
+    .eq("id", change.sync_group_id)
+    .maybeSingle();
+  if (groupErr) throw new Error(groupErr.message);
+  if (!group?.live_sync_enabled) {
+    const { error: closeErr } = await svc
+      .from("tenant_sync_pending_changes")
+      .update({
+        status: "rejected",
+        resolved_by: input.resolvedBy,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq("id", input.changeId);
+    if (closeErr) throw new Error(closeErr.message);
     return { status: "rejected" as const };
   }
 

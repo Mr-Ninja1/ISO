@@ -13,6 +13,7 @@ type SyncStatus = {
     id: string;
     name: string;
     approvalMode: "manual" | "auto";
+    liveSyncEnabled: boolean;
     members: Array<{ tenantId: string; name: string; slug: string }>;
   } | null;
   pendingCount: number;
@@ -174,15 +175,15 @@ export function BrandSyncSection({ tenantSlug }: Props) {
           <div>
             <h3 className="font-semibold">{status.group?.name || "Linked brand group"}</h3>
             <p className="mt-1 text-sm text-foreground/70">
-              Categories and forms sync with{" "}
-              {peers.length > 0 ? peers.map((peer) => peer.name).join(", ") : "linked brands"}.
+              {status.group?.liveSyncEnabled
+                ? `Categories and forms sync with ${peers.length > 0 ? peers.map((peer) => peer.name).join(", ") : "linked brands"}.`
+                : `This group shares the initial form and category copy with ${peers.length > 0 ? peers.map((peer) => peer.name).join(", ") : "linked brands"}. Later edits stay local to each brand.`}{" "}
               Submissions, staff, and settings stay separate.
             </p>
             <p className="mt-2 text-xs text-foreground/60">
-              Mode:{" "}
-              {status.group?.approvalMode === "auto"
-                ? "Auto-sync (changes apply immediately)"
-                : "Manual approval (review changes below or pull all)"}
+              {status.group?.liveSyncEnabled
+                ? `Mode: ${status.group.approvalMode === "auto" ? "Auto-sync (changes apply immediately)" : "Manual approval (review changes below or pull all)"}`
+                : "Ongoing sync is off. Your brand can edit its forms independently."}
             </p>
           </div>
         </div>
@@ -192,7 +193,7 @@ export function BrandSyncSection({ tenantSlug }: Props) {
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div>
       ) : null}
 
-      {status.group?.approvalMode === "manual" ? (
+      {status.group?.liveSyncEnabled && status.group.approvalMode === "manual" ? (
         <div className="rounded-xl border border-foreground/15 bg-background p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

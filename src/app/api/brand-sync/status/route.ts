@@ -66,6 +66,7 @@ export async function GET(req: Request) {
         id: sync.groupId,
         name: sync.name,
         approvalMode: sync.approvalMode,
+        liveSyncEnabled: sync.liveSyncEnabled,
         members: sync.members,
       },
       pendingCount: pending.length,

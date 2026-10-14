@@ -33,6 +33,7 @@ type SyncGroup = {
   id: string;
   name: string;
   approvalMode: "manual" | "auto";
+  liveSyncEnabled: boolean;
   createdAt: string;
   updatedAt: string;
   members: SyncMember[];
@@ -56,6 +57,7 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
   const [groupName, setGroupName] = useState("");
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
   const [approvalMode, setApprovalMode] = useState<"manual" | "auto">("manual");
+  const [liveSyncEnabled, setLiveSyncEnabled] = useState(false);
   const [runInitialMerge, setRunInitialMerge] = useState(true);
 
   const linkedTenantIds = useMemo(() => {
@@ -133,6 +135,7 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
         name: groupName.trim(),
         tenantIds: selectedTenantIds,
         approvalMode,
+        liveSyncEnabled,
         runInitialMerge,
       }),
     });
@@ -146,14 +149,45 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
     const copied = result.data.mergeSummary;
     const mergeNote =
       runInitialMerge && copied
-        ? ` Initial merge copied ${copied.categoriesCopied} categor${copied.categoriesCopied === 1 ? "y" : "ies"} and ${copied.templatesCopied} form${copied.templatesCopied === 1 ? "" : "s"}.`
+        ? ` Initial copy added ${copied.categoriesCopied} categor${copied.categoriesCopied === 1 ? "y" : "ies"} and ${copied.templatesCopied} form${copied.templatesCopied === 1 ? "" : "s"}.`
         : "";
-    setBusyMessage(`Sync group created.${mergeNote}`);
+    const syncNote = liveSyncEnabled
+      ? " Ongoing syncing is enabled."
+      : " Later edits stay local to each brand.";
+    setBusyMessage(`Brand group created.${mergeNote}${syncNote}`);
     setCreateOpen(false);
     setGroupName("");
     setSelectedTenantIds([]);
     setApprovalMode("manual");
+    setLiveSyncEnabled(false);
     setRunInitialMerge(true);
+    await loadGroups();
+  }
+
+  async function updateGroupLiveSync(group: SyncGroup, nextEnabled: boolean) {
+    const token = session?.access_token || "";
+    if (!token || offline) return;
+
+    setBusy(true);
+    const result = await adminFetch(`/api/admin/brand-sync/${group.id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ liveSyncEnabled: nextEnabled }),
+    });
+    setBusy(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setBusyMessage(
+      nextEnabled
+        ? `Ongoing syncing enabled for ${group.name}. Future category and form changes can sync.`
+        : `Ongoing syncing stopped for ${group.name}. Local forms remain in place, and pending sync changes were dismissed.`
+    );
     await loadGroups();
   }
 
@@ -274,7 +308,7 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
             <h1 className="mt-3 text-2xl font-semibold tracking-tight">Link brand workspaces</h1>
             <p className="mt-2 max-w-3xl text-sm text-foreground/70">
               For restaurant branches or duplicate accounts that share the same forms and categories.
-              Link brands to sync only categories and form templates — submissions, staff, and settings stay separate.
+              Copy categories and forms between brands once, then keep each branch's edits separate unless ongoing sync is enabled.
             </p>
           </div>
           <button
@@ -298,7 +332,7 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
           <GitMerge className="mx-auto h-8 w-8 text-foreground/40" />
           <h2 className="mt-3 text-lg font-semibold">No linked brand groups yet</h2>
           <p className="mx-auto mt-2 max-w-xl text-sm text-foreground/70">
-            When two branches created separate accounts, link them here so categories and forms stay in sync without
+            When two branches created separate accounts, copy their categories and forms between workspaces without
             merging submissions or staff.
           </p>
         </div>
@@ -310,25 +344,37 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
                 <div>
                   <h2 className="text-lg font-semibold">{group.name}</h2>
                   <p className="mt-1 text-sm text-foreground/70">
-                    {group.approvalMode === "auto"
-                      ? "Auto-sync — new changes apply immediately to linked brands."
-                      : "Manual approval — linked brands must approve or pull each change."}
+                    {group.liveSyncEnabled
+                      ? group.approvalMode === "auto"
+                        ? "Ongoing auto-sync is on. New changes apply immediately to linked brands."
+                        : "Ongoing sync is on. Linked brands approve or pull each change."
+                      : "Initial copy only. Later form and category edits stay local to each brand."}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() =>
-                      void updateGroupApproval(
-                        group,
-                        group.approvalMode === "auto" ? "manual" : "auto"
-                      )
-                    }
+                    onClick={() => void updateGroupLiveSync(group, !group.liveSyncEnabled)}
                     className="inline-flex h-9 items-center rounded-full border border-foreground/15 px-3 text-sm hover:bg-foreground/5 disabled:opacity-50"
                   >
-                    {group.approvalMode === "auto" ? "Switch to manual" : "Switch to auto"}
+                    {group.liveSyncEnabled ? "Stop ongoing sync" : "Enable ongoing sync"}
                   </button>
+                  {group.liveSyncEnabled ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void updateGroupApproval(
+                          group,
+                          group.approvalMode === "auto" ? "manual" : "auto"
+                        )
+                      }
+                      className="inline-flex h-9 items-center rounded-full border border-foreground/15 px-3 text-sm hover:bg-foreground/5 disabled:opacity-50"
+                    >
+                      {group.approvalMode === "auto" ? "Switch to manual" : "Switch to auto"}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={busy}
@@ -377,7 +423,7 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
           <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-foreground/10 bg-background p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
             <h2 className="text-lg font-semibold">Link brand workspaces</h2>
             <p className="mt-1 text-sm text-foreground/70">
-              Select brands that should share categories and forms. Everything else stays independent.
+              Select brands to copy categories and forms between. Later edits stay local unless you enable ongoing sync.
             </p>
 
             <div className="mt-4 grid gap-3">
@@ -391,17 +437,34 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
                 />
               </label>
 
-              <label className="grid gap-1 text-sm">
-                <span className="font-medium">Sync mode</span>
-                <select
-                  value={approvalMode}
-                  onChange={(e) => setApprovalMode(e.target.value as "manual" | "auto")}
-                  className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
-                >
-                  <option value="manual">Manual approval — recommended for most cases</option>
-                  <option value="auto">Auto-sync — changes apply immediately</option>
-                </select>
+              <label className="flex items-start gap-3 rounded-xl border border-foreground/15 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={liveSyncEnabled}
+                  onChange={(e) => setLiveSyncEnabled(e.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Keep syncing later changes</span>
+                  <span className="mt-1 block text-foreground/70">
+                    Leave this off to give each brand its own editable copy after the initial setup.
+                  </span>
+                </span>
               </label>
+
+              {liveSyncEnabled ? (
+                <label className="grid gap-1 text-sm">
+                  <span className="font-medium">Approval mode</span>
+                  <select
+                    value={approvalMode}
+                    onChange={(e) => setApprovalMode(e.target.value as "manual" | "auto")}
+                    className="h-11 rounded-xl border border-foreground/15 bg-background px-3"
+                  >
+                    <option value="manual">Manual approval — review each change</option>
+                    <option value="auto">Auto-sync — changes apply immediately</option>
+                  </select>
+                </label>
+              ) : null}
 
               <label className="flex items-start gap-3 rounded-xl border border-foreground/15 p-3 text-sm">
                 <input
@@ -411,9 +474,9 @@ export function BrandSyncPanel({ brands, onBack }: Props) {
                   className="mt-1"
                 />
                 <span>
-                  <span className="font-medium">Merge existing categories and forms now</span>
+                  <span className="font-medium">Copy existing categories and forms now</span>
                   <span className="mt-1 block text-foreground/70">
-                    Copies anything missing between the selected brands so both sides start with the same library.
+                    Adds forms and categories that are missing so linked brands start with the same library.
                   </span>
                 </span>
               </label>

@@ -38,8 +38,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ groupI
     const name = typeof body?.name === "string" ? body.name.trim() : undefined;
     const approvalMode: SyncApprovalMode | undefined =
       body?.approvalMode === "auto" ? "auto" : body?.approvalMode === "manual" ? "manual" : undefined;
+    const liveSyncEnabled = typeof body?.liveSyncEnabled === "boolean" ? body.liveSyncEnabled : undefined;
 
-    const group = await updateSyncGroup(groupId, { name, approvalMode });
+    const group = await updateSyncGroup(groupId, { name, approvalMode, liveSyncEnabled });
     return NextResponse.json({ group });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Server error";
