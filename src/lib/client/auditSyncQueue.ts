@@ -2,7 +2,7 @@
 
 import { apiUrl } from "@/lib/client/apiBase";
 import { copyAuditReportSnapshot, writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
-import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
+import { removeCachedAuditRow, upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import {
   dbCountOutbox,
   dbDeleteOutbox,
@@ -13,7 +13,7 @@ import {
 import { clearClientSubmissionAttempt, readClientSubmissionId } from "@/lib/submissionMeta";
 import { OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/connectivityEvents";
 import { isAppOffline } from "@/lib/client/appOffline";
-import { INTERACTIVE_NAV_EVENT, shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
+import { shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
 
 type QueueMode = "draft" | "submit";
 
@@ -181,7 +181,8 @@ async function finalizeSuccessfulSubmit(
     mode: QueueMode;
     auditId?: string | null;
   },
-  serverAuditId: string
+  serverAuditId: string,
+  userId: string | null
 ) {
   removeOfflineSubmittedByQueueId(item.id);
   const submissionId = readClientSubmissionId(item.payload);
@@ -189,6 +190,9 @@ async function finalizeSuccessfulSubmit(
   clearClientSubmissionAttempt(item.tenantSlug, item.templateId, item.auditId);
   notifyAuditOutboxChanged();
   const pendingId = `pending:${item.id}`;
+  // FormRenderer writes pending rows under the signed-in user cache key.
+  removeCachedAuditRow(userId, item.tenantSlug, pendingId);
+  removeCachedAuditRow(null, item.tenantSlug, pendingId);
   if (!serverAuditId) return;
 
   copyAuditReportSnapshot(item.tenantSlug, pendingId, serverAuditId);
@@ -205,15 +209,19 @@ async function finalizeSuccessfulSubmit(
     schema: tpl?.schema || null,
   });
   const savedAt = new Date().toISOString();
-  upsertCachedAuditRow(null, item.tenantSlug, {
+  const serverRow = {
     id: serverAuditId,
-    status: "SUBMITTED",
+    status: "SUBMITTED" as const,
     templateId: item.templateId,
     createdAt: savedAt,
     updatedAt: savedAt,
     submittedAt: savedAt,
     template: { title },
-  });
+  };
+  upsertCachedAuditRow(userId, item.tenantSlug, serverRow);
+  if (userId) {
+    upsertCachedAuditRow(null, item.tenantSlug, serverRow);
+  }
 }
 
 async function postQueuedSubmit(
@@ -231,19 +239,26 @@ async function postQueuedSubmit(
   const clientSubmissionId = readClientSubmissionId(item.payload);
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
-  const abortIfInterrupted = () => {
-    if (flushSignal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) controller.abort();
+  // Do not abort in-flight submits on interactive nav — that was killing sync right after
+  // form save (navigate → markInteractiveNav → abort → forever "Pending sync").
+  const abortIfOfflineOrHidden = () => {
+    if (flushSignal?.aborted || isAppOffline()) {
+      controller.abort();
+      return;
+    }
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      controller.abort();
+    }
   };
   const abortFromFlush = () => controller.abort();
   window.addEventListener("offline", abortFromFlush);
-  window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfInterrupted);
-  window.addEventListener(INTERACTIVE_NAV_EVENT, abortIfInterrupted);
-  document.addEventListener("visibilitychange", abortIfInterrupted);
+  window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfOfflineOrHidden);
+  document.addEventListener("visibilitychange", abortIfOfflineOrHidden);
   flushSignal?.addEventListener("abort", abortFromFlush, { once: true });
 
   let res: Response;
   try {
-    abortIfInterrupted();
+    abortIfOfflineOrHidden();
     res = await fetch(apiUrl("/api/audit/submit"), {
       method: "POST",
       headers: {
@@ -263,9 +278,8 @@ async function postQueuedSubmit(
   } finally {
     window.clearTimeout(timeoutId);
     window.removeEventListener("offline", abortFromFlush);
-    window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfInterrupted);
-    window.removeEventListener(INTERACTIVE_NAV_EVENT, abortIfInterrupted);
-    document.removeEventListener("visibilitychange", abortIfInterrupted);
+    window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, abortIfOfflineOrHidden);
+    document.removeEventListener("visibilitychange", abortIfOfflineOrHidden);
     flushSignal?.removeEventListener("abort", abortFromFlush);
   }
 
@@ -277,7 +291,11 @@ async function postQueuedSubmit(
   return { ok: true as const, auditId: typeof json.auditId === "string" ? json.auditId : "" };
 }
 
-async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSignal) {
+async function flushAuditSyncQueueInternal(
+  accessToken: string,
+  signal?: AbortSignal,
+  userId: string | null = null
+) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 
   let processed = 0;
@@ -287,7 +305,9 @@ async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSi
   try {
     const outbox = await dbListOutboxAll();
     for (const item of outbox) {
-      if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) break;
+      // Pause starting new posts while the user is mid-navigation; never cancel an in-flight POST for nav.
+      if (signal?.aborted || isAppOffline()) break;
+      if (shouldPauseBackgroundWork()) break;
       const submissionId = readClientSubmissionId(item.payload);
       if (submissionId) {
         outboxSubmissionIds.add(submissionId);
@@ -306,14 +326,14 @@ async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSi
         }
 
         if (item.mode === "submit") {
-          await finalizeSuccessfulSubmit(item, result.auditId);
+          await finalizeSuccessfulSubmit(item, result.auditId, userId);
         }
 
         await dbDeleteOutbox(item.id);
         processed += 1;
         notifyAuditOutboxChanged();
       } catch (e: unknown) {
-        if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) break;
+        if (signal?.aborted || isAppOffline()) break;
         await dbMarkOutboxFailed(item.id, String((e as { message?: string })?.message || "sync failed"));
       }
     }
@@ -330,7 +350,7 @@ async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSi
 
   for (let index = 0; index < queue.length; index += 1) {
     const item = queue[index]!;
-    if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) {
+    if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) {
       remaining.push(...queue.slice(index));
       break;
     }
@@ -348,13 +368,13 @@ async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSi
       }
 
       if (item.mode === "submit") {
-        await finalizeSuccessfulSubmit(item, result.auditId);
+        await finalizeSuccessfulSubmit(item, result.auditId, userId);
       }
 
       processed += 1;
     } catch {
       remaining.push(item);
-      if (signal?.aborted || shouldPauseBackgroundWork() || isAppOffline()) {
+      if (signal?.aborted || isAppOffline()) {
         remaining.push(...queue.slice(index + 1));
         break;
       }
@@ -366,12 +386,16 @@ async function flushAuditSyncQueueInternal(accessToken: string, signal?: AbortSi
   return { processed, remaining: remaining.length + outboxRemaining };
 }
 
-export async function flushAuditSyncQueue(accessToken: string, signal?: AbortSignal) {
+export async function flushAuditSyncQueue(
+  accessToken: string,
+  signal?: AbortSignal,
+  userId: string | null = null
+) {
   if (!accessToken) return { processed: 0, remaining: 0 };
 
   if (flushInFlight) return flushInFlight;
 
-  flushInFlight = flushAuditSyncQueueInternal(accessToken, signal).finally(() => {
+  flushInFlight = flushAuditSyncQueueInternal(accessToken, signal, userId).finally(() => {
     flushInFlight = null;
   });
 

@@ -18,7 +18,7 @@ type Props = {
 };
 
 export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const [rows, setRows] = useState<OfflineSubmittedForm[]>([]);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
     const sync = () => {
       const accessToken = session?.access_token;
       if (!accessToken || isAppOffline() || syncInFlight) return;
-      syncInFlight = flushAuditSyncQueue(accessToken).finally(() => {
+      syncInFlight = flushAuditSyncQueue(accessToken, undefined, user?.id || null).finally(() => {
         syncInFlight = null;
         if (active) load();
       });
@@ -54,7 +54,7 @@ export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
       window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, sync);
       window.clearInterval(retryTimer);
     };
-  }, [session?.access_token, tenantSlug]);
+  }, [session?.access_token, tenantSlug, user?.id]);
 
   const visibleRows = tenantSlug && tenantSlug !== "_" ? rows : [];
 

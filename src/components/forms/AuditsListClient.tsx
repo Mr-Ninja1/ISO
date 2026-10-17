@@ -17,6 +17,7 @@ import {
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
+import { flushAuditSyncQueue, getPendingAuditSyncCountAsync } from "@/lib/client/auditSyncQueue";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import {
@@ -27,6 +28,7 @@ import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+import { waitForInteractiveNavClear } from "@/lib/client/interactionGate";
 
 function serverListTimeoutMs() {
   return isCapacitorNativeApp() ? 30_000 : 12_000;
@@ -401,7 +403,7 @@ export function AuditsListClient({
     };
   }, [activeTenantSlug, user?.id]);
 
-  /** First page of submitted server history + merge with device cache. */
+  /** Push any queued submits, then pull first page of server history. */
   useEffect(() => {
     if (!accessToken || !activeTenantSlug || offline) return;
 
@@ -416,6 +418,15 @@ export function AuditsListClient({
 
     void (async () => {
       try {
+        // Clear "Pending sync" before/while loading the server list.
+        const pending = await getPendingAuditSyncCountAsync();
+        if (!cancelled && pending > 0) {
+          await waitForInteractiveNavClear(3500);
+          if (!cancelled && !offline) {
+            await flushAuditSyncQueue(accessToken, undefined, user?.id || null).catch(() => {});
+          }
+        }
+
         const result = await Promise.race([
           fetchAndCacheAuditsList(
             accessToken,

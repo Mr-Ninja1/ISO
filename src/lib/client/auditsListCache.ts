@@ -75,6 +75,16 @@ export function upsertCachedAuditRow(userId: string | null, tenantSlug: string, 
   writeAuditsListCache(userId, tenantSlug, merged, existing?.maxUpdatedAt ?? null);
 }
 
+/** Drop a row (e.g. `pending:<outboxId>`) from the device list cache. */
+export function removeCachedAuditRow(userId: string | null, tenantSlug: string, auditId: string) {
+  if (!tenantSlug || !auditId) return;
+  const existing = readAuditsListCache(userId, tenantSlug);
+  if (!existing?.rows?.length) return;
+  const next = existing.rows.filter((row) => row.id !== auditId);
+  if (next.length === existing.rows.length) return;
+  writeAuditsListCache(userId, tenantSlug, next, existing.maxUpdatedAt);
+}
+
 export function mergeAuditsRows(base: CachedAuditRow[], incoming: CachedAuditRow[]) {
   if (!incoming.length) return base;
   const byId = new Map<string, CachedAuditRow>();

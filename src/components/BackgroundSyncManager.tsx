@@ -15,7 +15,6 @@ import {
   flushBackgroundMutationQueue,
   getPendingBackgroundMutationCount,
 } from "@/lib/client/backgroundMutationQueue";
-import { mergeAuditsRows, type CachedAuditRow, readAuditsListCache, writeAuditsListCache } from "@/lib/client/auditsListCache";
 import { isAppOffline, OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -27,15 +26,19 @@ import {
 } from "@/lib/client/workspaceCache";
 import { requestWorkspaceRevalidate } from "@/lib/client/requestWorkspaceRevalidate";
 import {
-  INTERACTIVE_NAV_EVENT,
   shouldPauseBackgroundWork,
   waitForInteractiveNavClear,
 } from "@/lib/client/interactionGate";
 import { isOfflineBootstrapComplete } from "@/lib/client/offlineBootstrap";
 import { isTenantTemplateBulkCached } from "@/lib/client/offlineTemplateWarmup";
+import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
 
 const REMOTE_CHANGE_CHECK_INTERVAL_MS = 5 * 60_000;
+const AUDITS_PULL_INTERVAL_MS = 2 * 60_000;
 const RECONNECT_SETTLE_DELAY_MS = 8_000;
+/** Faster settle when the outbox just grew — user expects Pending sync to clear soon. */
+const OUTBOX_FLUSH_SETTLE_MS = 1_200;
+const FLUSH_INTERVAL_MS = 45_000;
 
 async function readPendingCountAsync() {
   const auditPending = await getPendingAuditSyncCountAsync();
@@ -71,6 +74,8 @@ export function BackgroundSyncManager() {
   const tenantSlugRef = useRef(tenantSlug);
   tenantSlugRef.current = tenantSlug;
   const flushInFlightRef = useRef<Promise<void> | null>(null);
+  const userIdRef = useRef(user?.id || null);
+  userIdRef.current = user?.id || null;
 
   const [online, setOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -108,18 +113,19 @@ export function BackgroundSyncManager() {
 
   useEffect(() => {
     if (!accessToken || !online) return;
+
     const isOfflineAuditUtilityPath = /\/audits\/(?:local|offline-last)(?:\/|$)/.test(pathname || "");
-    const isAuditInteractionPath =
-      !isOfflineAuditUtilityPath &&
-      /\/audits\/[^/]+(?:\/|$)/.test(pathname || "");
-    if (isAuditInteractionPath) return;
+    const isAuditDetailPath =
+      !isOfflineAuditUtilityPath && /\/audits\/[^/]+(?:\/|$)/.test(pathname || "");
 
     let active = true;
     let pullRunning = false;
     const pullController = new AbortController();
     let flushController: AbortController | null = null;
     let lastRemoteCheckAt = 0;
+    let lastAuditsPullAt = 0;
     let reconnectTimer: number | null = null;
+    let outboxFlushTimer: number | null = null;
 
     async function fetchJson<T>(url: string) {
       const res = await fetch(url, {
@@ -138,8 +144,10 @@ export function BackgroundSyncManager() {
     }
 
     const checkRemoteChanges = async (force = false) => {
+      // Heavy workspace change probes stay off audit detail screens.
+      if (isAuditDetailPath) return;
       const slug = tenantSlugRef.current;
-      const userId = user?.id || null;
+      const userId = userIdRef.current;
       if (!slug || !active || isAppOffline()) return;
       if (!force && Date.now() - lastRemoteCheckAt < REMOTE_CHANGE_CHECK_INTERVAL_MS) return;
       if (!isOfflineBootstrapComplete(userId, slug) || !isTenantTemplateBulkCached(slug)) return;
@@ -167,11 +175,38 @@ export function BackgroundSyncManager() {
       }
     };
 
+    const pullAuditsList = async (force = false) => {
+      const slug = tenantSlugRef.current;
+      if (!slug || !active || isAppOffline()) return;
+      if (!force && Date.now() - lastAuditsPullAt < AUDITS_PULL_INTERVAL_MS) return;
+      if (shouldPauseBackgroundWork()) {
+        await waitForInteractiveNavClear(2500);
+        if (!active || shouldPauseBackgroundWork()) return;
+      }
+
+      lastAuditsPullAt = Date.now();
+      try {
+        await fetchAndCacheAuditsList(accessToken, userIdRef.current, slug, {
+          limit: 50,
+          offset: 0,
+          status: "SUBMITTED",
+          merge: true,
+        });
+      } catch {
+        // best-effort; AuditsListClient also pulls on mount
+      }
+    };
+
     const runPullSync = async () => {
       const slug = tenantSlugRef.current;
       const catId = categoryIdRef.current;
       if (!slug || pullRunning || !active) return;
       if (isAppOffline()) return;
+      if (isAuditDetailPath) {
+        // On report screens only refresh the submitted-forms cache — skip workspace storms.
+        await pullAuditsList(true);
+        return;
+      }
       if (shouldPauseBackgroundWork()) {
         await waitForInteractiveNavClear(2500);
         if (!active || shouldPauseBackgroundWork()) return;
@@ -179,7 +214,7 @@ export function BackgroundSyncManager() {
 
       pullRunning = true;
       try {
-        const userId = user?.id || null;
+        const userId = userIdRef.current;
         const previous =
           readWorkspaceCache(userId, slug, catId) ?? readWorkspaceCache(userId, slug, null);
         const previousFp = previous ? workspaceContentFingerprint(previous) : "";
@@ -241,24 +276,7 @@ export function BackgroundSyncManager() {
         }
 
         if (!active || shouldPauseBackgroundWork()) return;
-
-        const existingAudits = readAuditsListCache(userId, slug);
-        const auditsUrl = new URL(apiUrl("/api/audit/list"));
-        auditsUrl.searchParams.set("tenantSlug", slug);
-        if (existingAudits?.maxUpdatedAt) {
-          auditsUrl.searchParams.set("since", existingAudits.maxUpdatedAt);
-        }
-
-        const auditsJson = await fetchJson<{ rows?: CachedAuditRow[]; maxUpdatedAt?: string | null }>(
-          auditsUrl.toString()
-        );
-        if (!active) return;
-        if (Array.isArray(auditsJson.rows) && auditsJson.rows.length > 0) {
-          const merged = existingAudits
-            ? mergeAuditsRows(existingAudits.rows, auditsJson.rows)
-            : auditsJson.rows;
-          writeAuditsListCache(userId, slug, merged, auditsJson.maxUpdatedAt || null);
-        }
+        await pullAuditsList(true);
       } catch {
         // best-effort background pull sync
       } finally {
@@ -269,12 +287,12 @@ export function BackgroundSyncManager() {
     const flushAll = async () => {
       if (!active) return;
       if (shouldPauseBackgroundWork()) {
-        await waitForInteractiveNavClear(2500);
+        await waitForInteractiveNavClear(4500);
         if (!active || shouldPauseBackgroundWork()) return;
       }
-      if (!active || isAppOffline() || shouldPauseBackgroundWork()) return;
+      if (!active || isAppOffline()) return;
       const queuedCount = await readPendingCountAsync();
-      if (!active || isAppOffline() || shouldPauseBackgroundWork()) return;
+      if (!active || isAppOffline()) return;
       if (queuedCount === 0) {
         setPendingCount(0);
         return;
@@ -286,7 +304,7 @@ export function BackgroundSyncManager() {
       setSyncing(true);
       try {
         // Always flush audit outbox when online — do not gate on localStorage-only counts.
-        await flushAuditSyncQueue(accessToken, controller.signal);
+        await flushAuditSyncQueue(accessToken, controller.signal, userIdRef.current);
         if (!active || controller.signal.aborted) return;
         await flushTemplateSyncQueue(accessToken, controller.signal);
         if (!active || controller.signal.aborted) return;
@@ -313,12 +331,22 @@ export function BackgroundSyncManager() {
       flushInFlightRef.current = tracked;
     };
 
+    const scheduleFlushSoon = (delayMs: number) => {
+      if (outboxFlushTimer !== null) window.clearTimeout(outboxFlushTimer);
+      outboxFlushTimer = window.setTimeout(() => {
+        outboxFlushTimer = null;
+        if (!active) return;
+        maybeFlush();
+      }, delayMs);
+    };
+
     // Initial flush after settle — never compete with first paint / first taps.
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       if (!active || shouldPauseBackgroundWork()) return;
       maybeFlush();
       void checkRemoteChanges();
+      void pullAuditsList();
     }, RECONNECT_SETTLE_DELAY_MS);
 
     const onOnline = () => {
@@ -329,6 +357,7 @@ export function BackgroundSyncManager() {
         if (shouldPauseBackgroundWork()) return;
         maybeFlush();
         void checkRemoteChanges(true);
+        void pullAuditsList(true);
       }, RECONNECT_SETTLE_DELAY_MS);
     };
     const onVisible = () => {
@@ -336,32 +365,40 @@ export function BackgroundSyncManager() {
       if (shouldPauseBackgroundWork()) return;
       maybeFlush();
       void checkRemoteChanges();
+      void pullAuditsList();
     };
     const onFocus = () => {
       if (shouldPauseBackgroundWork()) return;
       maybeFlush();
       void checkRemoteChanges();
+      void pullAuditsList();
     };
     const onExplicitSync = () => {
       runPullSync().catch(() => {
         // ignore explicit refresh failures
       });
     };
-    const onInterrupt = () => {
+    const onOutboxChanged = () => {
+      // Push pending forms soon after enqueue — do not wait for the 45s interval.
+      scheduleFlushSoon(OUTBOX_FLUSH_SETTLE_MS);
+    };
+    const onHardInterrupt = () => {
+      // Only abort when offline or backgrounded — never on interactive nav (that killed submit sync).
       flushController?.abort();
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") onInterrupt();
+      if (document.visibilityState === "hidden") onHardInterrupt();
     };
     const interval = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
       if (shouldPauseBackgroundWork()) return;
       maybeFlush();
-    }, 60_000);
+      void pullAuditsList();
+    }, FLUSH_INTERVAL_MS);
     window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onInterrupt);
-    window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, onInterrupt);
-    window.addEventListener(INTERACTIVE_NAV_EVENT, onInterrupt);
+    window.addEventListener("offline", onHardInterrupt);
+    window.addEventListener(OFFLINE_MODE_CHANGED_EVENT, onHardInterrupt);
+    window.addEventListener(AUDIT_OUTBOX_CHANGED_EVENT, onOutboxChanged);
     document.addEventListener("visibilitychange", onVisible);
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
@@ -370,17 +407,19 @@ export function BackgroundSyncManager() {
     return () => {
       active = false;
       window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onInterrupt);
-      window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, onInterrupt);
-      window.removeEventListener(INTERACTIVE_NAV_EVENT, onInterrupt);
+      window.removeEventListener("offline", onHardInterrupt);
+      window.removeEventListener(OFFLINE_MODE_CHANGED_EVENT, onHardInterrupt);
+      window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, onOutboxChanged);
       document.removeEventListener("visibilitychange", onVisible);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("workspace-sync-requested", onExplicitSync);
       window.clearInterval(interval);
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      if (outboxFlushTimer !== null) window.clearTimeout(outboxFlushTimer);
       pullController.abort();
-      flushController?.abort();
+      // Do not abort flushController here — pathname changes (submit → audits list)
+      // remount this effect and were cancelling in-flight outbox POSTs.
     };
   }, [accessToken, online, pathname, tenantSlug, user?.id]);
 

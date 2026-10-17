@@ -36,16 +36,19 @@ import { buildDefaultValues, buildZodSchema, mergeDraftValuesIntoDefaults } from
 import { MAX_GRID_ROWS } from "@/lib/gridLayout";
 import { NotificationModal } from "@/components/NotificationModal";
 import { GridField } from "@/components/forms/GridField";
-import { addOfflineSubmittedForm, notifyAuditOutboxChanged } from "@/lib/client/auditSyncQueue";
+import {
+  addOfflineSubmittedForm,
+  flushAuditSyncQueue,
+  notifyAuditOutboxChanged,
+} from "@/lib/client/auditSyncQueue";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { enqueueTemplateSync } from "@/lib/client/templateSyncQueue";
 import { collectTemperatureAlerts, type TemperatureAlert } from "@/lib/temperatureMonitoring";
-import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox, dbFindOutboxByClientSubmissionId, dbDeleteOutbox } from "@/lib/client/formsDb";
+import { dbClearDraft, dbGetDraft, dbPutDraft, dbEnqueueOutbox } from "@/lib/client/formsDb";
 import { upsertCachedAuditRow } from "@/lib/client/auditsListCache";
 import { writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
 import {
-  clearClientSubmissionAttempt,
   resolveClientSubmissionId,
   withClientSubmissionId,
 } from "@/lib/submissionMeta";
@@ -62,6 +65,7 @@ import {
   markInteractiveNav,
   scheduleIdleWork,
   shouldPauseBackgroundWork,
+  waitForInteractiveNavClear,
 } from "@/lib/client/interactionGate";
 
 type Props = {
@@ -299,19 +303,6 @@ async function readLocalDraftAsync(
   return { ts: row.updatedAtLocal, values: row.payload as FormValues, auditId: row.auditId || null };
 }
 
-function isNetworkFailure(error: unknown) {
-  if (isAppOffline()) return true;
-  if (error instanceof TypeError) return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return /failed to fetch|networkerror|network request failed|load failed|unable to resolve host|cannot resolve host|name or service not known|temporary failure in name resolution|etimedout|econnreset/i.test(
-    message
-  );
-}
-
-function isTimedOutRequest(error: unknown) {
-  return (error as any)?.name === "AbortError";
-}
-
 function normalizePhotoValue(value: unknown) {
   if (Array.isArray(value)) {
     return value.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
@@ -320,13 +311,6 @@ function normalizePhotoValue(value: unknown) {
     return [value];
   }
   return [] as string[];
-}
-
-function isOfflineQueueableServerError(error: unknown) {
-  const status = (error as any)?.status;
-  const code = (error as any)?.code;
-  if (status !== 503) return false;
-  return code === "AUTH_SERVICE_UNAVAILABLE";
 }
 
 export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId, initialAuditId, schema }: Props) {
@@ -699,10 +683,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   async function persistAudit(
     values: FormValues,
     mode: "submit" | "draft",
-    options?: { silent?: boolean; allowQueue?: boolean }
+    options?: { silent?: boolean }
   ) {
     const silent = Boolean(options?.silent);
-    const allowQueue = options?.allowQueue !== false;
     const accessToken = session?.access_token;
     if (!accessToken) {
       if (!silent) {
@@ -765,6 +748,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       return true;
     }
 
+    // Local-first submit: always persist to the device outbox first so the UI stays snappy,
+    // then flush to the server once navigation settles (background sync alone was too gated).
     const queuedOutboxItem = await dbEnqueueOutbox({
       tenantSlug,
       templateId,
@@ -818,7 +803,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     if (!silent) {
       setNotification({
         title: "Submission saved",
-        message: "Saved on this device. It will sync automatically.",
+        message: isAppOffline()
+          ? "Saved on this device. It will sync when you are back online."
+          : "Saved on this device. Syncing in the background.",
         tone: "success",
       });
     }
@@ -826,171 +813,20 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       status: "SUBMITTED",
       notice: "queued-submit",
     });
-    return true;
 
-    try {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 10_000);
-
-      const res = await fetch(apiUrl("/api/audit/submit"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          tenantSlug,
-          templateId,
-          payload: payloadWithMeta,
-          mode,
-          auditId: draftAuditId ?? undefined,
-          clientSubmissionId,
-        }),
-        signal: controller.signal,
-      });
-
-      window.clearTimeout(timeout);
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const message = (typeof data?.error === "string" && data.error) || "Submit failed";
-        const error = new Error(message) as Error & { status?: number; code?: string };
-        error.status = res.status;
-        if (typeof data?.code === "string") {
-          error.code = data.code;
+    if (!isAppOffline()) {
+      void (async () => {
+        await waitForInteractiveNavClear(4500);
+        if (isAppOffline()) return;
+        try {
+          await flushAuditSyncQueue(accessToken, undefined, currentUserId);
+        } catch {
+          // BackgroundSyncManager retries on the next online/focus/interval pass.
         }
-        throw error;
-      }
-
-      const json = (await res.json()) as { auditId: string };
-      setDraftAuditId(json.auditId);
-      clearClientSubmissionAttempt(tenantSlug, templateId, draftAuditId);
-      // Drop any outbox row queued from a prior timeout of this same attempt.
-      try {
-        const stale = await dbFindOutboxByClientSubmissionId(clientSubmissionId);
-        const staleId = stale?.id;
-        if (staleId) {
-          await dbDeleteOutbox(staleId!);
-          notifyAuditOutboxChanged();
-        }
-      } catch {
-        // ignore
-      }
-      const savedAt = new Date().toISOString();
-      upsertCachedAuditRow(currentUserId, tenantSlug, {
-        id: json.auditId,
-        status: "SUBMITTED",
-        templateId,
-        createdAt: savedAt,
-        updatedAt: savedAt,
-        submittedAt: savedAt,
-        template: { title: effectiveSchema.title || "Form" },
-      });
-
-      writeAuditReportSnapshot(tenantSlug, json.auditId, {
-        title: effectiveSchema.title || "Form",
-        status: "SUBMITTED",
-        tenantName: tenantName || tenantSlug,
-        templateId,
-        payload: payloadWithMeta as Record<string, unknown>,
-        schema: effectiveSchema,
-      });
-      clearLocalDraft(currentUserId, tenantSlug, templateId);
-      setDraftAuditId(null);
-      pushTenantRoute(router, tenantSlug, "audits", {
-        status: "SUBMITTED",
-        notice: "submitted",
-        auditId: json.auditId,
-      });
-      return true;
-    } catch (error: unknown) {
-      const timedOut = isTimedOutRequest(error);
-      // Timeout may mean the server already saved — queue with the same clientSubmissionId
-      // so server-side idempotency + outbox upsert cannot create duplicates.
-      const shouldQueue = allowQueue && (isNetworkFailure(error) || isOfflineQueueableServerError(error) || timedOut);
-      if (!shouldQueue) {
-        if (!silent) {
-          setNotification({
-            title: "Submission failed",
-            message: (error as any)?.message || "Could not submit on server. Please retry.",
-            tone: "error",
-          });
-        }
-        return false;
-      }
-
-      const outboxItem = await dbEnqueueOutbox({
-        tenantSlug,
-        templateId,
-        mode,
-        auditId: draftAuditId ?? undefined,
-        payload: payloadWithMeta as Record<string, unknown>,
-      });
-
-      if (!outboxItem) {
-        if (!silent) {
-          setNotification({
-            title: "Submission failed",
-            message: "Could not queue this submission on the device. Please try again.",
-            tone: "error",
-          });
-        }
-        return false;
-      }
-      const stableQueuedId = outboxItem?.id || "";
-      if (!stableQueuedId) return false;
-
-      notifyAuditOutboxChanged();
-
-      if (!silent) {
-        setNotification({
-          title: timedOut ? "Checking connection" : "Submission queued",
-          message: timedOut
-            ? "The request timed out. Your form is queued and will sync once — it will not create duplicates."
-            : "Your submission will sync automatically when the connection returns.",
-          tone: "warning",
-        });
-      }
-
-      {
-        const pendingId = `pending:${stableQueuedId}`;
-        writeAuditReportSnapshot(tenantSlug, pendingId, {
-          title: effectiveSchema.title || "Form",
-          status: "SUBMITTED",
-          tenantName: tenantName || tenantSlug,
-          templateId,
-          payload: payloadWithMeta as Record<string, unknown>,
-          schema: effectiveSchema,
-        });
-        addOfflineSubmittedForm({
-          queueId: stableQueuedId,
-          tenantSlug,
-          templateId,
-          templateTitle: effectiveSchema.title || "Form",
-          payload: payloadWithMeta,
-        });
-        const queuedAt = new Date().toISOString();
-        upsertCachedAuditRow(currentUserId, tenantSlug, {
-          id: `pending:${stableQueuedId}`,
-          status: "SUBMITTED",
-          templateId,
-          createdAt: queuedAt,
-          updatedAt: queuedAt,
-          submittedAt: queuedAt,
-          template: { title: effectiveSchema.title || "Form" },
-          devicePending: true,
-        });
-        clearLocalDraft(currentUserId, tenantSlug, templateId);
-        setDraftAuditId(null);
-        writeQueuedNotice(tenantSlug, "Submission queued while offline. It will sync once connection is restored.");
-        pushTenantRoute(router, tenantSlug, "audits", {
-          status: "SUBMITTED",
-          notice: "queued-submit",
-        });
-      }
-
-      return true;
+      })();
     }
+
+    return true;
   }
 
   async function onSubmit(values: FormValues) {
