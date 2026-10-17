@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@/components/AuthProvider";
 import {
   AUDIT_OUTBOX_CHANGED_EVENT,
+  flushAuditSyncQueue,
   getOfflineSubmittedForms,
   type OfflineSubmittedForm,
 } from "@/lib/client/auditSyncQueue";
+import { isAppOffline } from "@/lib/client/appOffline";
 import { auditReportHref, tenantRouteHref } from "@/lib/client/tenantNavigation";
 
 type Props = {
@@ -15,11 +18,11 @@ type Props = {
 };
 
 export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
+  const { session } = useAuth();
   const [rows, setRows] = useState<OfflineSubmittedForm[]>([]);
 
   useEffect(() => {
     if (!tenantSlug || tenantSlug === "_") {
-      setRows([]);
       return;
     }
 
@@ -27,16 +30,33 @@ export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
       setRows(getOfflineSubmittedForms(tenantSlug));
     };
 
-    load();
-    window.addEventListener("online", load);
-    window.addEventListener("focus", load);
-    window.addEventListener(AUDIT_OUTBOX_CHANGED_EVENT, load);
-    return () => {
-      window.removeEventListener("online", load);
-      window.removeEventListener("focus", load);
-      window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, load);
+    let active = true;
+    let syncInFlight: Promise<unknown> | null = null;
+    const sync = () => {
+      const accessToken = session?.access_token;
+      if (!accessToken || isAppOffline() || syncInFlight) return;
+      syncInFlight = flushAuditSyncQueue(accessToken).finally(() => {
+        syncInFlight = null;
+        if (active) load();
+      });
     };
-  }, [tenantSlug]);
+
+    load();
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener(AUDIT_OUTBOX_CHANGED_EVENT, sync);
+    const retryTimer = window.setInterval(sync, 15_000);
+    return () => {
+      active = false;
+      window.removeEventListener("online", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, sync);
+      window.clearInterval(retryTimer);
+    };
+  }, [session?.access_token, tenantSlug]);
+
+  const visibleRows = tenantSlug && tenantSlug !== "_" ? rows : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -58,13 +78,13 @@ export function OfflineSubmittedFormsClient({ tenantSlug, notice }: Props) {
         </div>
       ) : null}
 
-      {rows.length === 0 ? (
+      {visibleRows.length === 0 ? (
         <div className="rounded-md border border-foreground/20 bg-background p-4 text-sm text-foreground/70">
           No offline queued submissions.
         </div>
       ) : (
         <div className="space-y-2">
-          {rows.map((row) => {
+          {visibleRows.map((row) => {
             const reportHref = auditReportHref(tenantSlug, `pending:${row.queueId}`);
             return (
               <div key={row.localId} className="rounded-md border border-foreground/20 bg-background p-3">

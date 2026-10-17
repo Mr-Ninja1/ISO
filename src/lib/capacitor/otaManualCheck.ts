@@ -150,7 +150,10 @@ export async function syncOtaStateFromPlugin(): Promise<OtaPendingBundle | null>
       : (await LiveUpdate.getCurrentBundle().catch(() => ({ bundleId: null }))).bundleId;
     const next = (await LiveUpdate.getNextBundle().catch(() => ({ bundleId: null }))).bundleId;
     const embedded = readEmbeddedWebBundleId();
-    const activeBundleId = current || embedded;
+    // The plugin is authoritative after ready(). On a cold WebView start it can
+    // briefly report no current bundle, so retain the bundle we explicitly
+    // restarted into instead of falling back to the APK's embedded bundle.
+    const activeBundleId = current || reloadedBundleId || embedded;
 
     if (activeBundleId) {
       writeActivatedBundleId(activeBundleId);
