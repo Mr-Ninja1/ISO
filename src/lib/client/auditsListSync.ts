@@ -31,6 +31,26 @@ export type FetchAuditsListResult = {
   hasMore: boolean;
 };
 
+async function mergeServerRowsIntoCache(
+  userId: string | null,
+  tenantSlug: string,
+  incoming: CachedAuditRow[],
+  maxUpdatedAt: string | null
+) {
+  const existing = readAuditsListCache(userId, tenantSlug);
+  let merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
+  try {
+    const { getLivePendingAuditIds } = await import("@/lib/client/auditSyncQueue");
+    const { filterRowsToLivePending } = await import("@/lib/client/auditsListCache");
+    const livePendingIds = await getLivePendingAuditIds(tenantSlug);
+    merged = filterRowsToLivePending(merged, livePendingIds);
+  } catch {
+    // best-effort prune
+  }
+  writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
+  return merged;
+}
+
 /** Pull saved forms from the server and optionally merge into local cache. */
 export async function fetchAndCacheAuditsList(
   accessToken: string,
@@ -52,9 +72,7 @@ export async function fetchAndCacheAuditsList(
     const hasMore = data.hasMore;
 
     if (options.merge !== false) {
-      const existing = readAuditsListCache(userId, tenantSlug);
-      const merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
-      writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
+      const merged = await mergeServerRowsIntoCache(userId, tenantSlug, incoming, maxUpdatedAt);
       return { rows: merged, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
     }
 
@@ -99,9 +117,7 @@ export async function fetchAndCacheAuditsList(
   const hasMore = Boolean(data.hasMore);
 
   if (options.merge !== false) {
-    const existing = readAuditsListCache(userId, tenantSlug);
-    const merged = existing?.rows?.length ? mergeAuditsRows(existing.rows, incoming) : incoming;
-    writeAuditsListCache(userId, tenantSlug, merged, maxUpdatedAt ?? existing?.maxUpdatedAt ?? null);
+    const merged = await mergeServerRowsIntoCache(userId, tenantSlug, incoming, maxUpdatedAt);
     return { rows: merged, maxUpdatedAt, mergedIntoCache: true, nextOffset, hasMore };
   }
 

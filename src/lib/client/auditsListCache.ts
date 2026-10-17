@@ -85,6 +85,37 @@ export function removeCachedAuditRow(userId: string | null, tenantSlug: string, 
   writeAuditsListCache(userId, tenantSlug, next, existing.maxUpdatedAt);
 }
 
+export function isPendingAuditCacheId(auditId: string) {
+  return auditId.startsWith("pending:") || auditId.startsWith("local-draft:");
+}
+
+/**
+ * Merge cache into UI rows while dropping pending ids that the cache no longer has.
+ * Plain merge-by-id never deletes, which resurrected "Pending sync" ghosts after a successful push.
+ */
+export function mergeAuditsRowsDroppingStalePending(
+  current: CachedAuditRow[],
+  cached: CachedAuditRow[]
+): CachedAuditRow[] {
+  const cachedIds = new Set(cached.map((row) => row.id));
+  const withoutStalePending = current.filter((row) => {
+    if (!isPendingAuditCacheId(row.id)) return true;
+    return cachedIds.has(row.id);
+  });
+  return mergeAuditsRows(withoutStalePending, cached);
+}
+
+/** Keep only pending rows whose ids are still live (still in outbox / offline queue). */
+export function filterRowsToLivePending(
+  rows: CachedAuditRow[],
+  livePendingIds: Set<string>
+): CachedAuditRow[] {
+  return rows.filter((row) => {
+    if (!isPendingAuditCacheId(row.id)) return true;
+    return livePendingIds.has(row.id);
+  });
+}
+
 export function mergeAuditsRows(base: CachedAuditRow[], incoming: CachedAuditRow[]) {
   if (!incoming.length) return base;
   const byId = new Map<string, CachedAuditRow>();

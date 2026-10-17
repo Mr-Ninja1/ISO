@@ -11,13 +11,21 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiUrl } from "@/lib/client/apiBase";
 import { getWorkspaceAccessToken } from "@/lib/client/sessionAccessToken";
 import {
+  filterRowsToLivePending,
   mergeAuditsRows,
+  mergeAuditsRowsDroppingStalePending,
   readAuditsListCache,
   writeAuditsListCache,
   type CachedAuditRow,
 } from "@/lib/client/auditsListCache";
 import { fetchAndCacheAuditsList } from "@/lib/client/auditsListSync";
-import { flushAuditSyncQueue, getPendingAuditSyncCountAsync } from "@/lib/client/auditSyncQueue";
+import {
+  AUDIT_OUTBOX_CHANGED_EVENT,
+  flushAuditSyncQueue,
+  getLivePendingAuditIds,
+  getPendingAuditSyncCountAsync,
+  pruneStalePendingFromAuditsCache,
+} from "@/lib/client/auditSyncQueue";
 import { useAppOffline } from "@/lib/client/useAppOffline";
 import { useResolvedTenantSlug } from "@/lib/client/resolveTenantSlug";
 import {
@@ -339,56 +347,91 @@ export function AuditsListClient({
 
   useEffect(() => {
     if (!activeTenantSlug) return;
-    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
-    if (cached?.rows?.length) {
-      setAllRows((current) => {
-        const merged = mergeAuditsRows(cached.rows, current);
-        return rowsAreEqual(current, merged) ? current : merged;
-      });
-    }
     let cancelled = false;
 
-    void loadDeviceAuditsRows(user?.id || null, activeTenantSlug).then(
-      (deviceRows) => {
+    const refreshDeviceRows = async () => {
+      await pruneStalePendingFromAuditsCache(user?.id || null, activeTenantSlug);
+      if (cancelled) return;
+      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+      if (cached?.rows?.length) {
+        const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
         if (cancelled) return;
-        setDeviceReady(true);
-        if (!deviceRows.length) return;
         setAllRows((current) => {
-          const merged = mergeAuditsRows(current, deviceRows);
+          const merged = mergeAuditsRowsDroppingStalePending(
+            filterRowsToLivePending(current, livePendingIds),
+            filterRowsToLivePending(cached.rows, livePendingIds),
+          );
           return rowsAreEqual(current, merged) ? current : merged;
         });
-      },
-    );
+      }
 
+      const deviceRows = await loadDeviceAuditsRows(user?.id || null, activeTenantSlug);
+      if (cancelled) return;
+      setDeviceReady(true);
+      if (!deviceRows.length) {
+        // Still drop any orphan pending rows from the painted list.
+        const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
+        if (cancelled) return;
+        setAllRows((current) => {
+          const next = filterRowsToLivePending(current, livePendingIds);
+          return rowsAreEqual(current, next) ? current : next;
+        });
+        return;
+      }
+      const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
+      if (cancelled) return;
+      setAllRows((current) => {
+        const merged = mergeAuditsRowsDroppingStalePending(
+          filterRowsToLivePending(current, livePendingIds),
+          deviceRows,
+        );
+        return rowsAreEqual(current, merged) ? current : merged;
+      });
+    };
+
+    void refreshDeviceRows();
+    window.addEventListener(AUDIT_OUTBOX_CHANGED_EVENT, refreshDeviceRows);
     return () => {
       cancelled = true;
+      window.removeEventListener(AUDIT_OUTBOX_CHANGED_EVENT, refreshDeviceRows);
     };
   }, [activeTenantSlug, user?.id]);
 
   useEffect(() => {
     if (allRows.length === 0) return;
     if (!activeTenantSlug) return;
-    const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
-    if (cached?.rows && rowsAreEqual(cached.rows, allRows)) return;
-    writeAuditsListCache(
-      user?.id || null,
-      activeTenantSlug,
-      onlySubmittedRows(allRows),
-      undefined,
-      { broadcast: false },
-    );
+    let cancelled = false;
+    void (async () => {
+      const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
+      if (cancelled) return;
+      const pruned = onlySubmittedRows(filterRowsToLivePending(allRows, livePendingIds));
+      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+      if (cached?.rows && rowsAreEqual(cached.rows, pruned)) return;
+      writeAuditsListCache(user?.id || null, activeTenantSlug, pruned, undefined, {
+        broadcast: false,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [allRows, activeTenantSlug, user?.id]);
 
   useEffect(() => {
     const onCacheUpdate = (event: Event) => {
       const custom = event as CustomEvent<{ tenantSlug?: string }>;
       if (custom.detail?.tenantSlug !== activeTenantSlug) return;
-      const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
-      if (!cached?.rows?.length) return;
-      setAllRows((current) => {
-        const merged = mergeAuditsRows(current, cached.rows);
-        return rowsAreEqual(current, merged) ? current : merged;
-      });
+      void (async () => {
+        const cached = readAuditsListCache(user?.id || null, activeTenantSlug);
+        if (!cached?.rows?.length) return;
+        const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
+        setAllRows((current) => {
+          const merged = mergeAuditsRowsDroppingStalePending(
+            filterRowsToLivePending(current, livePendingIds),
+            filterRowsToLivePending(cached.rows, livePendingIds),
+          );
+          return rowsAreEqual(current, merged) ? current : merged;
+        });
+      })();
     };
 
     window.addEventListener(
@@ -418,13 +461,16 @@ export function AuditsListClient({
 
     void (async () => {
       try {
-        // Clear "Pending sync" before/while loading the server list.
+        // Always attempt flush when opening the list — old stuck outbox items need this.
         const pending = await getPendingAuditSyncCountAsync();
         if (!cancelled && pending > 0) {
           await waitForInteractiveNavClear(3500);
           if (!cancelled && !offline) {
             await flushAuditSyncQueue(accessToken, undefined, user?.id || null).catch(() => {});
           }
+        }
+        if (!cancelled) {
+          await pruneStalePendingFromAuditsCache(user?.id || null, activeTenantSlug);
         }
 
         const result = await Promise.race([
@@ -447,7 +493,13 @@ export function AuditsListClient({
           ),
         ]);
         if (cancelled) return;
-        setAllRows(onlySubmittedRows(result.rows));
+        await pruneStalePendingFromAuditsCache(user?.id || null, activeTenantSlug);
+        if (cancelled) return;
+        const livePendingIds = await getLivePendingAuditIds(activeTenantSlug);
+        if (cancelled) return;
+        setAllRows(
+          onlySubmittedRows(filterRowsToLivePending(result.rows, livePendingIds)),
+        );
         setNextServerOffset(result.nextOffset ?? 0);
         setServerHasMore(result.hasMore);
         setHasLoadedFromServer(true);
@@ -463,6 +515,9 @@ export function AuditsListClient({
           setSyncError(message);
         }
         setHasLoadedFromServer(true);
+        await pruneStalePendingFromAuditsCache(user?.id || null, activeTenantSlug).catch(
+          () => {},
+        );
       } finally {
         if (!cancelled) setSyncing(false);
       }

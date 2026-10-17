@@ -2,18 +2,25 @@
 
 import { apiUrl } from "@/lib/client/apiBase";
 import { copyAuditReportSnapshot, writeAuditReportSnapshot } from "@/lib/client/auditReportSnapshot";
-import { removeCachedAuditRow, upsertCachedAuditRow } from "@/lib/client/auditsListCache";
+import {
+  filterRowsToLivePending,
+  readAuditsListCache,
+  removeCachedAuditRow,
+  upsertCachedAuditRow,
+  writeAuditsListCache,
+} from "@/lib/client/auditsListCache";
 import {
   dbCountOutbox,
   dbDeleteOutbox,
   dbGetTemplate,
+  dbListOutbox,
   dbListOutboxAll,
   dbMarkOutboxFailed,
 } from "@/lib/client/formsDb";
 import { clearClientSubmissionAttempt, readClientSubmissionId } from "@/lib/submissionMeta";
 import { OFFLINE_MODE_CHANGED_EVENT } from "@/lib/client/connectivityEvents";
 import { isAppOffline } from "@/lib/client/appOffline";
-import { shouldPauseBackgroundWork } from "@/lib/client/interactionGate";
+import { shouldPauseBackgroundWork, waitForInteractiveNavClear } from "@/lib/client/interactionGate";
 
 type QueueMode = "draft" | "submit";
 
@@ -172,6 +179,54 @@ export async function getPendingAuditSyncCountAsync() {
   return legacy + outbox;
 }
 
+/** Ids that should still show as Pending sync (still queued on this device). */
+export async function getLivePendingAuditIds(tenantSlug: string): Promise<Set<string>> {
+  const live = new Set<string>();
+  if (!tenantSlug) return live;
+
+  for (const form of getOfflineSubmittedForms(tenantSlug)) {
+    live.add(`pending:${form.queueId}`);
+  }
+  for (const item of getAuditSyncQueueForTenant(tenantSlug)) {
+    if (item.mode !== "submit") continue;
+    live.add(item.auditId || `pending:${item.id}`);
+  }
+  try {
+    const outbox = await dbListOutbox(tenantSlug);
+    for (const item of outbox) {
+      if (item.mode !== "submit") continue;
+      live.add(item.auditId || `pending:${item.id}`);
+    }
+  } catch {
+    // IndexedDB unavailable — sync lists above are still useful
+  }
+  return live;
+}
+
+/** Drop orphan pending:* rows from cache after a successful sync (or UI write-back races). */
+export async function pruneStalePendingFromAuditsCache(
+  userId: string | null,
+  tenantSlug: string
+): Promise<void> {
+  if (!tenantSlug) return;
+  const livePendingIds = await getLivePendingAuditIds(tenantSlug);
+  const existing = readAuditsListCache(userId, tenantSlug);
+  const rows = existing?.rows ?? [];
+  const next = filterRowsToLivePending(rows, livePendingIds);
+  if (next.length !== rows.length) {
+    writeAuditsListCache(userId, tenantSlug, next, existing?.maxUpdatedAt ?? null);
+  }
+  if (userId) {
+    const anon = readAuditsListCache(null, tenantSlug);
+    if (anon?.rows?.length) {
+      const anonNext = filterRowsToLivePending(anon.rows, livePendingIds);
+      if (anonNext.length !== anon.rows.length) {
+        writeAuditsListCache(null, tenantSlug, anonNext, anon.maxUpdatedAt);
+      }
+    }
+  }
+}
+
 async function finalizeSuccessfulSubmit(
   item: {
     id: string;
@@ -222,6 +277,8 @@ async function finalizeSuccessfulSubmit(
   if (userId) {
     upsertCachedAuditRow(null, item.tenantSlug, serverRow);
   }
+  // Belt-and-suspenders: drop any orphan pending:* rows left by UI write-back races.
+  await pruneStalePendingFromAuditsCache(userId, item.tenantSlug);
 }
 
 async function postQueuedSubmit(
@@ -305,14 +362,19 @@ async function flushAuditSyncQueueInternal(
   try {
     const outbox = await dbListOutboxAll();
     for (const item of outbox) {
-      // Pause starting new posts while the user is mid-navigation; never cancel an in-flight POST for nav.
       if (signal?.aborted || isAppOffline()) break;
-      if (shouldPauseBackgroundWork()) break;
+      // Wait for nav to settle — do NOT abandon the rest of the queue (that left old
+      // forms stuck on Pending sync until the next submit woke flush again).
+      if (shouldPauseBackgroundWork()) {
+        await waitForInteractiveNavClear(4500);
+        if (signal?.aborted || isAppOffline()) break;
+      }
       const submissionId = readClientSubmissionId(item.payload);
       if (submissionId) {
         outboxSubmissionIds.add(submissionId);
         if (seenOutboxSubmissionIds.has(submissionId)) {
           await dbDeleteOutbox(item.id);
+          removeOfflineSubmittedByQueueId(item.id);
           continue;
         }
         seenOutboxSubmissionIds.add(submissionId);
@@ -350,9 +412,16 @@ async function flushAuditSyncQueueInternal(
 
   for (let index = 0; index < queue.length; index += 1) {
     const item = queue[index]!;
-    if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) {
+    if (signal?.aborted || isAppOffline()) {
       remaining.push(...queue.slice(index));
       break;
+    }
+    if (shouldPauseBackgroundWork()) {
+      await waitForInteractiveNavClear(4500);
+      if (signal?.aborted || isAppOffline()) {
+        remaining.push(...queue.slice(index));
+        break;
+      }
     }
     const submissionId = readClientSubmissionId(item.payload);
     if (submissionId && outboxSubmissionIds.has(submissionId)) {

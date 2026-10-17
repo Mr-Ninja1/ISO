@@ -1,11 +1,17 @@
 "use client";
 
 import {
-  getOfflineSubmittedForms,
   getAuditSyncQueueForTenant,
+  getLivePendingAuditIds,
+  getOfflineSubmittedForms,
   type OfflineSubmittedForm,
 } from "@/lib/client/auditSyncQueue";
-import { mergeAuditsRows, readAuditsListCache, type CachedAuditRow } from "@/lib/client/auditsListCache";
+import {
+  filterRowsToLivePending,
+  mergeAuditsRows,
+  readAuditsListCache,
+  type CachedAuditRow,
+} from "@/lib/client/auditsListCache";
 import { dbGetTemplate, dbListDraftsForTenant, dbListOutbox } from "@/lib/client/formsDb";
 
 const LOCAL_DRAFT_PREFIX = "audit-local-draft:v1:";
@@ -149,6 +155,9 @@ export async function loadDeviceAuditsRows(userId: string | null, tenantSlug: st
     }
     rows = mergeAuditsRows(rows, outboxRows);
   }
+
+  const livePendingIds = await getLivePendingAuditIds(tenantSlug);
+  rows = filterRowsToLivePending(rows, livePendingIds);
 
   return enrichDeviceAuditsRows(userId, tenantSlug, rows);
 }
