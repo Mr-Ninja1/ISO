@@ -108,9 +108,10 @@ export function BackgroundSyncManager() {
 
   useEffect(() => {
     if (!accessToken || !online) return;
-    const isAuditInteractionPath = Boolean(
-      pathname?.includes("/audits/new") || pathname?.match(/\/audits\/[^/]+/)
-    );
+    const isOfflineAuditUtilityPath = /\/audits\/(?:local|offline-last)(?:\/|$)/.test(pathname || "");
+    const isAuditInteractionPath =
+      !isOfflineAuditUtilityPath &&
+      /\/audits\/[^/]+(?:\/|$)/.test(pathname || "");
     if (isAuditInteractionPath) return;
 
     let active = true;
