@@ -1,9 +1,8 @@
 {
-  "bundleId": "20260716.ota-retest",
-  "version": "20260716.ota-retest",
+  "bundleId": "20261017.0356",
+  "version": "20261017.0356",
   "channel": "production",
-  "minNativeBuild": 9,
-  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20260716.ota-retest.zip",
-  "publishedAt": "2026-07-16T11:47:40.852Z",
-  "releaseNotes": "OTA retest 16 Jul — tap Restart if prompted"
+  "minNativeBuild": 1,
+  "bundleUrl": "https://iso-pro-b0grfvh9hcc5chgf.southafricanorth-01.azurewebsites.net/ota/production/bundle-20261017.0356.zip",
+  "publishedAt": "2026-10-17T03:56:55.177Z"
 }

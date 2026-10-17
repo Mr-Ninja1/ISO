@@ -8,7 +8,8 @@
       "enabled": false
     },
     "LiveUpdate": {
-      "readyTimeout": 120000
+      "readyTimeout": 120000,
+      "autoBlockRolledBackBundles": true
     }
   },
   "server": {

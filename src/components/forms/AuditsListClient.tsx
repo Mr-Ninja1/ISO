@@ -26,6 +26,11 @@ import {
 import { auditReportHref } from "@/lib/client/tenantNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { readAuditTemplateCache } from "@/lib/client/auditTemplateCache";
+import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
+
+function serverListTimeoutMs() {
+  return isCapacitorNativeApp() ? 30_000 : 12_000;
+}
 
 function actionButtonClass(busy: boolean) {
   return (
@@ -401,6 +406,7 @@ export function AuditsListClient({
     if (!accessToken || !activeTenantSlug || offline) return;
 
     let cancelled = false;
+    const timeoutMs = serverListTimeoutMs();
     const localCount = onlySubmittedRows(
       readAuditsListCache(user?.id || null, activeTenantSlug)?.rows ?? [],
     ).length;
@@ -418,7 +424,15 @@ export function AuditsListClient({
             { limit: 50, offset: 0, status: "SUBMITTED", merge: true },
           ),
           new Promise<never>((_, reject) =>
-            window.setTimeout(() => reject(new Error("The server is taking longer than expected. Showing saved forms from this device.")), 12_000),
+            window.setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `The submitted-forms service did not respond within ${timeoutMs / 1000} seconds. Showing saved forms from this device.`,
+                  ),
+                ),
+              timeoutMs,
+            ),
           ),
         ]);
         if (cancelled) return;
