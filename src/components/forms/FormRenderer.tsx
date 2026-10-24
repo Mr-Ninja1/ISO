@@ -213,14 +213,14 @@ function scheduleBackgroundTask(task: () => void, delayMs: number) {
   };
 }
 
-function writeLocalDraft(
+async function writeLocalDraft(
   userId: string | null,
   tenantSlug: string,
   templateId: string,
   values: FormValues,
   auditId?: string | null,
   options?: { durable?: boolean; schema?: FormSchemaV1 }
-) {
+): Promise<void> {
   const payload = values as Record<string, unknown>;
   const key = draftCacheKey(userId, tenantSlug, templateId);
   const generation = (localDraftWriteGeneration.get(key) || 0) + 1;
@@ -235,33 +235,41 @@ function writeLocalDraft(
   // Large images belong in IndexedDB. Avoid serializing and synchronously writing them
   // to localStorage on every autosave; clear any older duplicate after the durable write.
   if (options?.durable !== false && hasLargeInlineImage(payload, LOCAL_DRAFT_SYNC_IMAGE_LIMIT)) {
-    void dbPutDraft(indexedDbRow)
-      .then(() => {
-        if (localDraftWriteGeneration.get(key) !== generation) return;
-        try {
-          localStorage.removeItem(key);
-        } catch {
-          // ignore storage failures
-        }
-      })
-      .catch(() => {
-        // Keep any previous local copy if the durable write fails.
-      });
+    await dbPutDraft(indexedDbRow);
+    if (localDraftWriteGeneration.get(key) === generation) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // ignore storage failures
+      }
+    }
+    return;
+  }
+
+  const serializedDraft = JSON.stringify({ ts: Date.now(), values: payload, auditId: auditId || null });
+  // Drafts above the fast-path read limit must live only in IndexedDB. Keeping an
+  // older small localStorage copy would mask the newer full payload during restore.
+  if (options?.durable !== false && serializedDraft.length > LOCAL_DRAFT_SYNC_READ_LIMIT) {
+    await dbPutDraft(indexedDbRow);
+    if (localDraftWriteGeneration.get(key) === generation) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // ignore storage failures
+      }
+    }
     return;
   }
 
   try {
-    localStorage.setItem(
-      key,
-      JSON.stringify({ ts: Date.now(), values: payload, auditId: auditId || null })
-    );
+    localStorage.setItem(key, serializedDraft);
   } catch {
     // ignore
   }
 
   if (options?.durable !== false) {
-    // Durable write (IndexedDB) – does not block UI.
-    void dbPutDraft(indexedDbRow).catch(() => {});
+    // Resolve only after IndexedDB confirms the durable write.
+    await dbPutDraft(indexedDbRow);
   }
 }
 
@@ -328,6 +336,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [notification, setNotification] = useState<{ title: string; message: string; tone?: "default" | "success" | "warning" | "error" } | null>(null);
   const [correctiveAction, setCorrectiveAction] = useState("");
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(null);
+  const [draftSaveError, setDraftSaveError] = useState(false);
   const [lastTemplateSeedSavedAt, setLastTemplateSeedSavedAt] = useState<number | null>(null);
   const [liveSchema, setLiveSchema] = useState<FormSchemaV1>(schema);
   const skipLocalDraftWatchRef = useRef(true);
@@ -486,8 +495,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema, defaultValuesRef.current)) {
           return;
         }
-        writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true });
-        setLastAutoSavedAt(Date.now());
+        setDraftSaveError(false);
+        void writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true })
+          .then(() => setLastAutoSavedAt(Date.now()))
+          .catch(() => setDraftSaveError(true));
       }, 500);
     };
 
@@ -737,7 +748,21 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (!isDraftPayloadDirty(payloadWithMeta as Record<string, unknown>, effectiveSchema)) {
         return true;
       }
-      writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, draftAuditId, { durable: true });
+      try {
+        await writeLocalDraft(currentUserId, tenantSlug, templateId, payloadWithMeta, draftAuditId, { durable: true });
+        setLastAutoSavedAt(Date.now());
+        setDraftSaveError(false);
+      } catch {
+        setDraftSaveError(true);
+        if (!silent) {
+          setNotification({
+            title: "Draft could not be saved",
+            message: "This device could not store the draft. Keep this form open and try again.",
+            tone: "error",
+          });
+        }
+        return false;
+      }
       if (!silent) {
         setNotification({
           title: "Draft saved",
@@ -786,6 +811,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       templateTitle: effectiveSchema.title || "Form",
       payload: payloadWithMeta,
     });
+    if (localDraftWriteTimerRef.current !== null) {
+      window.clearTimeout(localDraftWriteTimerRef.current);
+      localDraftWriteTimerRef.current = null;
+    }
     const queuedAt = new Date().toISOString();
     upsertCachedAuditRow(currentUserId, tenantSlug, {
       id: pendingId,
@@ -968,7 +997,9 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       <div className="sticky bottom-2 z-20 -mx-2 rounded-xl border border-foreground/15 bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
         <div className="mr-auto text-xs text-foreground/60">
-          {lastTemplateSeedSavedAt
+          {draftSaveError
+            ? "Draft could not be saved on this device — keep this form open and try again"
+            : lastTemplateSeedSavedAt
             ? `Prepared text saved on form ${new Date(lastTemplateSeedSavedAt).toLocaleTimeString()}`
             : lastAutoSavedAt
               ? `Draft saved on device ${new Date(lastAutoSavedAt).toLocaleTimeString()}`

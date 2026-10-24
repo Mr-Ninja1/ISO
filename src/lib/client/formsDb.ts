@@ -71,6 +71,17 @@ class IsoFormsDb extends Dexie {
 }
 
 let dbSingleton: IsoFormsDb | null = null;
+const draftOperations = new Map<string, Promise<unknown>>();
+
+function serializeDraftOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = draftOperations.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  draftOperations.set(key, next);
+  void next.finally(() => {
+    if (draftOperations.get(key) === next) draftOperations.delete(key);
+  }).catch(() => {});
+  return next;
+}
 
 function getDb(): IsoFormsDb | null {
   if (typeof window === "undefined") return null;
@@ -108,17 +119,19 @@ export async function dbGetDraft(tenantSlug: string, templateId: string): Promis
 export async function dbPutDraft(row: Omit<DbDraftRow, "updatedAtLocal"> & { updatedAtLocal?: number }): Promise<void> {
   const db = getDb();
   if (!db) return;
-  await db.drafts.put({
+  const key = draftKey(row.tenantSlug, row.templateId);
+  await serializeDraftOperation(key, () => db.drafts.put({
     ...row,
     updatedAtLocal: typeof row.updatedAtLocal === "number" ? row.updatedAtLocal : Date.now(),
-    key: draftKey(row.tenantSlug, row.templateId),
-  } as any);
+    key,
+  } as any));
 }
 
 export async function dbClearDraft(tenantSlug: string, templateId: string): Promise<void> {
   const db = getDb();
   if (!db) return;
-  await db.drafts.delete(draftKey(tenantSlug, templateId));
+  const key = draftKey(tenantSlug, templateId);
+  await serializeDraftOperation(key, () => db.drafts.delete(key));
 }
 
 export async function dbListDraftsForTenant(tenantSlug: string): Promise<DbDraftRow[]> {
