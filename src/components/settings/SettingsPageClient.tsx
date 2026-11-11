@@ -15,6 +15,7 @@ import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { BrandUsageCard } from "@/components/settings/BrandUsageCard";
 import { BrandSyncSection } from "@/components/settings/BrandSyncSection";
 import { AccountSettingsPanel } from "@/components/settings/AccountSettingsPanel";
+import { GoogleDriveArchiveSettings } from "@/components/settings/GoogleDriveArchiveSettings";
 import { TenantSettingsStaffSection } from "@/components/TenantSettingsStaffSection";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
@@ -236,6 +237,10 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
 
         <DeferredDetailsSection title="Plan & usage" defaultOpen={focusUsage}>
           <BrandUsageCard tenantSlug={tenantSlug} />
+        </DeferredDetailsSection>
+
+        <DeferredDetailsSection title="Data archive">
+          <GoogleDriveArchiveSettings tenantSlug={tenantSlug} />
         </DeferredDetailsSection>
 
         <DeferredDetailsSection title="Brand profile" defaultOpen>

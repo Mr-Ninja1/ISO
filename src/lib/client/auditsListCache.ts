@@ -6,6 +6,8 @@ export type CachedAuditRow = {
   updatedAt: string;
   submittedAt: string | null;
   template: { title: string };
+  /** This submission's full record is loaded from connected Google Drive on open. */
+  archived?: boolean;
   /** Saved on device; may still be syncing to the server. */
   devicePending?: boolean;
 };

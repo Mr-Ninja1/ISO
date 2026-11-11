@@ -887,6 +887,7 @@ export function AuditsListClient({
                     <div className="min-w-0">
                       <div className="line-clamp-2 font-semibold leading-snug">
                         {row.template.title}
+                        {row.archived ? <span className="ml-2 rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] text-foreground/55">Drive archive</span> : null}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground/55">
                         Submitted{" "}

@@ -98,6 +98,12 @@ Submitted records must never be deleted without following the tenant's configure
 
 ## Customer-Owned Archive
 
+### Initial Google Drive implementation
+
+The app now supports an optional Google Drive archive for submitted audit forms. Tenant admins connect their own Drive account, choose a retention age, and can run an archive immediately; the scheduled storage-maintenance job also archives up to ten eligible forms per tenant each run. The app stores an encrypted refresh token and a small archive index, while the form payload and schema snapshot live in Drive. A form is removed from `audit_logs` only after Drive upload, checksum verification, and manifest creation succeed. Saved forms still lists archived entries, and opening one retrieves and integrity-checks the Drive file. Deleting an archived form removes its Drive file and manifest.
+
+This first iteration does not move Supabase Storage photo objects to Drive. It archives the submission JSON, including inline image data if present; photo evidence already stored as Supabase Storage URLs remains in Supabase Storage. Setup and remaining operational requirements are in [GOOGLE_DRIVE_ARCHIVE_SETUP.md](./GOOGLE_DRIVE_ARCHIVE_SETUP.md).
+
 ### Preferred behavior
 
 When a submission becomes old according to the tenant policy:

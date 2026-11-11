@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
+import { archiveTenantSubmissions } from "@/lib/runGoogleDriveArchival";
 
 function authorizeCron(req: Request): boolean {
   const secret = (process.env.CRON_SECRET || "").trim();
@@ -33,12 +34,29 @@ export async function POST(req: Request) {
       p_tenant_id: null,
     });
 
+    const { data: connectedTenants } = await svc.from("tenant_google_drive_archives")
+      .select("tenant_id").order("connected_at", { ascending: true });
+    const driveArchival: Array<{ tenantId: string; archived?: number; error?: string }> = [];
+    for (const connected of connectedTenants || []) {
+      const tenantId = connected.tenant_id as string;
+      const { data: plan } = await svc.from("tenant_storage_plans").select("audit_archive_after_days").eq("tenant_id", tenantId).maybeSingle();
+      try {
+        const result = await archiveTenantSubmissions(svc, tenantId, Number(plan?.audit_archive_after_days || 365));
+        driveArchival.push({ tenantId, archived: result.archived });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Google Drive archival failed";
+        await svc.from("tenant_google_drive_archives").update({ last_error: message }).eq("tenant_id", tenantId);
+        driveArchival.push({ tenantId, error: message });
+      }
+    }
+
     const summary = Array.isArray(purgeRows) && purgeRows[0] ? purgeRows[0] : purgeRows;
 
     return NextResponse.json({
       ok: true,
       purge: summary,
       storageRefreshError: refreshErr?.message || null,
+      driveArchival,
       ranAt: new Date().toISOString(),
     });
   } catch (error: unknown) {

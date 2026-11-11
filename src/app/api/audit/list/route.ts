@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseWithBearer } from "@/lib/supabase/routeClient";
 import { hasPermission } from "@/lib/roleGate";
+import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -73,7 +74,7 @@ export async function GET(req: Request) {
 
   let q = sb
     .from("audit_logs")
-    .select("id, status, template_id, created_at, updated_at, submitted_at, form_templates(title)")
+    .select("id, status, template_id, created_at, updated_at, submitted_at, form_templates(title)", { count: "exact" })
     .eq("tenant_id", tenant.id)
     .order("updated_at", { ascending: false });
 
@@ -91,16 +92,13 @@ export async function GET(req: Request) {
     q = q.range(offset, end);
   }
 
-  const { data: rows, error: listErr } = await q;
+  const { data: rows, error: listErr, count: liveCount } = await q;
 
   if (listErr) {
     return NextResponse.json({ error: listErr.message }, { status: 500 });
   }
 
   const rowList = rows || [];
-  const hasMore = !since && rowList.length === pageSize;
-  const nextOffset = offset + rowList.length;
-
   const serialized = rowList.map((row: Record<string, unknown>) => {
     const tpl = row.form_templates as { title?: string } | null | undefined;
     return {
@@ -111,14 +109,43 @@ export async function GET(req: Request) {
       updatedAt: new Date(row.updated_at as string).toISOString(),
       submittedAt: row.submitted_at ? new Date(row.submitted_at as string).toISOString() : null,
       template: { title: tpl?.title ?? "Form" },
+      archived: false,
     };
   });
 
-  const maxUpdatedAt = serialized[0]?.updatedAt || since?.toISOString() || null;
+  let archiveRows: Array<Record<string, unknown>> = [];
+  let archiveCountTotal = 0;
+  if (!since && statusFilter !== "DRAFT") {
+    const liveTotal = liveCount || 0;
+    const archiveOffset = Math.max(0, offset - liveTotal);
+    const svc = createServiceRoleSupabase();
+    if (svc) {
+      const { count } = await svc.from("audit_archives").select("id", { count: "exact", head: true }).eq("tenant_id", tenant.id).is("restored_at", null);
+      archiveCountTotal = count || 0;
+      if (offset + pageSize > liveTotal) {
+        const archiveLimit = Math.max(0, pageSize - serialized.length);
+        const { data: archived } = await svc.from("audit_archives")
+          .select("id,status,template_id,created_at,updated_at,submitted_at,template_title,restored_at")
+          .eq("tenant_id", tenant.id).is("restored_at", null)
+          .order("created_at", { ascending: false }).range(archiveOffset, archiveOffset + Math.max(0, archiveLimit - 1));
+        archiveRows = (archived || []).map((row) => ({
+          id: row.id as string, status: row.status as string, templateId: row.template_id as string,
+          createdAt: new Date(row.created_at as string).toISOString(), updatedAt: new Date(row.updated_at as string).toISOString(),
+          submittedAt: row.submitted_at ? new Date(row.submitted_at as string).toISOString() : null,
+          template: { title: row.template_title || "Form" }, archived: true,
+        }));
+      }
+    }
+  }
+  const hasMore = since ? false : offset + serialized.length + archiveRows.length < (liveCount || 0) + archiveCountTotal;
+  const nextOffset = offset + serialized.length + archiveRows.length;
+
+  const allSerialized = [...serialized, ...archiveRows];
+  const maxUpdatedAt = allSerialized[0]?.updatedAt as string || since?.toISOString() || null;
 
   return NextResponse.json(
     {
-      rows: serialized,
+      rows: allSerialized,
       maxUpdatedAt,
       serverTime: new Date().toISOString(),
       nextOffset,

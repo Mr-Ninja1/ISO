@@ -7,6 +7,8 @@ import {
 } from "@/lib/supabase/routeAuth";
 import { hasPermission } from "@/lib/roleGate";
 import { tenantDeactivationReasonFromRow } from "@/lib/tenantDeactivation";
+import { createServiceRoleSupabase } from "@/lib/supabase/serviceRole";
+import { decryptArchiveCredential, loadArchivedAudit } from "@/lib/googleDriveArchive";
 
 export async function GET(req: Request) {
   try {
@@ -83,11 +85,26 @@ export async function GET(req: Request) {
       console.error("/api/audit/report audit lookup", rowErr);
       return NextResponse.json({ error: rowErr.message || "Failed to load audit" }, { status: 500 });
     }
-    if (!row) {
-      return NextResponse.json({ error: "Audit not found" }, { status: 404 });
+    let archiveMeta: Record<string, unknown> | null = null;
+    let resolvedRow = row as Record<string, unknown> | null;
+    if (!resolvedRow) {
+      const svc = createServiceRoleSupabase();
+      const { data: archive } = svc ? await svc.from("audit_archives").select("id,tenant_id,template_id,status,created_at,updated_at,submitted_at,template_title,drive_file_id,checksum_sha256").eq("id", auditId).eq("tenant_id", tenant.id).maybeSingle() : { data: null };
+      if (!svc || !archive) return NextResponse.json({ error: "Audit not found" }, { status: 404 });
+      const { data: integration } = await svc.from("tenant_google_drive_archives").select("refresh_token_encrypted").eq("tenant_id", tenant.id).maybeSingle();
+      if (!integration) return NextResponse.json({ error: "Google Drive archive is disconnected" }, { status: 503 });
+      try {
+        const restored = await loadArchivedAudit(decryptArchiveCredential(integration.refresh_token_encrypted as string), archive.drive_file_id as string, archive.checksum_sha256 as string);
+        const { data: archivedTemplate } = await sb.from("form_templates").select("title,schema").eq("id", archive.template_id).maybeSingle();
+        resolvedRow = { ...restored, form_templates: archivedTemplate || { title: restored.template_title || archive.template_title, schema: restored.template_schema || null } };
+        archiveMeta = { archived: true, archivedAt: archive.created_at };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not retrieve archived form";
+        return NextResponse.json({ error: message }, { status: 502 });
+      }
     }
 
-    const mapped = row as Record<string, unknown>;
+    const mapped = resolvedRow as Record<string, unknown>;
     const templateId = String(mapped.template_id || "");
     const templateRaw = mapped.form_templates as
       | { title?: string; schema?: unknown }
@@ -115,6 +132,7 @@ export async function GET(req: Request) {
           title: templateTitle,
           schema: templateSchema,
         },
+        archive: archiveMeta,
       },
     });
   } catch (error: unknown) {
