@@ -30,6 +30,7 @@ import {
 } from "@/lib/client/workspaceNavigation";
 import { navigateWithFeedback } from "@/lib/client/navigationLoading";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
+import { MY_FORMS_CATEGORY_FILTER } from "@/lib/workspacePayload";
 import { AddFormOptionsModal } from "@/components/AddFormOptionsModal";
 import { ConnectivityIndicator } from "@/components/ConnectivityIndicator";
 import { LoggedInStaffBadge } from "@/components/LoggedInStaffBadge";
@@ -722,7 +723,7 @@ function WorkspacePageInner() {
   const { user, session, loading: authLoading, signOut } = useAuth();
 
   const tenantSlug = normalizeTenantSlug(searchParams.get("tenantSlug"));
-  const categoryId = searchParams.get("categoryId");
+  const categoryId = searchParams.get("categoryId") || MY_FORMS_CATEGORY_FILTER;
   const forceRefresh = searchParams.get("refresh") === "1";
   const requestedView = searchParams.get("view");
 
@@ -1456,7 +1457,7 @@ function WorkspacePageInner() {
     const href = tenantRouteHref(
       workspace.tenant.slug,
       "templates/library",
-      selectedCategoryId ? { categoryId: selectedCategoryId } : undefined
+      { categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER }
     );
     navigateWithFeedback(router, href);
     window.setTimeout(() => {
@@ -1473,7 +1474,7 @@ function WorkspacePageInner() {
     const navEpoch = ++outboundNavEpochRef.current;
     rememberWorkspaceViewPref("forms");
     const href = buildTenantHref(workspace.tenant.slug, "templates/new", {
-      categoryId: selectedCategoryId || undefined,
+      categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER,
     });
     navigateWithFeedback(router, href);
     window.setTimeout(() => {
@@ -3294,6 +3295,29 @@ function WorkspacePageInner() {
         {isFormsView && hasCategories ? (
           <div className="mx-auto max-w-7xl px-4 pb-3">
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]">
+              <button
+                type="button"
+                onClick={() => {
+                  if (offlineWarmupBlocking || categoryId === MY_FORMS_CATEGORY_FILTER) return;
+                  markInteractiveNav(1400);
+                  pendingCategoryIdRef.current = MY_FORMS_CATEGORY_FILTER;
+                  setUiActiveCategoryId(MY_FORMS_CATEGORY_FILTER);
+                  setWorkspace((prev) => prev ? { ...prev, selectedCategoryId: null, templates: [] } : prev);
+                  setSwitchingCategory(true);
+                  const next = new URLSearchParams(searchParams.toString());
+                  next.set("tenantSlug", tenant.slug);
+                  next.set("categoryId", MY_FORMS_CATEGORY_FILTER);
+                  next.set("view", "forms");
+                  rememberWorkspaceViewPref("forms");
+                  if (isLiveOnWorkspacePath()) router.replace(`/workspace?${next.toString()}`);
+                }}
+                disabled={offlineWarmupBlocking}
+                className={categoryId === MY_FORMS_CATEGORY_FILTER
+                  ? "ws-category-active h-9 shrink-0 rounded-full px-4 text-sm font-medium"
+                  : "ws-category-inactive h-9 shrink-0 rounded-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"}
+              >
+                My forms
+              </button>
               {categories.map((c) => {
                 const active = c.id === activeCategoryId;
                 return (
@@ -3656,36 +3680,31 @@ function WorkspacePageInner() {
               ) : null}
             </div>
 
-            {!hasCategories ? (
+            {!hasCategories && templates.length === 0 ? (
               <div className="rounded-lg border border-foreground/20 bg-background p-4 sm:p-5">
                 <div className="inline-flex items-center rounded-full border border-foreground/15 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/60">
-                  Start here
+                  Your forms workspace
                 </div>
-                <h2 className="mt-2 text-base font-semibold">Create categories to begin</h2>
+                <h2 className="mt-2 text-base font-semibold">Start with a form</h2>
                 <p className="mt-1 text-sm text-foreground/70">
-                  Categories keep forms organised. Create categories first, then build forms under each one.
+                  Create or import forms right away. My forms shows your full form library; use categories later as filters when you want a narrower view.
                 </p>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
                     type="button"
-                    onClick={openWorkspaceSeedFromTour}
+                    onClick={() => handleCreateCustomForm(null)}
                     className="inline-flex h-10 items-center justify-center rounded-md bg-foreground px-4 text-background"
                   >
-                    Create categories
+                    Create a form
                   </button>
                   <button
                     type="button"
-                    onClick={() => setWorkspaceTourOpen(true)}
+                    onClick={() => handleAddFromTemplates(null)}
                     className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
                   >
-                    Why this matters
+                    Browse form library
                   </button>
-                  <Link
-                    href={`/workspace/training?tenantSlug=${encodeURIComponent(tenant.slug)}`}
-                    className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5"
-                  >
-                    Staff training
-                  </Link>
+                  {canManageCategories ? <button type="button" onClick={openWorkspaceSeedFromTour} className="inline-flex h-10 items-center justify-center rounded-md border border-foreground/20 px-4 hover:bg-foreground/5">Create a category (optional)</button> : null}
                 </div>
               </div>
             ) : templates.length === 0 ? (

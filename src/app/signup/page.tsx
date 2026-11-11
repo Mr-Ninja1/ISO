@@ -133,6 +133,9 @@ export default function SignUpPage() {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? "Creating account…" : "Create account"}
         </button>
+        <Link href="/demo" className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-white text-sm font-semibold text-[var(--hse-teal)] transition hover:bg-emerald-50">
+          New to ISO Grid? Try the demo workspace first
+        </Link>
       </form>
     </AuthPageShell>
   );

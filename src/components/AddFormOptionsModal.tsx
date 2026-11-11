@@ -68,7 +68,7 @@ export function AddFormOptionsModal({
               value={selectedCategoryId ?? ""}
               onChange={(e) => setSelectedCategoryId(e.target.value || null)}
             >
-              <option value="">Uncategorized</option>
+              <option value="">My forms</option>
               {categoryOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}

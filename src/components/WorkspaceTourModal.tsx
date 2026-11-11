@@ -41,9 +41,9 @@ export function WorkspaceTourModal({
               <CheckCircle2 className="h-3.5 w-3.5" />
               Start here
             </div>
-            <h2 className="mt-3 text-lg font-semibold">Create categories first</h2>
+            <h2 className="mt-3 text-lg font-semibold">Start with forms, organize when you’re ready</h2>
             <p className="mt-2 text-sm leading-6 text-foreground/70">
-              Categories keep forms organised and easy to manage. Once categories exist, you can start building forms under each one.
+              You can create and use forms without setting up categories. They start in My forms, and you can organize them later as your library grows.
             </p>
           </div>
 
@@ -59,7 +59,7 @@ export function WorkspaceTourModal({
         </div>
 
         <div className="mt-4 rounded-lg border border-foreground/15 bg-foreground/[0.02] p-3 text-sm text-foreground/70">
-          Tip: categories like <span className="font-medium text-foreground">Front of House</span>,{" "}
+          Optional categories like <span className="font-medium text-foreground">Front of House</span>,{" "}
           <span className="font-medium text-foreground">Kitchen</span>, or{" "}
           <span className="font-medium text-foreground">Storage</span> help teams find forms faster.
         </div>
@@ -77,7 +77,7 @@ export function WorkspaceTourModal({
             onClick={onStartSetup}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background"
           >
-            Create categories
+            Set up categories
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>

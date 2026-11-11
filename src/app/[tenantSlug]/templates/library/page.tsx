@@ -11,6 +11,7 @@ import { useAppOffline } from "@/lib/client/useAppOffline";
 import { apiUrl } from "@/lib/client/apiBase";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { buildWorkspaceReturnHref } from "@/lib/client/workspaceNavigation";
+import { MY_FORMS_CATEGORY_FILTER } from "@/lib/workspacePayload";
 
 type CategorySummary = {
   id: string;
@@ -318,7 +319,7 @@ function TemplatesLibraryPageInner() {
       }
 
       const nextHref = buildWorkspaceReturnHref(tenantSlug, {
-        categoryId: selectedCategoryId ?? null,
+        categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER,
       });
       writeWorkspaceNotice("Template imported successfully.", "success");
       router.push(nextHref);
@@ -374,7 +375,7 @@ function TemplatesLibraryPageInner() {
             onChange={(e) => setSelectedCategoryId(e.target.value || null)}
             disabled={workspaceLoading}
           >
-            <option value="">Uncategorized</option>
+            <option value="">My forms</option>
             {categoryOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}

@@ -41,6 +41,7 @@ import {
 } from "@/lib/client/templateSyncQueue";
 import { SearchParamsBoundary } from "@/components/SearchParamsBoundary";
 import { buildWorkspaceReturnHref } from "@/lib/client/workspaceNavigation";
+import { MY_FORMS_CATEGORY_FILTER } from "@/lib/workspacePayload";
 import type { AiClarificationQuestion, AiExtractionSummary, AiSuggestedAction } from "@/lib/ai/types";
 import { AI_WELCOME_MESSAGE } from "@/lib/ai/examplePrompts";
 import type { ExamplePrompt } from "@/lib/ai/examplePrompts";
@@ -476,7 +477,7 @@ function NewTemplatePageInner() {
     const cached = readWorkspaceCacheResolved(userId, tenantSlug, requestedCategoryId);
     if (cached) {
       setCategories(cached.categories || []);
-      setSelectedCategoryId(cached.selectedCategoryId);
+      setSelectedCategoryId(requestedCategoryId === MY_FORMS_CATEGORY_FILTER ? null : cached.selectedCategoryId);
       setWorkspaceLoading(false);
       setError("");
       if (!online) return;
@@ -707,7 +708,7 @@ function NewTemplatePageInner() {
         setError("Saved offline. Your form changes are queued and will sync automatically when online.");
         writeWorkspaceNotice("Form saved offline. It will sync automatically when internet returns.", "warning");
         router.push(
-          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? null })
+          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER })
         );
         return true;
       }
@@ -751,7 +752,7 @@ function NewTemplatePageInner() {
       writeWorkspaceNotice(isEditMode ? "Form changes saved." : "Form created successfully.", "success");
       router.push(
         buildWorkspaceReturnHref(tenantSlug, {
-          categoryId: selectedCategoryId ?? null,
+          categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER,
           refresh: true,
         })
       );
@@ -810,7 +811,7 @@ function NewTemplatePageInner() {
         setError("Offline detected. Your form changes were queued and will sync automatically.");
         writeWorkspaceNotice("Offline detected. Form changes were queued and will sync automatically.", "warning");
         router.push(
-          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? null })
+          buildWorkspaceReturnHref(tenantSlug, { categoryId: selectedCategoryId ?? MY_FORMS_CATEGORY_FILTER })
         );
         return true;
       }
@@ -1686,7 +1687,7 @@ function NewTemplatePageInner() {
                   onChange={(e) => setSelectedCategoryId(e.target.value || null)}
                   disabled={workspaceLoading || saving}
                 >
-                  <option value="">Uncategorized</option>
+                  <option value="">My forms</option>
                   {categoryOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}

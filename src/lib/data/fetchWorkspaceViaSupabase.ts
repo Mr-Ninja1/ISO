@@ -4,6 +4,7 @@ import {
   buildWorkspacePayload,
   mapTemplateRowsToPayload,
   resolveSelectedWorkspaceCategoryId,
+  MY_FORMS_CATEGORY_FILTER,
   type BuiltWorkspacePayload,
   type TemplateRowInput,
   type WorkspaceCategoryPayload,
@@ -113,13 +114,14 @@ export async function fetchWorkspaceViaSupabase(
   const selectedCategoryId = resolveSelectedWorkspaceCategoryId(categoryList, requestedCategoryId);
 
   let templateRowsForSelectedCategory: TemplateRowInput[] = [];
-  if (selectedCategoryId) {
+  if (selectedCategoryId || requestedCategoryId === MY_FORMS_CATEGORY_FILTER || categoryList.length === 0) {
     let templatesQuery = supabase
       .from("form_templates")
       .select("id,title,updated_at,category_id,schema")
       .eq("tenant_id", tenantPayload.id)
-      .eq("category_id", selectedCategoryId)
       .order("updated_at", { ascending: false });
+    if (selectedCategoryId) templatesQuery = templatesQuery.eq("category_id", selectedCategoryId);
+    else if (categoryList.length === 0) templatesQuery = templatesQuery.is("category_id", null);
     if (options.signal) templatesQuery = templatesQuery.abortSignal(options.signal);
     const { data: tpls, error: tplErr } = await templatesQuery;
 

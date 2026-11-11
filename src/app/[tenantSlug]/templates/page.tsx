@@ -113,7 +113,7 @@ export default async function TemplatesPage({
 
         {(templatesByCategoryId.get("uncategorized") ?? []).length ? (
           <section className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold text-foreground/80">Uncategorized</h3>
+            <h3 className="text-sm font-semibold text-foreground/80">My forms</h3>
             <div className="grid gap-2">
               {(templatesByCategoryId.get("uncategorized") ?? []).map((t) => (
                 <Link

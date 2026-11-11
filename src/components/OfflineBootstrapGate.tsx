@@ -17,7 +17,7 @@ import { readWorkspaceCache, readWorkspaceCacheResolved } from '@/lib/client/wor
 import { isTenantDeactivatedBlocked } from '@/lib/client/brandAccess';
 import { setOfflineBootstrapBlocking } from '@/lib/client/nativeStartupGate';
 
-const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline'];
+const SKIP_PREFIXES = ['/login', '/signup', '/developer-login', '/onboarding', '/admin', '/offline', '/demo'];
 
 function normalizeTenantSlug(value: string | null | undefined) {
   const slug = (value || '').trim();

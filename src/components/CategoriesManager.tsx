@@ -61,7 +61,7 @@ function templatesFromWorkspaceCache(
     id: t.id,
     title: t.title,
     categoryId: t.categoryId ?? null,
-    categoryName: t.categoryId ? catMap.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+    categoryName: t.categoryId ? catMap.get(t.categoryId) || "My forms" : "My forms",
   }));
 }
 
@@ -150,7 +150,7 @@ export function CategoriesManager({ tenant }: Props) {
               id: t.id,
               title: t.title,
               categoryId: t.categoryId ?? null,
-              categoryName: t.categoryId ? catMap.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+              categoryName: t.categoryId ? catMap.get(t.categoryId) || "My forms" : "My forms",
             })),
           );
         })
@@ -408,7 +408,7 @@ export function CategoriesManager({ tenant }: Props) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Failed to move form");
 
-      const label = categoryId ? categoryNameById.get(categoryId) || "category" : "Uncategorized";
+      const label = categoryId ? categoryNameById.get(categoryId) || "category" : "My forms";
       setTemplates((prev) =>
         prev.map((t) =>
           t.id === templateId
@@ -563,7 +563,7 @@ export function CategoriesManager({ tenant }: Props) {
                       void handleMoveTemplate(t.id, next);
                     }}
                   >
-                    <option value="">Uncategorized</option>
+                    <option value="">My forms</option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -582,7 +582,7 @@ export function CategoriesManager({ tenant }: Props) {
       <NotificationModal
         open={Boolean(confirmDeleteCategoryId)}
         title="Delete category?"
-        message="Forms in this category become uncategorized. This cannot be undone."
+        message="Forms in this category move to My forms. This cannot be undone."
         tone="warning"
         actionLabel="Delete"
         actionTone="danger"

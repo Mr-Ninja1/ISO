@@ -144,7 +144,7 @@ export function SettingsPageClient({ routeSlug }: { routeSlug: string }) {
             id: t.id,
             title: t.title,
             categoryId: t.categoryId,
-            categoryName: t.categoryId ? categoryById.get(t.categoryId) || "Uncategorized" : "Uncategorized",
+            categoryName: t.categoryId ? categoryById.get(t.categoryId) || "My forms" : "My forms",
             updatedAt: t.updatedAt,
           }))
         );

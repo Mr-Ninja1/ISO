@@ -164,6 +164,9 @@ export default function LoginPage() {
             Verify email
           </Link>
         </div>
+        <Link href="/demo" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[color-mix(in_srgb,var(--hse-teal)_20%,transparent)] bg-white text-sm font-semibold text-[var(--hse-teal)] transition hover:bg-emerald-50">
+          New to ISO Grid? Try the demo workspace first
+        </Link>
       </form>
     </AuthPageShell>
   );

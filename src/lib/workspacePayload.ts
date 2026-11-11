@@ -2,6 +2,9 @@ import { hasPermission, normalizeRole, type AppRole } from "@/lib/roleGate";
 import { parseTemplateDueRule, resolveTemplateDueReminderAt, type TemplateDueRule } from "@/lib/dueRules";
 import { isLiveTemplateSchema } from "@/lib/templateVersioning";
 
+/** URL filter for the catch-all My forms view. Real categories remain filters. */
+export const MY_FORMS_CATEGORY_FILTER = "my-forms";
+
 export type WorkspaceTenantPayload = {
   id: string;
   name: string;
@@ -154,6 +157,7 @@ export function resolveSelectedWorkspaceCategoryId(
   categories: WorkspaceCategoryPayload[],
   requestedCategoryId: string | null | undefined
 ): string | null {
+  if (requestedCategoryId === MY_FORMS_CATEGORY_FILTER) return null;
   if (categories.length === 0) return null;
   let selectedCategoryId: string | null = requestedCategoryId ?? null;
   const found = selectedCategoryId ? categories.some((c) => c.id === selectedCategoryId) : false;
@@ -184,7 +188,9 @@ export function buildWorkspacePayload(args: {
   const selectedCategoryId = resolveSelectedWorkspaceCategoryId(categories, args.requestedCategoryId);
 
   const templates =
-    selectedCategoryId != null ? mapTemplateRowsToPayload(args.templateRowsForSelectedCategory) : [];
+    selectedCategoryId != null || args.requestedCategoryId === MY_FORMS_CATEGORY_FILTER || categories.length === 0
+      ? mapTemplateRowsToPayload(args.templateRowsForSelectedCategory)
+      : [];
 
   return {
     tenant: args.tenant,

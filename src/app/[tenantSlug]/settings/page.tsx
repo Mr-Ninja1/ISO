@@ -65,7 +65,7 @@ export default async function TenantSettingsPage({
       id: t.id as string,
       title: t.title as string,
       categoryId: (t.category_id as string | null) ?? null,
-      categoryName: t.category_id ? categoryById.get(t.category_id as string) || "Uncategorized" : "Uncategorized",
+      categoryName: t.category_id ? categoryById.get(t.category_id as string) || "My forms" : "My forms",
       updatedAt: new Date(t.updated_at as string).toISOString(),
     }));
 
