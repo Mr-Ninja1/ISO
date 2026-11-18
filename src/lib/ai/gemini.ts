@@ -50,6 +50,13 @@ function isTransientGeminiError(message: string) {
   return /429|resource exhausted|too many requests|temporar|high demand|try again later|overloaded|503|service unavailable|rate limit/i.test(message);
 }
 
+function formatGeminiError(message: string) {
+  if (/free tier is not available for this project|project unavailable/i.test(message)) {
+    return "Gemini is unavailable because the Google Cloud project for the server's API key does not have free-tier access. Enable billing for that project at https://aistudio.google.com/billing, or configure an API key from a project with Gemini access. See https://ai.google.dev/gemini-api/docs/troubleshooting#project-unavailable.";
+  }
+  return message;
+}
+
 /** Google AI Studio keys use model id in the URL — there is no model picker on the key page. */
 export async function geminiGenerateContent(options: GenerateContentOptions): Promise<string> {
   const { apiKeys, models } = getGeminiConfig();
@@ -91,7 +98,7 @@ export async function geminiGenerateContent(options: GenerateContentOptions): Pr
             // keep raw text
           }
 
-          const err = new Error(message);
+          const err = new Error(formatGeminiError(message));
           lastError = err;
           if (isTransientGeminiError(message) || res.status === 429 || res.status === 503) {
             continue;
@@ -105,7 +112,7 @@ export async function geminiGenerateContent(options: GenerateContentOptions): Pr
         };
 
         if (json.error?.message) {
-          const err = new Error(json.error.message);
+          const err = new Error(formatGeminiError(json.error.message));
           lastError = err;
           if (isTransientGeminiError(json.error.message)) continue;
           throw err;

@@ -339,7 +339,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   const [draftSaveError, setDraftSaveError] = useState(false);
   const [lastTemplateSeedSavedAt, setLastTemplateSeedSavedAt] = useState<number | null>(null);
   const [liveSchema, setLiveSchema] = useState<FormSchemaV1>(schema);
-  const skipLocalDraftWatchRef = useRef(true);
   const skipAutosaveWatchRef = useRef(true);
   const autoSaveInFlightRef = useRef(false);
   const autoSavePauseUntilRef = useRef(0);
@@ -404,8 +403,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
   );
 
   function safeReset(nextValues: FormValues) {
-    // When we rehydrate drafts, `useWatch` fires and can overwrite local draft storage.
-    // Suppress local draft writes briefly to avoid clobbering server/local drafts.
+    // Let rehydration settle before persisting values observed by the form watcher.
     suppressLocalDraftWriteUntilRef.current = Date.now() + 1200;
     form.reset(nextValues);
   }
@@ -423,10 +421,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       // ignore
     }
   }, [tenantSlug]);
-
-  useEffect(() => {
-    skipLocalDraftWatchRef.current = true;
-  }, [templateId, tenantSlug, initialAuditId]);
 
   useEffect(() => {
     let alive = true;
@@ -480,38 +474,48 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     if (!currentUserId && !session?.access_token) return;
 
     const scheduleDraftWrite = () => {
-      if (Date.now() < suppressLocalDraftWriteUntilRef.current) return;
-      if (skipLocalDraftWatchRef.current) {
-        skipLocalDraftWatchRef.current = false;
-        return;
-      }
       if (localDraftWriteTimerRef.current !== null) {
         window.clearTimeout(localDraftWriteTimerRef.current);
         localDraftWriteTimerRef.current = null;
       }
+      const delay = Math.max(500, suppressLocalDraftWriteUntilRef.current - Date.now());
       localDraftWriteTimerRef.current = window.setTimeout(() => {
-        if (shouldPauseBackgroundWork()) return;
+        localDraftWriteTimerRef.current = null;
         const latest = form.getValues();
         if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema, defaultValuesRef.current)) {
           return;
         }
         setDraftSaveError(false);
+        setIsAutoSaving(true);
         void writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true })
           .then(() => setLastAutoSavedAt(Date.now()))
-          .catch(() => setDraftSaveError(true));
-      }, 500);
+          .catch(() => setDraftSaveError(true))
+          .finally(() => setIsAutoSaving(false));
+      }, delay);
+    };
+
+    const flushPendingDraft = () => {
+      if (localDraftWriteTimerRef.current === null) return;
+      window.clearTimeout(localDraftWriteTimerRef.current);
+      localDraftWriteTimerRef.current = null;
+      if (submitInFlightRef.current) return;
+
+      const latest = form.getValues();
+      if (!isDraftPayloadDirty(latest as Record<string, unknown>, effectiveSchema, defaultValuesRef.current)) return;
+      void writeLocalDraft(currentUserId, tenantSlug, templateId, latest, draftAuditId, { durable: true })
+        .then(() => setLastAutoSavedAt(Date.now()))
+        .catch(() => setDraftSaveError(true));
     };
 
     const subscription = form.watch(() => {
       scheduleDraftWrite();
     });
+    window.addEventListener("pagehide", flushPendingDraft);
 
     return () => {
+      window.removeEventListener("pagehide", flushPendingDraft);
       subscription.unsubscribe();
-      if (localDraftWriteTimerRef.current !== null) {
-        window.clearTimeout(localDraftWriteTimerRef.current);
-        localDraftWriteTimerRef.current = null;
-      }
+      flushPendingDraft();
     };
   }, [isLoadingDraft, tenantSlug, templateId, currentUserId, draftAuditId, form, session?.access_token, effectiveSchema]);
 
@@ -676,10 +680,6 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       if (seedRowsSyncTimerRef.current !== null) {
         window.clearTimeout(seedRowsSyncTimerRef.current);
         seedRowsSyncTimerRef.current = null;
-      }
-      if (localDraftWriteTimerRef.current !== null) {
-        window.clearTimeout(localDraftWriteTimerRef.current);
-        localDraftWriteTimerRef.current = null;
       }
       scheduleIdleWork(() => {
         const values = form.getValues();
@@ -876,6 +876,10 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
 
   async function onSaveDraft() {
     setIsSavingDraft(true);
+    if (localDraftWriteTimerRef.current !== null) {
+      window.clearTimeout(localDraftWriteTimerRef.current);
+      localDraftWriteTimerRef.current = null;
+    }
     try {
       const values = form.getValues();
       await persistAudit(values, "draft");
@@ -999,12 +1003,22 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
         <div className="mr-auto text-xs text-foreground/60">
           {draftSaveError
             ? "Draft could not be saved on this device — keep this form open and try again"
+            : isSavingDraft || isAutoSaving
+            ? "Saving draft on this device..."
             : lastTemplateSeedSavedAt
             ? `Prepared text saved on form ${new Date(lastTemplateSeedSavedAt).toLocaleTimeString()}`
             : lastAutoSavedAt
               ? `Draft saved on device ${new Date(lastAutoSavedAt).toLocaleTimeString()}`
               : "Draft saves on this device"}
         </div>
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          className="h-11 w-full rounded-md border border-foreground/20 bg-background px-4 text-foreground disabled:opacity-50 sm:h-12 sm:w-auto"
+          disabled={isSavingDraft || form.formState.isSubmitting}
+        >
+          {isSavingDraft ? "Saving draft..." : "Save draft"}
+        </button>
         <button
           type="submit"
           className="h-11 w-full rounded-md bg-foreground px-4 text-background disabled:opacity-50 sm:h-12 sm:w-auto inline-flex items-center justify-center gap-2"
