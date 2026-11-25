@@ -2702,15 +2702,6 @@ function WorkspacePageInner() {
   ]);
 
   useEffect(() => {
-    if (!workspace || offlineFromHook) return;
-    if (!shouldPrefetchWorkspaceRoutes(cacheUserId, workspace.tenant.slug)) return;
-    const toPrefetch = workspace.templates.slice(0, 8);
-    for (const t of toPrefetch) {
-      router.prefetch(tenantRouteHref(workspace.tenant.slug, "audits/new", { templateId: t.id }));
-    }
-  }, [workspace?.tenant.slug, workspaceTemplatesPrefetchKey, router, offlineFromHook, cacheUserId]);
-
-  useEffect(() => {
     revalidateContextRef.current = { tenantSlug, categoryId, cacheUserId };
   }, [tenantSlug, categoryId, cacheUserId]);
 
