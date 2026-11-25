@@ -3,7 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
-import { writeAuditTemplateCache, type AuditTemplatePayload } from "@/lib/client/auditTemplateCache";
+import { writeAuditTemplateCacheDurable, type AuditTemplatePayload } from "@/lib/client/auditTemplateCache";
 import {
   shouldPauseBackgroundWork,
   waitForInteractiveNavClear,
@@ -84,7 +84,7 @@ async function writeTemplatesChunked(
       await yieldToMain();
     }
     const t = templates[i]!;
-    writeAuditTemplateCache(tenantSlug, t.id, {
+    await writeAuditTemplateCacheDurable(tenantSlug, t.id, {
       tenant,
       template: {
         id: t.id,

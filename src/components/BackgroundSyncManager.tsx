@@ -178,6 +178,9 @@ export function BackgroundSyncManager() {
     const pullAuditsList = async (force = false) => {
       const slug = tenantSlugRef.current;
       if (!slug || !active || isAppOffline()) return;
+      // Do not compete with an open form or report. The list refreshes when the
+      // user returns to the audits list, where the result is immediately useful.
+      if (isAuditDetailPath) return;
       if (!force && Date.now() - lastAuditsPullAt < AUDITS_PULL_INTERVAL_MS) return;
       if (shouldPauseBackgroundWork()) {
         await waitForInteractiveNavClear(2500);

@@ -94,14 +94,14 @@ function templateKey(tenantSlug: string, templateId: string) {
   return `${tenantSlug}:${templateId}`;
 }
 
-function draftKey(tenantSlug: string, templateId: string) {
-  return `${tenantSlug}:${templateId}`;
+function draftKey(tenantSlug: string, templateId: string, auditId?: string | null) {
+  return auditId ? `${tenantSlug}:${templateId}:${auditId}` : `${tenantSlug}:${templateId}`;
 }
 
 export async function dbGetTemplate(tenantSlug: string, templateId: string): Promise<DbTemplateRow | null> {
   const db = getDb();
   if (!db) return null;
-  return (await db.templates.get({ key: templateKey(tenantSlug, templateId) } as any)) ?? null;
+  return (await db.templates.get(templateKey(tenantSlug, templateId))) ?? null;
 }
 
 export async function dbPutTemplate(row: Omit<DbTemplateRow, "cachedAt">): Promise<void> {
@@ -110,16 +110,32 @@ export async function dbPutTemplate(row: Omit<DbTemplateRow, "cachedAt">): Promi
   await db.templates.put({ ...row, cachedAt: Date.now(), key: templateKey(row.tenantSlug, row.templateId) } as any);
 }
 
-export async function dbGetDraft(tenantSlug: string, templateId: string): Promise<DbDraftRow | null> {
+export async function dbGetDraft(
+  tenantSlug: string,
+  templateId: string,
+  auditId?: string | null,
+): Promise<DbDraftRow | null> {
   const db = getDb();
   if (!db) return null;
-  return (await db.drafts.get({ key: draftKey(tenantSlug, templateId) } as any)) ?? null;
+  if (auditId) {
+    const scoped = await db.drafts.get(draftKey(tenantSlug, templateId, auditId));
+    if (scoped) return scoped;
+    // Read legacy rows only when they belong to the requested audit.
+    const legacy = await db.drafts.get(draftKey(tenantSlug, templateId));
+    return legacy && (legacy.auditId === auditId || legacy.auditId == null) ? legacy : null;
+  }
+
+  const rows = await db.drafts.where("templateId").equals(templateId).toArray();
+  const scopedRows = rows
+    .filter((row) => row.tenantSlug === tenantSlug)
+    .sort((a, b) => b.updatedAtLocal - a.updatedAtLocal);
+  return scopedRows[0] ?? null;
 }
 
 export async function dbPutDraft(row: Omit<DbDraftRow, "updatedAtLocal"> & { updatedAtLocal?: number }): Promise<void> {
   const db = getDb();
   if (!db) return;
-  const key = draftKey(row.tenantSlug, row.templateId);
+  const key = draftKey(row.tenantSlug, row.templateId, row.auditId);
   await serializeDraftOperation(key, () => db.drafts.put({
     ...row,
     updatedAtLocal: typeof row.updatedAtLocal === "number" ? row.updatedAtLocal : Date.now(),
@@ -127,11 +143,17 @@ export async function dbPutDraft(row: Omit<DbDraftRow, "updatedAtLocal"> & { upd
   } as any));
 }
 
-export async function dbClearDraft(tenantSlug: string, templateId: string): Promise<void> {
+export async function dbClearDraft(tenantSlug: string, templateId: string, auditId?: string | null): Promise<void> {
   const db = getDb();
   if (!db) return;
-  const key = draftKey(tenantSlug, templateId);
-  await serializeDraftOperation(key, () => db.drafts.delete(key));
+  const key = draftKey(tenantSlug, templateId, auditId);
+  await serializeDraftOperation(key, async () => {
+    await db.drafts.delete(key);
+    if (!auditId) return;
+    const legacyKey = draftKey(tenantSlug, templateId);
+    const legacy = await db.drafts.get(legacyKey);
+    if (legacy && (legacy.auditId === auditId || legacy.auditId == null)) await db.drafts.delete(legacyKey);
+  });
 }
 
 export async function dbListDraftsForTenant(tenantSlug: string): Promise<DbDraftRow[]> {

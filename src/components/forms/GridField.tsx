@@ -171,15 +171,46 @@ export function GridField({
   const overscanRows = 8;
   const renderWindowRows = Math.max(1, Math.ceil(viewportHeight / rowHeightPx) + overscanRows * 2);
   const hasMergedCells = useMemo(
-    () =>
-      layout.rows.some((row) =>
-        row.some((cell) => !!cell && cell.kind !== "covered" && (cell.rowSpan > 1 || cell.colSpan > 1))
-      ),
+    () => layout.rows.some((row) => row.some((cell) => !!cell && cell.kind === "cell" && (cell.rowSpan > 1 || cell.colSpan > 1))),
     [layout]
   );
-  const shouldVirtualize = !hasMergedCells && fields.length > 40;
-  const startRow = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / rowHeightPx) - overscanRows) : 0;
-  const endRow = shouldVirtualize ? Math.min(fields.length, startRow + renderWindowRows) : fields.length;
+  const shouldVirtualize = fields.length > 40;
+  let startRow = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / rowHeightPx) - overscanRows) : 0;
+  let endRow = shouldVirtualize ? Math.min(fields.length, startRow + renderWindowRows) : fields.length;
+
+  // Keep merged-cell origins and their full row spans inside the rendered window.
+  // This allows long merged tables to virtualize without dropping cells at a window edge.
+  if (shouldVirtualize && hasMergedCells) {
+    let startChanged = true;
+    while (startChanged) {
+      startChanged = false;
+      for (let rowIndex = 0; rowIndex < startRow; rowIndex += 1) {
+        const crossesWindow = layout.rows[rowIndex]?.some(
+          (cell) => cell.kind === "cell" && cell.rowSpan > 1 && rowIndex + cell.rowSpan > startRow
+        );
+        if (crossesWindow) {
+          startRow = rowIndex;
+          startChanged = true;
+          break;
+        }
+      }
+    }
+
+    let endChanged = true;
+    while (endChanged) {
+      endChanged = false;
+      for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+        for (const cell of layout.rows[rowIndex] ?? []) {
+          if (cell.kind !== "cell" || cell.rowSpan <= 1) continue;
+          const spanEnd = Math.min(fields.length, rowIndex + cell.rowSpan);
+          if (spanEnd > endRow) {
+            endRow = spanEnd;
+            endChanged = true;
+          }
+        }
+      }
+    }
+  }
   const visibleRows = shouldVirtualize ? fields.slice(startRow, endRow) : fields;
   const leadingSpacerHeight = shouldVirtualize ? startRow * rowHeightPx : 0;
   const trailingSpacerHeight = shouldVirtualize ? Math.max(0, (fields.length - endRow) * rowHeightPx) : 0;

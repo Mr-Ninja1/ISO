@@ -4,8 +4,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
-  useReducer,
   useRef,
+  useState,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -56,18 +56,14 @@ export function SoftNavLink({
   const pathname = usePathname();
   const pendingHrefRef = useRef<string | null>(null);
   const clearTimerRef = useRef<number | null>(null);
-  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
 
   const matchPath = activeMatch || hrefPathname(href);
   const pathActive =
     activeProp ??
     Boolean(pathname && (pathname === matchPath || pathname.startsWith(`${matchPath}/`)));
 
-  if (pendingHrefRef.current && pathMatches(pathname, pendingHrefRef.current)) {
-    pendingHrefRef.current = null;
-  }
-
-  const isPending = pendingHrefRef.current === href && !pathMatches(pathname, href);
+  const isPending = pendingHref === href && !pathMatches(pathname, href);
   const visuallyActive = pathActive || isPending;
   const resolvedClass =
     typeof className === "function" ? className(visuallyActive) : className;
@@ -81,18 +77,24 @@ export function SoftNavLink({
   const go = useCallback(
     (e: MouseEvent<HTMLAnchorElement>) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (pendingHrefRef.current === href && !pathMatches(pathname, href)) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       pendingHrefRef.current = href;
-      bump();
+      setPendingHref(href);
       if (clearTimerRef.current) window.clearTimeout(clearTimerRef.current);
       clearTimerRef.current = window.setTimeout(() => {
-        pendingHrefRef.current = null;
-        bump();
+        if (pendingHrefRef.current === href) {
+          pendingHrefRef.current = null;
+          setPendingHref(null);
+        }
       }, 2500);
       onNavigate?.();
       navigateWithFeedback(router, href, "push", { silent });
     },
-    [href, onNavigate, router, silent],
+    [href, onNavigate, pathname, router, silent],
   );
 
   return (

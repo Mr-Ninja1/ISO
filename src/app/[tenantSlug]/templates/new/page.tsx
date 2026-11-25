@@ -159,6 +159,7 @@ function cacheTemplateSchemaForOffline(
   templateId: string,
   title: string,
   sections: FormSection[],
+  meta: FormSchemaV1["meta"] | undefined,
   categoryId: string | null,
   fallbackTenantName: string
 ) {
@@ -179,6 +180,7 @@ function cacheTemplateSchemaForOffline(
         version: 1,
         title,
         sections,
+        ...(meta ? { meta } : {}),
       },
       updatedAt: new Date().toISOString(),
     },
@@ -701,6 +703,7 @@ function NewTemplatePageInner() {
             localTemplateId,
             title,
             sections,
+            { ...schemaMeta, formType, formStyle, cardIcon, cardColor },
             selectedCategoryId ?? null,
             "Workspace"
           );
@@ -737,6 +740,16 @@ function NewTemplatePageInner() {
             updatedAt: new Date().toISOString(),
           },
           { replaceLocalId: offlineDraftTemplateId }
+        );
+        cacheTemplateSchemaForOffline(
+          userId,
+          tenantSlug,
+          savedTemplateId,
+          title,
+          sections,
+          { ...schemaMeta, formType, formStyle, cardIcon, cardColor },
+          selectedCategoryId ?? null,
+          "Workspace"
         );
       }
 
@@ -804,6 +817,7 @@ function NewTemplatePageInner() {
             localTemplateId,
             title,
             sections,
+            { ...schemaMeta, formType, formStyle, cardIcon, cardColor },
             selectedCategoryId ?? null,
             "Workspace"
           );

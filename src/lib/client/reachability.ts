@@ -113,6 +113,7 @@ export function initReachabilityMonitor(): () => void {
 
   if (!monitorStarted) {
     monitorStarted = true;
+    let onlineRetryTimer: number | null = null;
 
     const runProbe = () => {
       if (shouldPauseBackgroundWork()) return;
@@ -120,6 +121,10 @@ export function initReachabilityMonitor(): () => void {
     };
 
     const handleBrowserOffline = () => {
+      if (onlineRetryTimer !== null) {
+        window.clearTimeout(onlineRetryTimer);
+        onlineRetryTimer = null;
+      }
       const wasReachable = cachedReachable;
       cachedReachable = false;
       lastProbeAt = Date.now();
@@ -127,8 +132,19 @@ export function initReachabilityMonitor(): () => void {
     };
 
     const handleBrowserOnline = () => {
-      // Soft probe — do not force-fight an in-flight navigation.
-      void probeInternetReachability(false);
+      // A cached false result can outlive a quick reconnect and make the native
+      // route guard send the first navigation back to workspace. Trust the
+      // browser's online signal while the hosted API probe confirms reachability.
+      cachedReachable = null;
+      lastProbeAt = 0;
+      dispatchOfflineChanged();
+      void probeInternetReachability(true).then((reachable) => {
+        if (reachable || !navigator.onLine) return;
+        onlineRetryTimer = window.setTimeout(() => {
+          onlineRetryTimer = null;
+          void probeInternetReachability(true);
+        }, 1500);
+      });
     };
 
     runProbe();
@@ -144,6 +160,7 @@ export function initReachabilityMonitor(): () => void {
         window.removeEventListener("online", handleBrowserOnline);
         window.removeEventListener("offline", handleBrowserOffline);
         window.clearInterval(intervalId);
+        if (onlineRetryTimer !== null) window.clearTimeout(onlineRetryTimer);
       },
     ];
   }

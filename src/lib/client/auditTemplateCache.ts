@@ -23,6 +23,7 @@ type CacheEnvelope = {
 };
 
 const TEMPLATE_CACHE_TTL_MS = 30 * 60 * 1000;
+const LOCAL_TEMPLATE_CACHE_MAX_CHARS = 96 * 1024;
 const parsedCache = new Map<string, { raw: string; data: AuditTemplatePayload }>();
 
 export function auditTemplateCacheKey(tenantSlug: string, templateId: string) {
@@ -38,9 +39,26 @@ function parseCacheEnvelope(raw: string | null): CacheEnvelope | null {
 
 export function isAuditTemplateCacheFresh(tenantSlug: string, templateId: string): boolean {
   try {
-    const parsed = parseCacheEnvelope(localStorage.getItem(auditTemplateCacheKey(tenantSlug, templateId)));
+    const key = auditTemplateCacheKey(tenantSlug, templateId);
+    const raw = localStorage.getItem(key);
+    if (!raw || raw.length > LOCAL_TEMPLATE_CACHE_MAX_CHARS) {
+      if (raw) removeAuditTemplateLocalCache(tenantSlug, templateId);
+      return false;
+    }
+    const parsed = parseCacheEnvelope(raw);
     if (!parsed) return false;
     return Date.now() - parsed.ts <= TEMPLATE_CACHE_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** Freshness check for bulk cached forms, whose full schemas live in IndexedDB. */
+export async function isAuditTemplateCacheFreshAsync(tenantSlug: string, templateId: string): Promise<boolean> {
+  if (isAuditTemplateCacheFresh(tenantSlug, templateId)) return true;
+  try {
+    const row = await dbGetTemplate(tenantSlug, templateId);
+    return Boolean(row && Date.now() - row.cachedAt <= TEMPLATE_CACHE_TTL_MS);
   } catch {
     return false;
   }
@@ -54,6 +72,10 @@ export function readAuditTemplateCache(tenantSlug: string, templateId: string): 
       parsedCache.delete(key);
       return null;
     }
+    if (raw.length > LOCAL_TEMPLATE_CACHE_MAX_CHARS) {
+      removeAuditTemplateLocalCache(tenantSlug, templateId);
+      return null;
+    }
     const cached = parsedCache.get(key);
     if (cached?.raw === raw) return cached.data;
     const parsed = parseCacheEnvelope(raw);
@@ -64,6 +86,16 @@ export function readAuditTemplateCache(tenantSlug: string, templateId: string): 
     return parsed.data;
   } catch {
     return null;
+  }
+}
+
+export function removeAuditTemplateLocalCache(tenantSlug: string, templateId: string) {
+  const key = auditTemplateCacheKey(tenantSlug, templateId);
+  parsedCache.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore storage failures
   }
 }
 
@@ -91,8 +123,12 @@ export function writeAuditTemplateCache(tenantSlug: string, templateId: string, 
     const payload: CacheEnvelope = { ts: Date.now(), data };
     const key = auditTemplateCacheKey(tenantSlug, templateId);
     const raw = JSON.stringify(payload);
-    localStorage.setItem(key, raw);
-    parsedCache.set(key, { raw, data });
+    if (raw.length > LOCAL_TEMPLATE_CACHE_MAX_CHARS) {
+      removeAuditTemplateLocalCache(tenantSlug, templateId);
+    } else {
+      localStorage.setItem(key, raw);
+      parsedCache.set(key, { raw, data });
+    }
   } catch {
     // ignore local storage quota errors
   }
@@ -107,4 +143,23 @@ export function writeAuditTemplateCache(tenantSlug: string, templateId: string, 
     tenantName: data.tenant.name,
     tenantLogoUrl: data.tenant.logoUrl ?? null,
   });
+}
+
+/** Store a form for offline use without synchronously serializing it into localStorage. */
+export async function writeAuditTemplateCacheDurable(
+  tenantSlug: string,
+  templateId: string,
+  data: AuditTemplatePayload,
+) {
+  await dbPutTemplate({
+    tenantSlug,
+    templateId,
+    updatedAt: data.template.updatedAt,
+    title: data.template.title,
+    schema: data.template.schema as FormSchemaV1,
+    tenantName: data.tenant.name,
+    tenantLogoUrl: data.tenant.logoUrl ?? null,
+  });
+  // A previous localStorage snapshot must not mask this newer durable schema.
+  removeAuditTemplateLocalCache(tenantSlug, templateId);
 }

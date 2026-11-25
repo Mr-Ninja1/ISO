@@ -159,8 +159,9 @@ function ensureDefaultPhotoEvidence(schema: FormSchemaV1): FormSchemaV1 {
 }
 
 
-function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string) {
-  return `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
+function draftCacheKey(userId: string | null, tenantSlug: string, templateId: string, auditId?: string | null) {
+  const base = `audit-local-draft:v1:${userId || "anon"}:${tenantSlug}:${templateId}`;
+  return auditId ? `${base}:${auditId}` : base;
 }
 
 function draftFetchCooldownKey(userId: string | null, tenantSlug: string, templateId: string) {
@@ -222,7 +223,7 @@ async function writeLocalDraft(
   options?: { durable?: boolean; schema?: FormSchemaV1 }
 ): Promise<void> {
   const payload = values as Record<string, unknown>;
-  const key = draftCacheKey(userId, tenantSlug, templateId);
+  const key = draftCacheKey(userId, tenantSlug, templateId, auditId);
   const generation = (localDraftWriteGeneration.get(key) || 0) + 1;
   localDraftWriteGeneration.set(key, generation);
   const indexedDbRow = {
@@ -273,24 +274,25 @@ async function writeLocalDraft(
   }
 }
 
-function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string) {
-  const key = draftCacheKey(userId, tenantSlug, templateId);
+function clearLocalDraft(userId: string | null, tenantSlug: string, templateId: string, auditId?: string | null) {
+  const key = draftCacheKey(userId, tenantSlug, templateId, auditId);
   localDraftWriteGeneration.set(key, (localDraftWriteGeneration.get(key) || 0) + 1);
   try {
     localStorage.removeItem(key);
+    if (auditId) {
+      const legacyKey = draftCacheKey(userId, tenantSlug, templateId);
+      const legacy = readLocalDraftAtKey(legacyKey);
+      if (legacy && (legacy.auditId === auditId || legacy.auditId == null)) localStorage.removeItem(legacyKey);
+    }
   } catch {
     // ignore
   }
-  void dbClearDraft(tenantSlug, templateId);
+  void dbClearDraft(tenantSlug, templateId, auditId);
 }
 
-function readLocalDraft(
-  userId: string | null,
-  tenantSlug: string,
-  templateId: string
-): { ts: number; values: FormValues; auditId: string | null } | null {
+function readLocalDraftAtKey(key: string): { ts: number; values: FormValues; auditId: string | null } | null {
   try {
-    const raw = localStorage.getItem(draftCacheKey(userId, tenantSlug, templateId));
+    const raw = localStorage.getItem(key);
     if (!raw || raw.length > LOCAL_DRAFT_SYNC_READ_LIMIT) return null;
     const parsed = JSON.parse(raw) as { ts?: number; values?: FormValues; auditId?: string | null };
     if (!parsed || typeof parsed !== "object") return null;
@@ -302,11 +304,28 @@ function readLocalDraft(
   }
 }
 
+function readLocalDraft(
+  userId: string | null,
+  tenantSlug: string,
+  templateId: string,
+  auditId?: string | null,
+): { ts: number; values: FormValues; auditId: string | null } | null {
+  const scoped = auditId
+    ? readLocalDraftAtKey(draftCacheKey(userId, tenantSlug, templateId, auditId))
+    : null;
+  if (scoped) return scoped;
+
+  const legacy = readLocalDraftAtKey(draftCacheKey(userId, tenantSlug, templateId));
+  if (auditId && legacy && legacy.auditId != null && legacy.auditId !== auditId) return null;
+  return legacy;
+}
+
 async function readLocalDraftAsync(
   tenantSlug: string,
-  templateId: string
+  templateId: string,
+  auditId?: string | null,
 ): Promise<{ ts: number; values: FormValues; auditId: string | null } | null> {
-  const row = await dbGetDraft(tenantSlug, templateId);
+  const row = await dbGetDraft(tenantSlug, templateId, auditId);
   if (!row) return null;
   return { ts: row.updatedAtLocal, values: row.payload as FormValues, auditId: row.auditId || null };
 }
@@ -432,14 +451,8 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       setFormHydrated(true);
     };
 
-    const baseValues = defaultValuesRef.current;
-    const local = readLocalDraft(currentUserId, tenantSlug, templateId);
+    const local = readLocalDraft(currentUserId, tenantSlug, templateId, initialAuditId);
     if (local) {
-      if (initialAuditId && local.auditId && local.auditId !== initialAuditId) {
-        safeReset(baseValues);
-        setFormHydrated(true);
-        return;
-      }
       finishHydration(local.values, local.auditId || null);
       return;
     }
@@ -447,7 +460,12 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
     // No sync draft: keep defaults visible (already hydrated). Pull IndexedDB in the
     // background and apply only if the user has not started editing.
     void (async () => {
-      const fromDb = await readLocalDraftAsync(tenantSlug, templateId);
+      let fromDb: Awaited<ReturnType<typeof readLocalDraftAsync>> = null;
+      try {
+        fromDb = await readLocalDraftAsync(tenantSlug, templateId, initialAuditId);
+      } catch {
+        // Keep the form usable when IndexedDB is unavailable or temporarily blocked.
+      }
       if (!alive) return;
       if (!fromDb) return;
       if (form.formState.isDirty) return;
@@ -826,7 +844,7 @@ export function FormRenderer({ tenantSlug, tenantName, tenantLogoUrl, templateId
       template: { title: effectiveSchema.title || "Form" },
       devicePending: true,
     });
-    clearLocalDraft(currentUserId, tenantSlug, templateId);
+    clearLocalDraft(currentUserId, tenantSlug, templateId, draftAuditId);
     setDraftAuditId(null);
     writeQueuedNotice(tenantSlug, "Submission saved on this device and will sync automatically.");
     if (!silent) {

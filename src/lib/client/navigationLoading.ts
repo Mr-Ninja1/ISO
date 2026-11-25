@@ -59,7 +59,6 @@ export function navigateWithFeedback(
   const target = normalizeHrefPathWithSearch(href);
 
   if (target && current === target) {
-    router[method](href);
     return;
   }
 

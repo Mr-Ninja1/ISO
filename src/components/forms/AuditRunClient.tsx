@@ -7,9 +7,11 @@ import { useAuth } from "@/components/AuthProvider";
 import { FormRenderer } from "@/components/forms/FormRenderer";
 import {
   type AuditTemplatePayload,
+  isAuditTemplateCacheFreshAsync,
   readAuditTemplateCache,
   readAuditTemplateCacheAsync,
   writeAuditTemplateCache,
+  writeAuditTemplateCacheDurable,
 } from "@/lib/client/auditTemplateCache";
 import { isAppOffline } from "@/lib/client/appOffline";
 import { useAppOffline } from "@/lib/client/useAppOffline";
@@ -62,7 +64,6 @@ export function AuditRunClient({
       if (!alive) return;
       if (fromDb) {
         setData(fromDb);
-        writeAuditTemplateCache(activeTenantSlug, templateId, fromDb);
         setLoading(false);
         setError("");
       }
@@ -136,6 +137,10 @@ export function AuditRunClient({
       return;
     }
 
+    // Give the durable offline cache a chance to hydrate before starting a live
+    // request. Bulk-prepared forms intentionally live in IndexedDB only.
+    if (!cached && !data && !durableCacheChecked) return;
+
     if (!cached && !data) {
       setLoading(true);
     }
@@ -145,13 +150,6 @@ export function AuditRunClient({
         setLoading(false);
         setError("This form is not cached on this device yet. Open it once while online to use it offline.");
       }
-      return;
-    }
-
-    // Cached schemas are authoritative for normal opens. Remote metadata checks
-    // and explicit workspace refresh handle cross-device changes without slowing
-    // the form interaction path with a live schema request.
-    if (cached) {
       return;
     }
 
@@ -173,8 +171,15 @@ export function AuditRunClient({
         })
         .then((next) => {
           if (!active || generation !== revalidateGenerationRef.current) return;
-          setData(next);
-          writeAuditTemplateCache(activeTenantSlug, templateId, next);
+          // Keep the form already on screen stable. A refreshed schema is used on
+          // the next open, so an update cannot reset answers while someone is typing.
+          if (!cached && !data) {
+            setData(next);
+            writeAuditTemplateCache(activeTenantSlug, templateId, next);
+          } else {
+            void writeAuditTemplateCacheDurable(activeTenantSlug, templateId, next)
+              .catch(() => writeAuditTemplateCache(activeTenantSlug, templateId, next));
+          }
           setError("");
         })
         .catch((err: unknown) => {
@@ -188,6 +193,18 @@ export function AuditRunClient({
           if (active && generation === revalidateGenerationRef.current) setLoading(false);
         });
     };
+
+    if (cached) {
+      let cancelled = false;
+      void isAuditTemplateCacheFreshAsync(activeTenantSlug, templateId).then((fresh) => {
+        if (!cancelled && active && !fresh) runRevalidate();
+      });
+      return () => {
+        cancelled = true;
+        active = false;
+        controller.abort();
+      };
+    }
 
     runRevalidate();
     return () => {

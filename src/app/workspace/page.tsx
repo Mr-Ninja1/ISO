@@ -810,6 +810,7 @@ function WorkspacePageInner() {
    * callbacks must not router.replace back onto /workspace (cancels the outbound nav).
    */
   const outboundNavEpochRef = useRef(0);
+  const openingTemplateIdRef = useRef<string | null>(null);
   /** Cancels deferred category URL replaces when a newer tab tap or form open wins. */
   const categoryUrlEpochRef = useRef(0);
   const deferredCategoryReplaceTimerRef = useRef<number | null>(null);
@@ -876,6 +877,7 @@ function WorkspacePageInner() {
     setOpeningAdminDashboard(false);
     setOpeningAudits(false);
     setOpeningTemplateId(null);
+    openingTemplateIdRef.current = null;
   }, [pathname]);
 
   // Safety: never leave nav buttons permanently locked if a soft navigation stalls.
@@ -897,6 +899,7 @@ function WorkspacePageInner() {
       setOpeningAdminDashboard(false);
       setOpeningAudits(false);
       setOpeningTemplateId(null);
+      openingTemplateIdRef.current = null;
       setOpeningAdminNav(false);
       setOpeningFormsNav(false);
     }, 4000);
@@ -970,7 +973,8 @@ function WorkspacePageInner() {
   }
 
   function openTemplate(templateId: string, tenantSlugForRoute: string) {
-    if (openingTemplateId === templateId) return;
+    if (openingTemplateIdRef.current === templateId || openingTemplateId === templateId) return;
+    openingTemplateIdRef.current = templateId;
     // Pause background sync/warmup immediately — this click owns the main thread.
     markInteractiveNav(3200);
     cancelDeferredCategoryUrlReplace();
@@ -2097,6 +2101,8 @@ function WorkspacePageInner() {
 
     setTenantChoiceLoading(true);
     setError("");
+    let active = true;
+    const tenantsController = new AbortController();
 
     const loadTenants = isCapacitorNativeApp()
       ? fetchUserTenantsViaSupabase(createClient()).then((tenants) => ({
@@ -2107,7 +2113,10 @@ function WorkspacePageInner() {
             logoUrl: tenant.logoUrl,
           })),
         }))
-      : fetch(apiUrl("/api/tenants"), { headers: { Authorization: `Bearer ${accessToken}` } })
+      : fetch(apiUrl("/api/tenants"), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: tenantsController.signal,
+        })
           .then(async (res) => {
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.error || `Failed to load brands (${res.status})`);
@@ -2116,6 +2125,7 @@ function WorkspacePageInner() {
 
     loadTenants
       .then((data) => {
+        if (!active || !isLiveOnWorkspacePath()) return;
         const tenants = (data.tenants || []) as TenantSummary[];
         setTenantChoices(tenants);
 
@@ -2137,10 +2147,18 @@ function WorkspacePageInner() {
         }
       })
       .catch((err) => {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) return;
         setError(err?.message || "Failed to load brands");
         setTenantChoices([]);
       })
-      .finally(() => setTenantChoiceLoading(false));
+      .finally(() => {
+        if (active) setTenantChoiceLoading(false);
+      });
+
+    return () => {
+      active = false;
+      tenantsController.abort();
+    };
   }, [authLoading, user, accessToken, tenantSlug, router]);
 
   useEffect(() => {
@@ -3299,6 +3317,7 @@ function WorkspacePageInner() {
                 type="button"
                 onClick={() => {
                   if (offlineWarmupBlocking || categoryId === MY_FORMS_CATEGORY_FILTER) return;
+                  if (pendingCategoryIdRef.current === MY_FORMS_CATEGORY_FILTER) return;
                   markInteractiveNav(1400);
                   pendingCategoryIdRef.current = MY_FORMS_CATEGORY_FILTER;
                   setUiActiveCategoryId(MY_FORMS_CATEGORY_FILTER);
@@ -3327,6 +3346,7 @@ function WorkspacePageInner() {
                     onClick={() => {
                       if (offlineWarmupBlocking) return;
                       if (c.id === activeCategoryId) return;
+                      if (pendingCategoryIdRef.current === c.id) return;
                       markInteractiveNav(1400);
                       // Optimistic tab highlight immediately — do not wait on URL commit.
                       pendingCategoryIdRef.current = c.id;

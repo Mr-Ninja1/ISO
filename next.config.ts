@@ -4,21 +4,21 @@ import defaultCache from "next-pwa/cache";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "1";
 
-/** APK URL must never be served from the service-worker API cache (stale 404 links). */
+/** API responses can include user or brand data and must not enter the shared SW cache. */
 const runtimeCaching = defaultCache.map((entry) => {
   if (entry.options?.cacheName !== "apis") return entry;
   const prev = entry.urlPattern;
   return {
     ...entry,
     urlPattern: ({ url }: { url: URL }) => {
-      if (url.pathname === "/api/platform/client-config") return false;
+      if (url.pathname.startsWith("/api/")) return false;
       return typeof prev === "function" ? prev({ url }) : Boolean(prev.test(url.href));
     },
   };
 });
 
 runtimeCaching.unshift({
-  urlPattern: /\/api\/platform\/client-config/i,
+  urlPattern: /\/api\//i,
   handler: "NetworkOnly",
   method: "GET",
   // next-pwa assumes every runtimeCaching entry has options when injecting fallbacks
@@ -28,7 +28,8 @@ runtimeCaching.unshift({
 const withPWA = nextPWA({
   dest: "public",
   disable: process.env.NODE_ENV === "development" || isCapacitorBuild,
-  reloadOnOnline: true,
+  // Reconnection should resume background sync without reloading the active form.
+  reloadOnOnline: false,
   runtimeCaching,
   fallbacks: {
     document: "/offline",
