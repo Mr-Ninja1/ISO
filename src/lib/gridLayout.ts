@@ -112,10 +112,46 @@ export function buildGridLayout(grid: GridSection, rowCount: number) {
 }
 
 export function getGridRowFields(grid: GridSection, rowIndex: number, rowCount: number): SimpleFieldDef[] {
-  const layout = buildGridLayout(grid, rowCount);
-  const row = layout.rows[rowIndex];
-  if (!row) return [];
-  return row.flatMap((cell) => (cell.kind === "cell" ? [cell.field] : []));
+  rowCount = clampGridRowCount(rowCount);
+  if (!Number.isFinite(rowIndex) || rowIndex < 0 || rowIndex >= rowCount) return [];
+
+  const columns = grid.columns.filter(isActiveField);
+  const row = columns.map((field) => field as SimpleFieldDef | undefined);
+  if (!grid.mergedCells?.length || columns.length === 0) {
+    return row.filter((field): field is SimpleFieldDef => Boolean(field));
+  }
+
+  // Match buildGridLayout's first-valid-merge-wins behavior without allocating a
+  // rowCount x columnCount matrix for every individual default row.
+  const occupied = new Set<number>();
+  const width = columns.length;
+  for (const rawCell of grid.mergedCells) {
+    const cell = normalizeMergedCell(rawCell, width, rowCount);
+    if (!cell) continue;
+
+    let blocked = false;
+    for (let r = cell.row; r < cell.row + cell.rowSpan && !blocked; r += 1) {
+      for (let c = cell.col; c < cell.col + cell.colSpan; c += 1) {
+        if (occupied.has(r * width + c)) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+    if (blocked) continue;
+
+    for (let r = cell.row; r < cell.row + cell.rowSpan; r += 1) {
+      for (let c = cell.col; c < cell.col + cell.colSpan; c += 1) {
+        occupied.add(r * width + c);
+        if (r === cell.row && c === cell.col) continue;
+        if (r === rowIndex) row[c] = undefined;
+      }
+    }
+
+    if (cell.row === rowIndex) row[cell.col] = cell.field;
+  }
+
+  return row.filter((field): field is SimpleFieldDef => Boolean(field));
 }
 
 export function buildGridRowDefaults(grid: GridSection, rowIndex: number, rowCount: number) {
