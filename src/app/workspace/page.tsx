@@ -1243,7 +1243,7 @@ function WorkspacePageInner() {
     setError("");
 
     try {
-      const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
+      const targets: Array<string | null> = [null, MY_FORMS_CATEGORY_FILTER, ...workspace.categories.map((c) => c.id)];
 
       for (const cid of targets) {
         const data = isCapacitorNativeApp()
@@ -1291,7 +1291,8 @@ function WorkspacePageInner() {
       const missingCategory = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
       );
-      if (!missingCategory) {
+      const missingMyForms = !readWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER);
+      if (!missingCategory && !missingMyForms) {
         setOfflinePreparedAt((prev) => prev ?? "cached");
         return;
       }
@@ -1312,7 +1313,7 @@ function WorkspacePageInner() {
 
     try {
       // Same contract as first-login bootstrap: every category snapshot + every form schema.
-      const targets: Array<string | null> = [null, ...workspace.categories.map((c) => c.id)];
+      const targets: Array<string | null> = [null, MY_FORMS_CATEGORY_FILTER, ...workspace.categories.map((c) => c.id)];
       for (const cid of targets) {
         if (signal?.aborted || isAppOffline() || shouldPauseBackgroundWork()) return;
         if (cid && isWorkspaceCacheFresh(cacheUserId, tenantSlug, cid, CATEGORY_SWITCH_CACHE_TTL_MS)) {
@@ -1352,7 +1353,8 @@ function WorkspacePageInner() {
       const stillMissing = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
       );
-      if (!stillMissing && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
+      const missingMyForms = !readWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER);
+      if (!stillMissing && !missingMyForms && isTenantTemplateBulkCached(tenantSlug, Number.POSITIVE_INFINITY)) {
         markOfflineBootstrapComplete(cacheUserId, tenantSlug);
         const now = new Date().toISOString();
         localStorage.setItem("offlineModeEnabled", "1");
@@ -1637,6 +1639,17 @@ function WorkspacePageInner() {
             writeWorkspaceCache(cacheUserId, tenantSlug, prev.selectedCategoryId, nextWorkspace);
           }
           writeWorkspaceCache(cacheUserId, tenantSlug, null, nextWorkspace);
+          const allFormsCache = readWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER);
+          if (allFormsCache) {
+            writeWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER, {
+              ...allFormsCache,
+              templates: allFormsCache.templates.map((item) =>
+                item.id === template.id ? { ...item, categoryId } : item
+              ),
+            });
+          } else if (!prev.selectedCategoryId) {
+            writeWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER, nextWorkspace);
+          }
         } catch {
           // cache sync is best-effort
         }
@@ -2020,6 +2033,7 @@ function WorkspacePageInner() {
       if (
         custom.detail?.categoryId != null &&
         currentCategoryId &&
+        currentCategoryId !== MY_FORMS_CATEGORY_FILTER &&
         custom.detail.categoryId !== currentCategoryId
       ) {
         return;
@@ -2625,7 +2639,8 @@ function WorkspacePageInner() {
       const missingCategory = workspace.categories.some(
         (category) => !readWorkspaceCache(cacheUserId, tenantSlug, category.id)
       );
-      if (!missingCategory) return;
+      const missingMyForms = !readWorkspaceCache(cacheUserId, tenantSlug, MY_FORMS_CATEGORY_FILTER);
+      if (!missingCategory && !missingMyForms) return;
     }
 
     let controller = new AbortController();
@@ -3301,7 +3316,7 @@ function WorkspacePageInner() {
           </div>
         </div>
 
-        {isFormsView && hasCategories ? (
+        {isFormsView ? (
           <div className="mx-auto max-w-7xl px-4 pb-3">
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]">
               <button

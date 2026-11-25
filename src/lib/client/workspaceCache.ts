@@ -1,5 +1,7 @@
 "use client";
 
+import { MY_FORMS_CATEGORY_FILTER } from "@/lib/workspacePayload";
+
 export type WorkspaceTenantSummary = {
   id: string;
   name: string;
@@ -218,7 +220,10 @@ export function patchWorkspaceTemplateCaches(
     );
 
     const slotMatches =
-      categoryId == null || categoryId === nextTemplate.categoryId || nextTemplate.categoryId == null;
+      categoryId == null ||
+      categoryId === MY_FORMS_CATEGORY_FILTER ||
+      categoryId === nextTemplate.categoryId ||
+      nextTemplate.categoryId == null;
 
     const nextTemplates = slotMatches
       ? [nextTemplate, ...withoutOld].sort(

@@ -121,7 +121,6 @@ export async function fetchWorkspaceViaSupabase(
       .eq("tenant_id", tenantPayload.id)
       .order("updated_at", { ascending: false });
     if (selectedCategoryId) templatesQuery = templatesQuery.eq("category_id", selectedCategoryId);
-    else if (categoryList.length === 0) templatesQuery = templatesQuery.is("category_id", null);
     if (options.signal) templatesQuery = templatesQuery.abortSignal(options.signal);
     const { data: tpls, error: tplErr } = await templatesQuery;
 

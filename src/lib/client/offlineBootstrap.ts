@@ -7,6 +7,7 @@ import { type WorkspaceData, writeWorkspaceCache } from "@/lib/client/workspaceC
 import { apiUrl } from "@/lib/client/apiBase";
 import { isCapacitorNativeApp } from "@/lib/capacitor/runtime";
 import { fetchWorkspaceViaSupabase } from "@/lib/data/fetchWorkspaceViaSupabase";
+import { MY_FORMS_CATEGORY_FILTER } from "@/lib/workspacePayload";
 
 const BOOTSTRAP_KEY_PREFIX = "offline-full-bootstrap:v1:";
 const BOOTSTRAP_REQUEST_TIMEOUT_MS = 30_000;
@@ -155,6 +156,11 @@ export async function runOfflineBootstrap({
 
   const categories = workspace.categories || [];
   report("workspace", "Workspace ready", 18, workspace.tenant.name);
+
+  // Cache the combined searchable view as its own slot. The null slot above is
+  // the server's default category snapshot when named categories exist.
+  const myFormsWorkspace = await fetchWorkspace(accessToken, tenantSlug, MY_FORMS_CATEGORY_FILTER, userId);
+  writeWorkspaceCache(userId, tenantSlug, MY_FORMS_CATEGORY_FILTER, myFormsWorkspace);
 
   if (categories.length > 0) {
     report("categories", "Downloading categories…", 22);
